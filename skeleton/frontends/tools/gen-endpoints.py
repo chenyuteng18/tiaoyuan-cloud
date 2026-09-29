@@ -210,6 +210,41 @@ def load_role_expansion(end_id: str, token_roles):
     return trimmed
 
 
+def load_api_base_path(end_id: str):
+    """读裁剪契约的 ``servers[0].url`` —— 即真实 URL 的前缀（契约 §2.0 Base Path）。
+
+    🛑 为什么必须转出（本仓第 56 条：跨端"隐式协议"缺口）
+    ---------------------------------------------------------------------------
+    契约的 ``paths`` 键是 ``/auth/me``，而**真实 URL 是 ``/api/v1/auth/me``** ——
+    前缀由 ``servers.url`` 承载（契约第 43 行，description 逐字写着
+    「Base Path（契约 §2.0 全局约定）」）。后端 ``AuthMeController`` 的类注释
+    也把这件事写成了纪律：「本类**不得**只写 ``@RequestMapping("/auth/me")``：
+    那会让端点在 ``/auth/me`` 落地，而三端 UI 按契约请求 ``/api/v1/auth/me``
+    会拿到 404 —— 且不会有任何测试红」。
+
+    🛑 后端那一侧已有机械守卫（``EndpointCoverageLedgerTest`` 把契约 path
+    与真实 Spring 注解路由逐条比对），**但前端这一侧没有**：
+    三端出站 URL 一律是 ``env.baseUrl + endpoint.path``，而 ``path`` **不含**
+    ``/api/v1`` —— 前缀被写进了三份 env 的**注释**里（端 C env.js 逐字写着
+    「契约 servers.url = /api/v1，故基址只到网关根」），是一句**不可执行**的话。
+    运维按注释把 baseUrl 配成网关根 ⇒ 三端全量 404 ⇒ 而
+    ``check:a`` / ``check:x3`` / ``build-check`` / tsc / vite **全部仍绿**
+    （它们从不发真实请求）。这正是本仓反复出现的形态：契约写下的约束与
+    各端拿到的约束是两件事，中间丢项**不报错**。
+
+    故把 ``servers[0].url`` 机械转录为生成物常量，三端 URL 一律由
+    ``BASE + path`` 构成 —— 前缀从"注释里的约定"变成"生成物里的常量"。
+    """
+    path = os.path.join(CUT_DIR, "%s.openapi.yaml" % end_id)
+    doc = yaml.safe_load(io.open(path, encoding="utf-8").read())
+    servers = doc.get("servers") or []
+    if not servers or not isinstance(servers[0], dict) or not servers[0].get("url"):
+        raise SystemExit(
+            "MISCONFIGURED: %s 的 servers[0].url 缺失 —— 契约 §2.0 的 Base Path "
+            "是三端拼 URL 的唯一依据，不得为空。" % path)
+    return str(servers[0]["url"])
+
+
 def allowed_roles_of(ops, token_roles):
     """按 token-roles 与 x-callable-roles 的交集筛选本端可用 operation。"""
     tokens = set(token_roles)
@@ -265,7 +300,7 @@ def _render_role_expansion(role_expansion, indent, ts):
     return out
 
 
-def render_cjs(target, entries, spec_version, role_expansion):
+def render_cjs(target, entries, spec_version, role_expansion, api_base_path):
     lines = []
     lines.append("/**")
     lines.append(" * GENERATED FILE — DO NOT EDIT.")
@@ -286,6 +321,16 @@ def render_cjs(target, entries, spec_version, role_expansion):
     lines.append("'use strict';")
     lines.append("")
     lines.append("const CONTRACT_VERSION = %s;" % js_literal(spec_version))
+    lines.append("")
+    lines.append("/**")
+    lines.append(" * 契约 servers[0].url（§2.0 Base Path）—— **三端拼 URL 的唯一前缀**。")
+    lines.append(" *")
+    lines.append(" * 🛑 出站 URL 必须写成 BASE + endpoint.path，不得只写 baseUrl + path：")
+    lines.append(" *    endpoint.path 是契约 paths 键（如 /auth/me），**不含** /api/v1；")
+    lines.append(" *    前缀由本常量承载。漏掉它 ⇒ 全量 404，且 tsc/构建/门禁全绿。")
+    lines.append(" */")
+    lines.append("const API_BASE_PATH = %s;" % js_literal(api_base_path))
+    lines.append("")
     lines.append("const END_TOKEN_ROLES = Object.freeze([%s]);"
                  % ", ".join(js_literal(r) for r in target["token_roles"]))
     lines.append("")
@@ -318,6 +363,7 @@ def render_cjs(target, entries, spec_version, role_expansion):
     lines.append("")
     lines.append("module.exports = {")
     lines.append("  CONTRACT_VERSION,")
+    lines.append("  API_BASE_PATH,")
     lines.append("  END_TOKEN_ROLES,")
     lines.append("  ROLE_EXPANSION,")
     lines.append("  ENDPOINTS,")
@@ -328,7 +374,7 @@ def render_cjs(target, entries, spec_version, role_expansion):
     return "\n".join(lines)
 
 
-def render_ts(target, entries, spec_version, role_expansion):
+def render_ts(target, entries, spec_version, role_expansion, api_base_path):
     lines = []
     lines.append("/**")
     lines.append(" * GENERATED FILE — DO NOT EDIT.")
@@ -348,6 +394,15 @@ def render_ts(target, entries, spec_version, role_expansion):
     lines.append(" */")
     lines.append("")
     lines.append("export const CONTRACT_VERSION = %s;" % js_literal(spec_version))
+    lines.append("")
+    lines.append("/**")
+    lines.append(" * 契约 servers[0].url（§2.0 Base Path）—— **三端拼 URL 的唯一前缀**。")
+    lines.append(" *")
+    lines.append(" * 🛑 出站 URL 必须写成 API_BASE_PATH + endpoint.path：")
+    lines.append(" *    endpoint.path 是契约 paths 键（如 /auth/me），**不含** /api/v1；")
+    lines.append(" *    前缀由本常量承载。漏掉它 ⇒ 全量 404，且 tsc/构建/门禁全绿。")
+    lines.append(" */")
+    lines.append("export const API_BASE_PATH: string = %s;" % js_literal(api_base_path))
     lines.append("")
     lines.append("export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';")
     lines.append("")
@@ -440,10 +495,11 @@ def main() -> int:
         ops = load_operations(target["id"])
         entries = allowed_roles_of(ops, target["token_roles"])
         role_expansion = load_role_expansion(target["id"], target["token_roles"])
+        api_base_path = load_api_base_path(target["id"])
         if target["flavor"] == "cjs":
-            text = render_cjs(target, entries, spec_version, role_expansion)
+            text = render_cjs(target, entries, spec_version, role_expansion, api_base_path)
         else:
-            text = render_ts(target, entries, spec_version, role_expansion)
+            text = render_ts(target, entries, spec_version, role_expansion, api_base_path)
 
         out = target["out"]
         if args.check:

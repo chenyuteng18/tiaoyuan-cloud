@@ -24,7 +24,7 @@
 import { ENDPOINT_IDS, ENDPOINTS, endpointById, type Endpoint } from '../contract/endpoints';
 import { assertCanCall } from '../contract/access';
 import { getToken } from '../services/session';
-import { getBaseUrl, TIMEOUT_MS } from '../env';
+import { getRequestBaseUrl, TIMEOUT_MS } from '../env';
 
 export interface CallOptions {
   /**
@@ -112,7 +112,10 @@ export async function call<T = unknown>(
 // 三种失败（未知角色 / 端点不属本端 / 角色未被授予）由 assertCanCall 分开报。
   assertCanCall(operationId, opts.role);
 
-  let url = getBaseUrl() + fillPath(endpoint.path, opts.params);
+  // 🛑 URL = 出站前缀（网关根 + 契约 Base Path /api/v1） + 契约 paths 键。
+  //    `endpoint.path` **不含** `/api/v1`；前缀由 `getRequestBaseUrl()` 从生成物取。
+  //    曾写成 `getBaseUrl()` ⇒ 全量 404，且 tsc/构建/门禁全绿（第 56 条）。
+  let url = getRequestBaseUrl() + fillPath(endpoint.path, opts.params);
   const qs = Object.entries(opts.query ?? {})
     .filter(([, v]) => v !== undefined)
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);

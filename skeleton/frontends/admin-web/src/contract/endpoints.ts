@@ -17,6 +17,15 @@
 
 export const CONTRACT_VERSION = "api-contract-v1.0.0";
 
+/**
+ * 契约 servers[0].url（§2.0 Base Path）—— **三端拼 URL 的唯一前缀**。
+ *
+ * 🛑 出站 URL 必须写成 API_BASE_PATH + endpoint.path：
+ *    endpoint.path 是契约 paths 键（如 /auth/me），**不含** /api/v1；
+ *    前缀由本常量承载。漏掉它 ⇒ 全量 404，且 tsc/构建/门禁全绿。
+ */
+export const API_BASE_PATH: string = "/api/v1";
+
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface Endpoint {

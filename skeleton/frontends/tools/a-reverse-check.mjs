@@ -56,6 +56,41 @@ const backup = new Map();
 function stash(path) { backup.set(path, readFileSync(path, 'utf8')); }
 function restoreAll() { for (const [p, t] of backup) writeFileSync(p, t); }
 
+/**
+ * 🛑 记录本脚本**新建**的探针文件，供异常退出时清理。
+ *
+ * 背景（本轮实测残留）：I10 / I13 会新建 `pages/__probe_*.tsx` 再删。
+ * 若脚本在"建好、还没删"之间被中断（Ctrl-C / 超时 / 上层进程被杀），
+ * 残骸会留在源树里 —— 而 `a-check` 会因此报出一个**指名道姓指向该探针文件、
+ * 读起来像真实源码缺陷**的失败项（本仓第 24 条：检验工具把自己的残骸
+ * 当成了被检对象的错误）。
+ *
+ * 本仓已有两层防线：
+ *   ① 启动时自愈（清掉上次遗留的 `__probe_*.tsx`）；
+ *   ② `_gate-common.mjs` 的**失败时诊断**（把"这可能是残骸"讲清楚）。
+ * 这里补第三层：**把"被打断"这个必然事件也纳入清理** ——
+ * 收到 SIGINT / SIGTERM 时先删掉自己新建的探针，再退出。
+ * 只能覆盖"可捕获的中断"（`kill -9` 与进程被强杀仍会残留），
+ * 故前两层防线不可省 —— 三层各管一段，不是重复。
+ */
+const createdProbes = new Set();
+function trackProbe(p) { createdProbes.add(p); }
+function untrackProbe(p) { createdProbes.delete(p); }
+function cleanupProbes() {
+  for (const p of createdProbes) {
+    try { rmSync(p, { force: true }); } catch { /* 尽力而为 */ }
+  }
+  createdProbes.clear();
+}
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => {
+    cleanupProbes();
+    restoreAll();
+    process.stderr.write(`\n收到 ${sig}：已清理本次新建的探针文件并还原注入，退出。\n`);
+    process.exit(130);
+  });
+}
+
 const results = [];
 
 /** 一组注入：改文件 → 断言真变了 → 跑门禁 → 还原 → 复验绿。 */
@@ -249,9 +284,11 @@ await injection({
   const dir = join(SRC, 'pages');
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const TMP = join(dir, '__probe_unsettled.tsx');
+  trackProbe(TMP);
   writeFileSync(TMP, 'export function Probe() {\n  // 注入：引用 I 域未完结端点，但整个文件没有任何未完结标注\n  return "downloadDocTemplate";\n}\n');
   const red = await runGate();
   rmSync(TMP, { force: true });
+  untrackProbe(TMP);
   const back = await runGate();
   const keywordOk = (red.out + red.err).includes('unsettled-surfaced');
   const ok = red.code === 1 && keywordOk && back.code === 0;
@@ -307,6 +344,7 @@ await injection({
 //    三种同时注入，只要任一被放过就说明判据仍在"认词"。
 {
   const TMP = join(SRC, 'pages', '__probe_wordonly.tsx');
+  trackProbe(TMP);
   writeFileSync(
     TMP,
     'export function Probe() {\n'
@@ -317,6 +355,7 @@ await injection({
   );
   const red = await runGate();
   rmSync(TMP, { force: true });
+  untrackProbe(TMP);
   const back = await runGate();
   const keywordOk = (red.out + red.err).includes('unsettled-surfaced');
   const ok = red.code === 1 && keywordOk && back.code === 0;
@@ -392,6 +431,20 @@ console.log(`\n合计 ${pass}/${results.length}`);
 
 const finalState = (await runGate()).code;
 console.log(`还原后门禁：exit=${finalState} ${finalState === 0 ? '（绿 ✓）' : '（红 ✗ —— 还原不干净！）'}`);
+
+// 🛑 收尾自检：本脚本**不得**把自己的临时探针留在源树里。
+//    背景（本轮实测）：本脚本被强制终止时（`kill -9` / 上层进程消失），
+//    信号处理器跑不到，探针会残留；而残留的**后果落在下一次读代码的人身上** ——
+//    `a-check` 会报出一个指名道姓指向该探针文件、读起来像真实源码缺陷的失败项。
+//    故把"有没有泄漏"变成**本脚本自己的失败信号**，而不是留给下一次偶遇。
+//    （三层防线：启动自愈 · 信号清理 · 本收尾自检 —— 各管一段，不是重复。）
+const leftover = readdirSync(join(SRC, 'pages')).filter((n) => /^__probe_.*\.tsx$/.test(n));
+if (leftover.length) {
+  console.error(`\n✗ 本脚本泄漏了临时探针文件（未自行清理）: ${leftover.join(', ')}`);
+  console.error('  这是一个需要修掉的缺陷 —— 泄漏的探针会让下一次 a-check 报出'
+    + '「看起来像真实源码缺陷」的失败项。请检查信号处理与用例的清理路径。');
+  process.exit(1);
+}
 
 if (pass !== results.length || finalState !== 0) process.exit(1);
 console.log('\n端 A 反向验证 PASS —— 门禁确实有牙齿，且还原干净。');

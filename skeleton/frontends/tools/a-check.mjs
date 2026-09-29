@@ -31,6 +31,7 @@
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { probeDebrisNotice } from './_gate-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FRONTENDS = join(HERE, '..');
@@ -669,6 +670,10 @@ for (const l of notes) console.log(l);
 if (fails.length) {
   console.error('\n失败项:');
   for (const l of fails) console.error(l);
+  // 诊断补充：失败与探针残骸同时出现时，把"这可能是残骸而不是缺陷"讲清楚
+  // （只补充说明，不改判定 —— 否则会误伤反向验证的正当中间态，见 _gate-common.mjs）
+  const notice = probeDebrisNotice(SRC, 'a-check.mjs');
+  if (notice) console.error(notice);
   console.error('\nA-CHECK FAILED  (admin-web)');
   process.exit(1);
 }
@@ -693,6 +698,12 @@ function walk(dir) {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
     if (statSync(p).isDirectory()) acc.push(...walk(p));
+    // 🛑 这里**刻意不排除** `__probe_*` 文件 —— 曾试着排除，被实测推翻：
+    //    反向验证的 I10 / I13 用例正是靠"门禁能看见一个探针文件"才能被证明有牙齿；
+    //    一旦排除，那两条用例双双变成"漏过"（14/16），且**残留探针会变成静默假绿**
+    //    （比误报更危险）。故判据一律看向全部源文件；
+    //    "残骸被当成缺陷"这件事改由**失败时的诊断补充**处理（见文件末尾
+    //    probeDebrisNotice）—— 保留判定不变，只把原因讲清楚。
     else acc.push(p);
   }
   return acc;

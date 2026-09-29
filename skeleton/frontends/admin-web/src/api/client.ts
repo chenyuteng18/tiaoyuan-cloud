@@ -19,7 +19,7 @@
 
 import { ENDPOINT_IDS, ENDPOINTS, endpointById, type Endpoint } from '../contract/endpoints';
 import { readToken } from '../services/token-store';
-import { getBaseUrl, TIMEOUT_MS } from '../env';
+import { getRequestBaseUrl, TIMEOUT_MS } from '../env';
 
 export interface CallOptions {
   params?: Record<string, string | number>;
@@ -83,7 +83,13 @@ export async function call<T = unknown>(
     throw new Error(`contract: unknown operationId: ${operationId}`);
   }
 
-  let url = getBaseUrl() + fillPath(endpoint.path, opts.params);
+  // 🛑 URL = 出站前缀（网关根 + 契约 Base Path /api/v1） + 契约 paths 键。
+  //    `endpoint.path` 是契约的 paths 键（如 `/auth/me`），**不含** `/api/v1`
+  //    —— 前缀由 `getRequestBaseUrl()` 从**生成物**（转录契约 servers[0].url）取。
+  //    此处曾写成 `getBaseUrl()`（只有网关根），使全量请求落到 `/auth/me`
+  //    而非 `/api/v1/auth/me` ⇒ 404；而 tsc / vite / 全部门禁**全部仍绿**
+  //    （它们从不发真实请求）。这是本仓第 56 条：跨端"隐式协议"缺口。
+  let url = getRequestBaseUrl() + fillPath(endpoint.path, opts.params);
   const qs = Object.entries(opts.query ?? {})
     .filter(([, v]) => v !== undefined)
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);

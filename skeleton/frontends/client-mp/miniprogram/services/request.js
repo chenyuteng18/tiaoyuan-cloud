@@ -79,7 +79,10 @@ function call(operationId, opts) {
   }
 
   var endpoint = contract.endpointById(operationId);
-  var url = ENV.baseUrl + fillPath(endpoint.path, opts.params);
+  // 🛑 URL = 出站前缀（网关根 + 契约 Base Path /api/v1） + 契约 paths 键。
+  //    `endpoint.path` **不含** `/api/v1`；前缀由 ENV.requestBaseUrl 从生成物取。
+  //    曾写成 `ENV.baseUrl` ⇒ 全量 404，且 build 自检全绿（第 56 条）。
+  var url = ENV.requestBaseUrl + fillPath(endpoint.path, opts.params);
   var query = opts.query || {};
   var qsKeys = Object.keys(query);
   if (qsKeys.length) {

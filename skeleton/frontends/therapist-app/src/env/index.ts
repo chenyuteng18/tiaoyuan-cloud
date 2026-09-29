@@ -15,6 +15,8 @@
  * 正常，直到有人发现数据写到了错误的库。
  */
 
+import { API_BASE_PATH } from '../contract/endpoints';
+
 type EnvName = 'dev' | 'staging' | 'prod';
 
 function resolveEnv(): EnvName {
@@ -33,7 +35,20 @@ function resolveBaseUrl(): string {
       + '不得回落到默认地址 —— 配错的部署必须立刻失败，而不是打到错误的库。'
     );
   }
-  return url;
+  return url.replace(/\/+$/, '');
+}
+
+/**
+ * 出站 URL 前缀 = 网关根 + 契约 §2.0 Base Path（`servers[0].url`）。
+ *
+ * 🛑 `api/client.ts` 拼 URL **必须**用它，不得用 `getBaseUrl()`。
+ * 契约的 `paths` 键是 `/auth/me`，真实 URL 是 `/api/v1/auth/me` —— 前缀不在
+ * `path` 里，而此前只写在一句**不可执行**的注释里：运维按注释把基址配成网关根
+ * ⇒ 本端全量 404，而 tsc / vite / 全部门禁**全部仍绿**（从不发真实请求）。
+ * 现在前缀取自**生成物**（转录契约 servers），漏拼即被 x3-check 判红。
+ */
+export function getRequestBaseUrl(): string {
+  return resolveBaseUrl() + API_BASE_PATH;
 }
 
 export const ENV: EnvName = resolveEnv();

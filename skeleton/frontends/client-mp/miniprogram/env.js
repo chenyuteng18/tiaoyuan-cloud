@@ -23,8 +23,14 @@
 
 'use strict';
 
-// 三个环境的后端基址。骨架阶段均为 null，由交付时填入；
-// 契约 servers.url = /api/v1，故基址只到网关根。
+var contract = require('./contract/endpoints.js');
+
+// 三个环境的后端基址 —— **只到网关根，不含契约 Base Path**。
+// 骨架阶段均为 null，由交付时填入。
+// 🛑 真实 URL = 网关根 + API_BASE_PATH（/api/v1，取自生成物 contract/endpoints.js）。
+//    此前"基址只到网关根"只写在**这句注释**里、不可执行：运维照注释配好
+//    网关根后，出站仍是 baseUrl + path ⇒ 全量 404，而 build 自检**仍绿**
+//    （它从不发真实请求）。现由 request.js 统一拼 API_BASE_PATH（本仓第 56 条）。
 var DY_BASE_URLS = {
   develop: null,
   trial: null,
@@ -59,7 +65,20 @@ function baseUrl() {
       + '请在 app.js 里调用 setBaseUrl("' + env + '", "https://...")，或填入 miniprogram/env.js 的 DY_BASE_URLS。'
     );
   }
-  return url;
+  // 去掉尾斜杠，避免与 API_BASE_PATH 拼成 "//api/v1"
+  return String(url).replace(/\/+$/, '');
+}
+
+/**
+ * 出站 URL 前缀 = 网关根 + 契约 §2.0 Base Path。
+ *
+ * 🛑 request.js 拼 URL 必须用 requestBaseUrl()，不得再用 baseUrl：
+ * 契约的 paths 键是 `/auth/me`，真实 URL 是 `/api/v1/auth/me` —— 前缀不在
+ * path 里，而此前只写在一句**不可执行**的注释里（本仓第 56 条）。
+ * 前缀取自生成物 contract/endpoints.js 的 API_BASE_PATH（转录契约 servers）。
+ */
+function requestBaseUrl() {
+  return baseUrl() + contract.API_BASE_PATH;
 }
 
 module.exports = {
@@ -68,6 +87,9 @@ module.exports = {
   currentEnv: currentEnv,
   get baseUrl() {
     return baseUrl();
+  },
+  get requestBaseUrl() {
+    return requestBaseUrl();
   },
   timeoutMs: 15000,
 };

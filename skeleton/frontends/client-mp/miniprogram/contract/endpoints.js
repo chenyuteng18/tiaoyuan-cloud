@@ -17,6 +17,16 @@
 'use strict';
 
 const CONTRACT_VERSION = "api-contract-v1.0.0";
+
+/**
+ * 契约 servers[0].url（§2.0 Base Path）—— **三端拼 URL 的唯一前缀**。
+ *
+ * 🛑 出站 URL 必须写成 BASE + endpoint.path，不得只写 baseUrl + path：
+ *    endpoint.path 是契约 paths 键（如 /auth/me），**不含** /api/v1；
+ *    前缀由本常量承载。漏掉它 ⇒ 全量 404，且 tsc/构建/门禁全绿。
+ */
+const API_BASE_PATH = "/api/v1";
+
 const END_TOKEN_ROLES = Object.freeze(["client"]);
 
 /** 契约 x-roles 的 token-role 展开表（本端相关项）。 */
@@ -147,6 +157,7 @@ function endpointById(id) {
 
 module.exports = {
   CONTRACT_VERSION,
+  API_BASE_PATH,
   END_TOKEN_ROLES,
   ROLE_EXPANSION,
   ENDPOINTS,

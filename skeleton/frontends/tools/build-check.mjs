@@ -58,6 +58,9 @@ const ENDS = {
     scanWords: true,
     scanRoots: ['miniprogram'],
     scanExt: /\.(js|json|wxml|wxss)$/i,
+    // 出站层 URL 拼接点 + 环境层（第 56 条 base-path 判据用）
+    outbound: 'miniprogram/services/request.js',
+    envFile: 'miniprogram/env.js',
     // 小程序产物由微信开发者工具编译，本机没有通用打包器 ⇒ 不做"真实构建"这一项。
     realBuild: null,
   },
@@ -98,6 +101,8 @@ const ENDS = {
     scanWords: false,
     scanRoots: [],
     scanExt: /\.(ts|tsx)$/i,
+    outbound: 'src/api/client.ts',
+    envFile: 'src/env/index.ts',
     realBuild: [
       { name: 'tsc --noEmit', bin: 'node_modules/typescript/bin/tsc', argv: ['--noEmit'] },
       { name: 'vite build', bin: 'node_modules/vite/bin/vite.js', argv: ['build'] },
@@ -140,6 +145,8 @@ const ENDS = {
     scanWords: false,
     scanRoots: [],
     scanExt: /\.(ts|tsx)$/i,
+    outbound: 'src/api/client.ts',
+    envFile: 'src/env/index.ts',
     realBuild: [
       { name: 'tsc --noEmit', bin: 'node_modules/typescript/bin/tsc', argv: ['--noEmit'] },
       { name: 'vite build', bin: 'node_modules/vite/bin/vite.js', argv: ['build'] },
@@ -387,6 +394,146 @@ if (existsSync(appJsonPath)) {
         + '        而 tsc / 构建 / 其它判据都不会报。');
     } else {
       ok('token-single-source', `令牌键名仅存在于权威点（已扫 ${files.length} 个源文件）`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ④c 【三端共享】契约 Base Path 必须进入出站 URL（第 56 条）
+// ---------------------------------------------------------------------------
+// 🛑 实测缺口：契约的 `paths` 键是 `/auth/me`，真实 URL 是 `/api/v1/auth/me`
+//    —— 前缀由 `servers[0].url`（契约 §2.0 Base Path）承载。而三端出站一律写成
+//    `baseUrl + endpoint.path`，把"baseUrl 只到网关根"这件事**只写在一句注释里**。
+//    运维按注释配置 ⇒ 三端全量 404 ⇒ 而 tsc / vite / 全部门禁**全部仍绿**
+//    （它们从不发真实请求）。后端那一侧有 EndpointCoverageLedgerTest 钉住路由，
+//    前端这一侧此前没有 —— 这是"跨端隐式协议"缺口的第 56 条。
+// 判据形态（判【调用形态 + 计数等式】，不判"词是否出现"）：
+//   ① 出站层必须存在"用契约 Base Path 前缀"的字面调用；
+//   ② 出站层不得存在"裸 baseUrl 拼 path"的形态；
+//   ③ 环境层（env）必须导出该前缀，且其值**引用生成物常量**（不得手写字面量）；
+//   ④ 生成物里必须确有该常量、且值 === 契约 servers[0].url（计数等式）。
+//   ⑤ vite dev 代理键必须含该 Base Path（否则 dev 期请求根本不进代理规则）。
+if (cfg.outbound && cfg.envFile) {
+  const outboundPath = join(END_ROOT, cfg.outbound);
+  const envPath = join(END_ROOT, cfg.envFile);
+  const genRel = END_ID === 'client-mp'
+    ? 'miniprogram/contract/endpoints.js'
+    : 'src/contract/endpoints.ts';
+  const genPath = join(END_ROOT, genRel);
+  const missing = [outboundPath, envPath, genPath].filter((p) => !existsSync(p));
+  if (missing.length) {
+    fail('base-path-wiring', `缺文件: ${missing.map((p) => relative(END_ROOT, p)).join(', ')}`);
+  } else {
+    const outbound = readFileSync(outboundPath, 'utf8');
+    const envSrc = readFileSync(envPath, 'utf8');
+    const genSrc = readFileSync(genPath, 'utf8');
+
+    // 🛑 判"有没有手写常量 / URL 怎么拼"这类**代码语义**时，必须先剥注释。
+    //    与上面 ③ 词表判据**刻意不剥注释**并不矛盾，两者目的不同：
+    //      · ③ 判"禁用词是否出现在客户端包里" —— 注释也是包的一部分（且反编译可见）；
+    //      · ④c 判"代码里是否手写了 Base Path" —— 注释里提到路径**不是**硬编码，
+    //        反而正是本仓鼓励的"把为什么写清楚"。若不剥注释，一句
+    //        `// 契约 servers.url = "/api/v1"` 就会被判红 ⇒ 第 55 条（假红）复发。
+    const stripComments = (src) => {
+      let out = '';
+      let i = 0;
+      let inLine = false;
+      let inBlock = false;
+      let inStr = null;
+      const n = src.length;
+      while (i < n) {
+        const c = src[i];
+        const nx = src[i + 1];
+        if (inLine) {
+          if (c === '\n') { inLine = false; out += c; }
+          i += 1; continue;
+        }
+        if (inBlock) {
+          if (c === '*' && nx === '/') { inBlock = false; i += 2; continue; }
+          i += 1; continue;
+        }
+        if (inStr) {
+          out += c;
+          if (c === '\\') { out += (nx || ''); i += 2; continue; }
+          if (c === inStr) inStr = null;
+          i += 1; continue;
+        }
+        if (c === '/' && nx === '/') { inLine = true; i += 2; continue; }
+        if (c === '/' && nx === '*') { inBlock = true; i += 2; continue; }
+        if (c === '"' || c === "'" || c === '`') { inStr = c; out += c; i += 1; continue; }
+        out += c; i += 1;
+      }
+      return out;
+    };
+    const outboundCode = stripComments(outbound);
+    const envCode = stripComments(envSrc);
+
+    // ④ 生成物侧：常量存在，且值取自契约 servers[0].url 的机械转录
+    const gm = genSrc.match(/(?:const|export const)\s+API_BASE_PATH(?::\s*string)?\s*=\s*"([^"]*)"/);
+    if (!gm) {
+      fail('base-path-wiring',
+        `${genRel} 缺少 API_BASE_PATH —— 生成器没有转录契约 servers[0].url。\n`
+        + '      请先跑 python frontends/tools/gen-endpoints.py（生成器会读 servers）。');
+    } else {
+      const genValue = gm[1];
+      if (!/^\/[A-Za-z0-9._~\-/]*$/.test(genValue) || genValue === '/') {
+        fail('base-path-wiring', `API_BASE_PATH 取值异常: ${JSON.stringify(genValue)}`);
+      }
+      // ③ 环境层必须导出前缀，且引用生成物常量（不得手写 "/api/v1"）
+      const envExports = /(?:export\s+(?:function|const)\s+(?:getRequestBaseUrl|requestBaseUrl))|(?:get\s+requestBaseUrl\s*\()/.test(envCode);
+      const envUsesGenerated = /API_BASE_PATH/.test(envCode);
+      const envHardcodes = new RegExp('"' + genValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"').test(envCode)
+        || new RegExp("'" + genValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "'").test(envCode);
+      if (!envExports) {
+        fail('base-path-wiring', `${cfg.envFile} 未导出出站前缀（getRequestBaseUrl / requestBaseUrl）`);
+      } else if (!envUsesGenerated) {
+        fail('base-path-wiring',
+          `${cfg.envFile} 的出站前缀没有引用生成物常量 API_BASE_PATH`
+          + '——手抄前缀会在契约改 Base Path 时静默分叉（第 52 条同型）。');
+      } else if (envHardcodes) {
+        fail('base-path-wiring', `${cfg.envFile} 里出现了手写的 Base Path 字面量 ${JSON.stringify(genValue)}，应只用 API_BASE_PATH`);
+      }
+
+      // ① 出站层必须"用前缀"拼 URL；② 不得"裸 baseUrl 拼 path"
+      // 🛑 判据形态（第 55 条教训：判得窄会把本仓**自己规定的合法写法**判红）：
+      //    不判"某个标识符是否出现"，而是**圈定 URL 组装表达式**再判其成分 ——
+      //    且前缀既可能是函数调用（端 A/B 的 getRequestBaseUrl()），
+      //    也可能是属性访问（端 C 的 ENV.requestBaseUrl getter）。
+      //    两者都是合法写法，判据必须都认（初版只认前者，把端 C 判红了）。
+      const urlAssign = outboundCode.match(/(?:let|const|var)\s+url\s*=\s*([^;]+);/);
+      const PREFIX_ID = /(?:getRequestBaseUrl|requestBaseUrl|API_BASE_PATH)/;
+      const BARE_ID = /(?:^|[^\w.])(?:getBaseUrl\s*\(\s*\)|baseUrl)\b/;
+      if (!urlAssign) {
+        fail('base-path-wiring', `${cfg.outbound} 找不到 URL 组装表达式（\`let url = ...\`），判据无法落地。`);
+      } else if (BARE_ID.test(urlAssign[1])) {
+        fail('base-path-wiring',
+          `${cfg.outbound} 的 URL 组装用【裸 baseUrl】: \`${urlAssign[1].trim()}\`\n`
+          + `      endpoint.path 不含 Base Path ⇒ 出站落到 ${JSON.stringify(genValue)} 之外 ⇒ 全量 404，`
+          + '而本自检曾经全绿。');
+      } else if (!PREFIX_ID.test(urlAssign[1])) {
+        fail('base-path-wiring',
+          `${cfg.outbound} 的 URL 组装未含契约 Base Path 前缀: \`${urlAssign[1].trim()}\``);
+      } else {
+        ok('base-path-wiring',
+          `出站前缀取自生成物 API_BASE_PATH=${JSON.stringify(genValue)}`
+          + `（${relative(END_ROOT, cfg.outbound)} 用前缀拼接 · ${relative(END_ROOT, cfg.envFile)} 引用生成物常量 · 无手写字面量）`);
+      }
+
+      // ⑤ vite dev 代理键（仅端 A / 端 B 有 vite.config.ts）
+      const vitePath = join(END_ROOT, 'vite.config.ts');
+      if (existsSync(vitePath)) {
+        const viteSrc = stripComments(readFileSync(vitePath, 'utf8'));
+        const keys = [...viteSrc.matchAll(/proxy\s*:\s*\{([\s\S]*?)\n\s*\}/g)]
+          .flatMap((m) => [...m[1].matchAll(/(['"])(\/[^'"]*)\1\s*:/g)].map((x) => x[2]));
+        if (keys.length === 0) {
+          fail('base-path-wiring', 'vite.config.ts 里找不到 proxy 键 —— 判据无法落地（形态变了？）');
+        } else if (!keys.some((k) => k === genValue || k.startsWith(genValue))) {
+          fail('base-path-wiring',
+            `vite.config.ts 的 dev 代理键 ${JSON.stringify(keys)} 均不含契约 Base Path `
+            + `${JSON.stringify(genValue)} ⇒ 出站请求打到 ${JSON.stringify(genValue)}/... `
+            + '时**不匹配任何代理规则** ⇒ dev 期全量 404，而 npm run dev 与构建自检都不报错。');
+        }
+      }
     }
   }
 }

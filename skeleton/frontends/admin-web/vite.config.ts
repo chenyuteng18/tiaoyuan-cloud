@@ -8,7 +8,11 @@ export default defineConfig({
   server: {
     port: 5175,
     proxy: {
-      '/api': {
+      // 🛑 路径必须含契约 Base Path（`servers[0].url = /api/v1`）：
+      //    出站 URL = 网关根 + API_BASE_PATH + path ⇒ 真实请求打到 `/api/v1/...`。
+      //    若代理键只写 `/api`，请求**根本不会进入这条代理规则**（路径不匹配）
+      //    ⇒ dev 期全量 404，而 `npm run dev` 不报错、构建自检也不报错。
+      '/api/v1': {
         target: process.env.VITE_API_PROXY || 'http://127.0.0.1:8080',
         changeOrigin: true,
       },
