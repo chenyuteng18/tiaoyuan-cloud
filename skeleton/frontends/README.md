@@ -45,7 +45,7 @@ python frontends/tools/gen-endpoints.py --check   # 只校验产物与契约一�
 | client-mp | `npm run build` → `node ../tools/build-check.mjs --end=client-mp` | 零第三方依赖 |
 | therapist-app | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` · `npm run check:x3` · `npm run check:x3-reverse` | 需 `npm install`；X-3 两组门禁 |
 | admin-web | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` · `npm run check:a` · `npm run check:a-reverse` | 需 `npm install` |
-| 三端通用 | `npm run check:build-reverse` → `node ../tools/build-reverse-check.mjs` | `base-path-wiring` 判据的反向验证（6 组 R1–R6，**常驻**；且能抓住「判据被删」）|
+| 三端通用 | `npm run check:build-reverse` → `node ../tools/build-reverse-check.mjs` | `base-path-wiring`（6 组 R1–R6）+ `cross-end-protocol`（4 组 R7–R10）反向验证，**常驻**；且能抓住「判据被删」|
 
 **依赖安装（本机实测可用的一条命令）**：
 
@@ -143,7 +143,7 @@ exit 2 且不得打印 PASS）—— **W10 首跑即为红**，正是它抓出�
 
 ⚠️ 该措辞**尚未经裁定**，本文件不把它写成"已裁定"。
 
-## 8. 🛑 八条写作/路径/判据/管道纪律（由本仓第 50、51、52、53、54、55、56 条系统性缺陷逼出，勿回退）
+## 8. 🛑 九条写作/路径/判据/管道纪律（由本仓第 50、51、52、53、54、55、56、57 条系统性缺陷逼出，勿回退）
 
 ### 8.1 客户端包内【不得写出禁词原文】—— 一律用指代（第 51 条）
 
@@ -537,3 +537,115 @@ Vite 的 `server.proxy` 是**前缀匹配**，`'/api'` 确实能匹配 `/api/v1/
 若它只写在注释或口头约定里，就等于没有约定** ——
 必须抬成**从契约机械转录的生成物常量**，并由一条**判据 + 一条反向验证**同时钉住。
 判据防代码漂移，反向验证防**判据本身**被改窄或删除。
+
+---
+
+### 8.10 跨端「隐式协议」不止 URL 前缀一类：四类都要抬成生成物常量（第 57 条）
+
+§8.9 把跨端协议归纳为**四类** —— ① URL 前缀、② 信封字段、③ 鉴权头名、
+④ 幂等键构成 —— 但当时**只修了 ①**。本条把 ②③④ 逐条核查，抓出
+**两处真缺口 + 一处"§8.9 修法自己引入的反模式"**。
+
+#### 8.10.1 缺口一：`X-Trace-Id` 是一个【契约里一个字都没有】的跨端头
+
+实测它在 **6 处**硬编码：
+
+| 位置 | 写法 |
+|---|---|
+| 后端 `dy-web/.../trace/TraceIdFilter.java:29` | `public static final String HEADER = "X-Trace-Id";` |
+| 后端 `.../observability/ObservabilityMdcFilter.java` | 同类 |
+| 后端 `dy-tenancy/.../TenantContextFilter.java` | 读租户头与鉴权头（另一类） |
+| 端 A `admin-web/src/api/client.ts` | `res.headers.get('X-Trace-Id')` |
+| 端 B `therapist-app/src/api/client.ts` | `res.headers.get('X-Trace-Id')` |
+| 端 C `client-mp/miniprogram/services/request.js` | `res.header['X-Trace-Id']` |
+
+而 `contract/` 全目录 **grep 零命中**：既无 `securitySchemes`、无 `parameters`
+声明、**连 prose 都没有**（`x-global-conventions.auth` 只写鉴权）。
+⇒ 改这个头名（或后端换实现）会让**留痕链静默断掉**。
+
+#### 8.10.2 缺口二：幂等键构成只有一句 prose，且"唯一被转录的键构成"从未被消费
+
+- 契约 `x-global-conventions.idempotency` 只有一句话；
+  `components.parameters.IdempotencyKey` 定义了 `name/in/schema`，
+  **但 `paths` 段对它 `grep -c` 为 0 —— 从未被任何 operation 引用**（装饰件）。
+- 唯一逐操作声明 `x-idempotency-key` 的只有 **I3** 一处。
+- 🛑 **关键实测**：生成器**已**把它转成 `idempotencyKeySpec`、`Endpoint` 接口
+  **已**声明，但 `grep -rn idempotencyKeySpec`（排除生成物/dist）**零命中** ——
+  **没有任何调用点消费它**。契约把幂等键**语义**写下来了，**前端拿不到**。
+
+#### 8.10.3 反模式：生成物常量的值不是"机械转录"，而是"手抄的契约 prose"
+
+§8.9 的 `load_api_base_path()` 初版**不从 `servers[0].url` 取值**，
+而是把字面量**手抄进模板**，还配了一句注释「`Value = /api/v1`」——
+等于**用注释显式掩盖了"值不是现取的"**；而 `base-path-wiring` 只断言
+"常量存在"、不断言"值等于契约" ⇒ **契约改 Base Path 时生成物照旧、门禁照绿**。
+
+⇒ 订正：`load_api_base_path()` **真读 `servers[0].url`**，并与
+`x-global-conventions['base-path']` **互查**，不一致即 `MISCONFIGURED` 退出。
+全链只剩一个真源。
+
+#### 8.10.4 修法：四层（与 §8.9 同范式）
+
+| 层 | 落点 | 谁守它 |
+|---|---|---|
+| ① 契约 | 新增根级 `x-api-protocol`（9 键，与 prose **并存且必须一致**） | `ContractFreezeGateTest` 的双向互查断言（11 例） |
+| ② 生成物 | `gen-endpoints.py` 新增 `load_api_protocol()` → `PROTOCOL` 常量组（CJS/TS 双形态，TS 附 `ProtocolSpec`） | 生成器自身（缺键即 `MISCONFIGURED`）+ `--check` |
+| ③ 出站层 | 三端一律 `headers[PROTOCOL.AUTH_HEADER]` / `headers[PROTOCOL.IDEMPOTENCY_HEADER]` / `res.headers.get(PROTOCOL.TRACE_HEADER)` / `body.code !== PROTOCOL.ENVELOPE_OK_CODE` | `build-check.mjs` ④d `cross-end-protocol` |
+| ④ 门禁 | 判**引用形态**（必须见到 `PROTOCOL.<KEY>` 成员访问）+ **剥注释后**不得残留头名字面量 / `"Bearer "` / `code === 0` | `build-reverse-check.mjs` R7–R10 |
+
+#### 8.10.5 契约侧互查断言：一条新判据首跑就复发了一次第 55 条
+
+`cross_end_protocol_fragments_are_structured_and_agree_with_prose` 初版断言
+「`envelope-fields` 每一项都必须在 `ResultEnvelope.required` 里」，**首跑即红** ——
+`required: [code, message, trace_id]` **不含 `data`**。
+
+但那**不是契约的错**：契约自己写明「`code != 0` 时 `data` 为空」，
+故 `data` **本就该可选**（失败信封不带 data）。初版把本仓**自己规定的合法形态**
+判红 = **第 55 条**。修法**不是改契约，而是把判据拆成三件事**：
+
+1. 字段**存不存在** → 查 `ResultEnvelope.properties`；
+2. `required` 是否是信封的**子集** → 不得含信封外字段；
+3. `data` 不在 `required` 时 → `envelope-rule` **必须说明原因**，
+   否则它就成了「**未文档化的约定**」。
+
+另加三条与真正的 OpenAPI 结构互查：`idempotency-header` 必须等于
+`parameters.IdempotencyKey.name` 且 `in: header`；`envelope-fields` 必须与
+`ResultEnvelope.properties` 一致；`trace-header` 不得与信封字段撞名。
+
+#### 8.10.6 回归用例与数字（逐字）
+
+- `build-reverse-check`：**10/10 PASS**（R1–R6 base-path + R7–R10 cross-end-protocol）。
+  - R7 端 A 鉴权头名回退成字面量 / R8 端 C 追踪头名回退成字面量 /
+    R9 端 B 信封成功码回退成字面量 / R10 **生成物 `PROTOCOL.AUTH_HEADER`
+    值被改成与契约不一致（值漂移，不是缺键）**。
+- 🛑 **删判据模拟（本条最关键的证据）**：把 ④d 整段删掉后重跑 ⇒
+  **R7–R10 四组全部变"漏过"、合计 6/10、脚本 FAIL**（base-path 六组仍被抓住，
+  因为它们由另一段代码守）⇒ **两条判据各自有牙齿，且"判据被删"本身会被抓到**。
+- 契约冻结门禁 **11/11**；`gen-endpoints.py --check` `[OK] 15 / 29 / 39`；
+  三端 `build-check` 全绿（`cross-end-protocol` 各 5 个键全命中、无字面量残留）；
+  端 A `check:a` 14/14 · 反向 **16/16**；端 B `check:x3` 9/9 · 反向 **8/8**。
+- 后端全量回归：`TOTAL 1200   failures=0 errors=0 skipped=0`
+  （1199 → **1200**，+1 = 本条新增的契约互查断言；dy-app **941 → 942**）。
+
+#### 8.10.7 一处如实登记的未决项（不改语义，只登记）
+
+契约 prose 写幂等为「**24h 窗口内**去重」，而后端 E1 的库层唯一索引
+`uq_sync_log_batch_no (tenant_id, batch_no)` 是**永久**唯一 —— 差集是
+「同一 `batch_no` 距首次超过 24h 后重放」（契约允许应成功、库层返回 409）。
+后端 `BandService` 已自己登记该开放项（逐字："若可接受，契约文字应改为
+『永久去重』"），**属契约 MAJOR 级变更，裁定权在契约 owner + 产品共签**。
+
+另：`x-idempotency-key` 仅 I3 一处逐操作声明 ⇒ 其余写端点的键构成
+**仍在契约里无声明**（前端只能各自造随机键），这是**待补项**。
+
+#### 8.10.8 通用规则（第 57 条）
+
+**"跨端协议片段"是一个集合，不是一个点。** 修完一类就宣布收口，
+会留下一整族同型缺口 —— 正确的做法是**把这一类枚举干净**（前缀 / 信封字段 /
+鉴权头名 / 令牌前缀 / 租户头 / 追踪头 / 幂等头 / 成功码），
+每一类都走同一范式：**契约结构化事实 → 生成物常量 → 出站层只引用 →
+判据判形态 → 反向验证含"值漂移"与"判据被删"两例**。
+
+**并且：生成物常量的"值"必须来自机械转录，不能是手抄的副本。**
+一个"存在但可漂移"的常量，与注释里的约定同样不可靠 ——
+判据若只断言"它存在"，那就是**第 52 条的假绿**。

@@ -95,12 +95,15 @@ function call(operationId, opts) {
 
   var header = Object.assign({ 'Content-Type': 'application/json' }, opts.header || {});
   var token = wx.getStorageSync('token');
+  // 🛑 头名与令牌前缀取自【生成物常量】（契约 x-api-protocol 的机械转录），
+  //    不得在本文件手写字面量 —— 第 57 条：跨端协议片段只散在注释/字面量里，
+  //    改一处即静默分叉，而构建自检/门禁全绿。
   if (token) {
-    header.Authorization = 'Bearer ' + token;
+    header[contract.PROTOCOL.AUTH_HEADER] = contract.PROTOCOL.AUTH_SCHEME + ' ' + token;
   }
   if (endpoint.method !== 'GET') {
-    // 后端幂等拦截器：写请求必须带 Idempotency-Key（E1/E2 等上报类端点）。
-    header['Idempotency-Key'] = opts.idempotencyKey || newIdempotencyKey();
+    // 后端幂等拦截器：写请求必须带幂等头（E1/E2 等上报类端点）。
+    header[contract.PROTOCOL.IDEMPOTENCY_HEADER] = opts.idempotencyKey || newIdempotencyKey();
   }
 
   return new Promise(function (resolve, reject) {
@@ -114,8 +117,14 @@ function call(operationId, opts) {
         var body = res.data || {};
         // 契约 §2.0：信封恒含 trace_id（失败信封不含 data）。
         // 留它与服务端日志双向检索（dy-web GlobalExceptionHandler 分级留痕）。
-        var traceId = body && body.trace_id ? body.trace_id : (res.header && res.header['X-Trace-Id']) || '';
-        if (res.statusCode >= 200 && res.statusCode < 300 && body.code === 0) {
+        // 🛑 留痕头名取自生成物常量：`X-Trace-Id` 此前在契约里【零声明】，
+        //    只活在后端 TraceIdFilter 与三端字面量里（第 57 条实测 6 处）。
+        var traceId = body && body.trace_id
+          ? body.trace_id
+          : ((res.header && res.header[contract.PROTOCOL.TRACE_HEADER]) || '');
+        // 🛑 成功码取自生成物常量（契约 §2.0「code != 0 时 data 为空」）。
+        if (res.statusCode >= 200 && res.statusCode < 300
+            && body.code === contract.PROTOCOL.ENVELOPE_OK_CODE) {
           resolve({ statusCode: res.statusCode, data: body.data, traceId: traceId });
           return;
         }

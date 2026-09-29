@@ -228,6 +228,144 @@ class ContractFreezeGateTest {
     }
 
     // ======================================================================
+    // 四之二、跨端协议片段必须是【结构化事实】且与 prose / schema 一致（第 57 条）
+    // ======================================================================
+
+    /**
+     * 跨端协议片段（鉴权头名 / 令牌前缀 / 租户头 / 追踪头 / 幂等头 / 信封字段与成功码）
+     * 必须同时以三种形态存在**且互相一致**：
+     * <ol>
+     *   <li>{@code x-api-protocol} —— 结构化事实（供生成器机械转录为三端常量）；</li>
+     *   <li>{@code x-global-conventions} 的 prose 行 —— 给人读的句子；</li>
+     *   <li>{@code components.schemas.ResultEnvelope} / {@code parameters.IdempotencyKey}
+     *       —— 真正的 OpenAPI 结构。</li>
+     * </ol>
+     *
+     * <p><b>为什么这条断言非有不可（第 57 条）</b>：在它之前，鉴权头名 / 令牌前缀 /
+     * 追踪头只活在 <b>prose 与三端各自手抄的字面量</b>里。{@code X-Trace-Id} 连 prose
+     * 都没有 —— 它只出现在后端 {@code TraceIdFilter.HEADER} 与三端出站层，契约全域
+     * <b>零声明</b>（实测 6 处字面量）。这类"隐式协议"改一处会静默分叉，且
+     * tsc / vite / 全部门禁都不报（它们从不发真实请求）—— 与第 56 条 Base Path 同族。
+     *
+     * <p>断言方向刻意是 <b>双向</b>：结构化块不得凭空多出 prose 里没有的约定，
+     * prose 也不得与结构化块矛盾。任一侧单独改动 ⇒ 立刻红，迫使两处同步。
+     */
+    @Test
+    void cross_end_protocol_fragments_are_structured_and_agree_with_prose() throws IOException {
+        Sources s = load();
+        Map<String, Object> doc = s.openapi();
+
+        Map<String, Object> proto = cast(doc.get("x-api-protocol"), "x-api-protocol");
+        assertNotNull(proto, "缺根级 x-api-protocol（跨端协议片段的结构化权威块）");
+
+        // --- ① 结构化块自身的必填键（缺一个 = 生成器无法转录该常量）---
+        List<String> requiredKeys = List.of(
+                "auth-header", "auth-scheme", "tenant-header", "trace-header",
+                "idempotency-header", "envelope-fields", "envelope-ok-code");
+        for (String k : requiredKeys) {
+            assertNotNull(proto.get(k), "x-api-protocol 缺键 " + k + "（三端出站层无法机械取用）");
+        }
+
+        // 取值不得为空串（空串会让前端拼出 " <token>" 这种坏头）
+        for (Map.Entry<String, Object> e : proto.entrySet()) {
+            if (e.getValue() instanceof String) {
+                assertFalse(((String) e.getValue()).isBlank(),
+                        "x-api-protocol." + e.getKey() + " 不得为空串");
+            }
+        }
+
+        String authHeader = str(proto.get("auth-header"));
+        String authScheme = str(proto.get("auth-scheme"));
+        String tenantHeader = str(proto.get("tenant-header"));
+        String traceHeader = str(proto.get("trace-header"));
+        String idemHeader = str(proto.get("idempotency-header"));
+
+        // --- ② 与 prose（x-global-conventions）互查 ---
+        Map<String, Object> conv = cast(doc.get("x-global-conventions"), "x-global-conventions");
+        String authProse = str(conv.get("auth"));
+        String tenantProse = str(conv.get("tenant-context"));
+        String envelopeProse = str(conv.get("envelope"));
+        String idemProse = str(conv.get("idempotency"));
+
+        assertTrue(authProse.contains(authHeader),
+                "x-global-conventions.auth 未含结构化 auth-header=" + authHeader
+                        + " ⇒ prose 与结构化事实已分叉： " + authProse);
+        assertTrue(authProse.contains(authScheme),
+                "x-global-conventions.auth 未含结构化 auth-scheme=" + authScheme + ": " + authProse);
+        assertTrue(tenantProse.contains(tenantHeader),
+                "x-global-conventions.tenant-context 未含结构化 tenant-header=" + tenantHeader);
+        assertTrue(idemProse.contains(idemHeader),
+                "x-global-conventions.idempotency 未含结构化 idempotency-header=" + idemHeader);
+
+        // 信封：prose 必须逐字含全部字段名 + 成功码
+        @SuppressWarnings("unchecked")
+        List<Object> envelopeFields = (List<Object>) proto.get("envelope-fields");
+        assertNotNull(envelopeFields, "x-api-protocol.envelope-fields 必须是列表");
+        for (Object f : envelopeFields) {
+            assertTrue(envelopeProse.contains(str(f)),
+                    "x-global-conventions.envelope 未含字段 " + f + ": " + envelopeProse);
+        }
+        assertTrue(envelopeProse.contains(str(proto.get("envelope-ok-code"))),
+                "x-global-conventions.envelope 未含成功码 " + proto.get("envelope-ok-code"));
+
+        // --- ③ 与真正的 OpenAPI 结构互查 ---
+        Map<String, Object> components = cast(doc.get("components"), "components");
+        Map<String, Object> schemas = cast(components.get("schemas"), "schemas");
+        Map<String, Object> resultEnvelope = cast(schemas.get("ResultEnvelope"), "ResultEnvelope");
+        Map<String, Object> envProps =
+                cast(resultEnvelope.get("properties"), "ResultEnvelope.properties");
+
+        // 🛑 判据形态（第 55 条教训 —— 本条判据首跑就复发了一次，记录在此）
+        // -------------------------------------------------------------------
+        // 初版断言「envelope-fields 的每一项都必须在 ResultEnvelope.required 里」，
+        // 首跑即红：`required: [code, message, trace_id]` **不含 data**。
+        // 但那不是契约的错 —— 契约自己写明「code != 0 时 data 为空」，
+        // 故 data **本就该可选**（失败信封不带 data）。初版把本仓**自己规定的
+        // 合法形态**判红 ⇒ 正是第 55 条：判据太窄 ⇒ 假红 ⇒ 判据被删。
+        // ⇒ 正确的判法是分开两件事：
+        //     ① 「字段存不存在」 —— envelope-fields 每一项必须在 properties 里；
+        //     ② 「必填是不是信封的子集」 —— required 不得含信封之外的字段；
+        //     ③ 「可选性有没有被文档化」 —— data 不在 required 时，prose 的
+        //        envelope-rule 必须说明原因，否则那是【未文档化的约定】。
+        for (Object f : envelopeFields) {
+            assertNotNull(envProps.get(str(f)),
+                    "x-api-protocol.envelope-fields 声明了 " + f
+                            + "，但 ResultEnvelope.properties 里没有它 ⇒ 两处已分叉");
+        }
+
+        @SuppressWarnings("unchecked")
+        List<Object> envRequired = (List<Object>) resultEnvelope.get("required");
+        assertNotNull(envRequired, "ResultEnvelope 缺 required —— 信封结构不可机械校验");
+        for (Object r : envRequired) {
+            assertTrue(envelopeFields.contains(r),
+                    "ResultEnvelope.required 含信封字段之外的键 " + r + " ⇒ 与 envelope-fields 分叉");
+        }
+        // 失败信封不带 data，故 data 不在 required 是**合法的**；但必须写明原因
+        if (!envRequired.contains("data")) {
+            String rule = str(conv.get("envelope-rule"));
+            assertTrue(rule.contains("data"),
+                    "data 未列入 ResultEnvelope.required（失败信封不含 data，这本身合理），"
+                            + "但 x-global-conventions.envelope-rule 未说明该可选性 ⇒ 它就成了"
+                            + "「未文档化的约定」: " + rule);
+        }
+
+        // --- ④ 幂等头必须与 parameters.IdempotencyKey 的真实头名一致 ---
+        Map<String, Object> parameters = cast(components.get("parameters"), "parameters");
+        Map<String, Object> idemParam = cast(parameters.get("IdempotencyKey"), "IdempotencyKey");
+        assertEquals(idemHeader, str(idemParam.get("name")),
+                "x-api-protocol.idempotency-header 与 parameters.IdempotencyKey.name 不一致 ⇒ "
+                        + "前端发的头名与后端读的头名会分叉，且不会有任何测试红");
+        assertEquals("header", str(idemParam.get("in")),
+                "parameters.IdempotencyKey 必须声明 in=header");
+
+        // --- ⑤ 追踪头必须被 ResultEnvelope 的 trace_id 与 prose 同时承认 ---
+        //     （trace_id 在信封里，而 X-Trace-Id 是失败响应/网关侧的同义留痕头 ——
+        //      两者并存，故此处只断言它非空且不与信封字段撞名）
+        assertFalse(envelopeFields.contains(traceHeader),
+                "trace-header 不应与信封字段同名（前者是 HTTP 头、后者是响应体键）");
+    }
+
+    // ======================================================================
     // 五、② 行集与上游 §2 完全一致（超集/子集都不行）
     // ======================================================================
 

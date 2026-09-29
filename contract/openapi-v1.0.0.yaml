@@ -82,6 +82,40 @@ x-global-conventions:
   idempotency: 写接口接受 Idempotency-Key 请求头（UUID）；服务端在 24h 窗口内去重
 
 # =============================================================================
+# 跨端协议片段（第 57 条）—— 【结构化】声明
+# =============================================================================
+# 🛑 为什么必须另立结构化块，而不能只留上面 x-global-conventions 的 prose
+# -----------------------------------------------------------------------------
+# 上面 `auth` / `envelope` / `idempotency` 三行是**给人读的句子**：机器无法从
+# 它们机械推导「出站该用哪个头名、令牌前缀是什么、成功码是几」。于是三端前端
+# 各自把协议字面量手抄进代码：
+#     headers.Authorization = `Bearer ${token}`      （端 A / 端 B）
+#     header['Idempotency-Key'] = ...                （三端，写请求）
+#     res.headers.get('X-Trace-Id')                  （端 A / 端 B）
+#     body.code !== 0                                （三端）
+# `X-Trace-Id` 连 prose 里都【没有】—— 它只活在后端 TraceIdFilter 的常量与前端
+# 字面量里（共 6 处），契约全域零声明。契约改头名 ⇒ 各处静默分叉 ⇒
+# 全量 401 / 幂等去重失效 / 留痕断链，而 tsc / vite / 全部门禁**全部仍绿**
+# （它们从不发真实请求）。这与第 56 条的 Base Path 缺口同族：
+# **契约写下的协议与各端拿到的协议是两件事，中间丢项不报错。**
+#
+# 故把"跨端共同遵守的协议片段"落成**可机械读取的结构化事实**；
+# 生成器转录为生成物常量，三端出站层一律引用常量、不得再出现字面量
+# （由 `tools/build-check.mjs` ④d `cross-end-protocol` 判据守住）。
+# 与 prose 的冲突由 ContractFreezeGateTest 的互查断言报红 —— 两处都在、且一致。
+x-api-protocol:
+  auth-header: Authorization
+  auth-scheme: Bearer
+  tenant-header: X-Tenant-Id
+  tenant-mismatch-invariant: X-Tenant-Id 若存在必须与 token 内 tenant_id 一致（仅校验、不采纳），否则 403 TENANT_MISMATCH；跨租户资源一律 403
+  trace-header: X-Trace-Id
+  idempotency-header: Idempotency-Key
+  idempotency-window-hours: 24
+  envelope-fields: [code, message, data, trace_id]
+  envelope-ok-code: 0
+  envelope-rule: code != 0 时 data 为空
+
+# =============================================================================
 # 字段组定义（契约 §3.1）—— 四组 × 五角色，与 config #43 / 原型 D1 逐格一致
 # =============================================================================
 x-field-groups:

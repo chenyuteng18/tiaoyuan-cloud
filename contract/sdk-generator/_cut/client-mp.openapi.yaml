@@ -45,6 +45,21 @@ x-global-conventions:
   visibility: 每个接口的响应字段按 x-visibility 矩阵在服务端裁剪；无权限字段不下发（不是 null、不是空串）
   forbidden-403: 「前置门禁缺失」与「可见性档位不足」统一返回 403，message 必须给出缺失项名称 / 档位名称（不得模糊报错）
   idempotency: 写接口接受 Idempotency-Key 请求头（UUID）；服务端在 24h 窗口内去重
+x-api-protocol:
+  auth-header: Authorization
+  auth-scheme: Bearer
+  tenant-header: X-Tenant-Id
+  tenant-mismatch-invariant: X-Tenant-Id 若存在必须与 token 内 tenant_id 一致（仅校验、不采纳），否则 403 TENANT_MISMATCH；跨租户资源一律 403
+  trace-header: X-Trace-Id
+  idempotency-header: Idempotency-Key
+  idempotency-window-hours: 24
+  envelope-fields:
+  - code
+  - message
+  - data
+  - trace_id
+  envelope-ok-code: 0
+  envelope-rule: code != 0 时 data 为空
 x-field-groups:
   raw_data:
     name: ① 手环原始数据

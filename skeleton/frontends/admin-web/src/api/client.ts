@@ -17,7 +17,7 @@
  *   · 可见性由服务端决定（X-1），本层不裁剪字段。
  */
 
-import { ENDPOINT_IDS, ENDPOINTS, endpointById, type Endpoint } from '../contract/endpoints';
+import { ENDPOINT_IDS, ENDPOINTS, PROTOCOL, endpointById, type Endpoint } from '../contract/endpoints';
 import { readToken } from '../services/token-store';
 import { getRequestBaseUrl, TIMEOUT_MS } from '../env';
 
@@ -103,9 +103,12 @@ export async function call<T = unknown>(
   //    且 tsc / 构建 / 既有门禁**全部不报**（第 50 条同族的"跨文件隐式约定"）。
   //    门禁 `tools/a-check.mjs` 的 `token-single-source` 判据守着这一条。
   const token = readToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
+  // 🛑 头名与令牌前缀取自【生成物常量】（契约 x-api-protocol 的机械转录），
+  //    不得在本文件手写字面量 —— 第 57 条：跨端协议片段只散在注释/字面量里，
+  //    改一处即静默分叉，而 tsc / 构建 / 门禁全绿。
+  if (token) headers[PROTOCOL.AUTH_HEADER] = `${PROTOCOL.AUTH_SCHEME} ${token}`;
   if (endpoint.method !== 'GET') {
-    headers['Idempotency-Key'] = opts.idempotencyKey ?? newIdempotencyKey();
+    headers[PROTOCOL.IDEMPOTENCY_HEADER] = opts.idempotencyKey ?? newIdempotencyKey();
   }
 
   const controller = new AbortController();
@@ -118,8 +121,11 @@ export async function call<T = unknown>(
       signal: opts.signal ?? controller.signal,
     });
     const body = (await res.json().catch(() => ({}))) as Envelope<T>;
-    const traceId = body.trace_id ?? res.headers.get('X-Trace-Id') ?? '';
-    if (!res.ok || body.code !== 0) {
+    // 🛑 留痕头名取自生成物常量：`X-Trace-Id` 此前在契约里【零声明】，
+    //    只活在后端 TraceIdFilter 与三端字面量里（第 57 条实测 6 处）。
+    const traceId = body.trace_id ?? res.headers.get(PROTOCOL.TRACE_HEADER) ?? '';
+    // 🛑 成功码同样取自生成物常量（契约 §2.0「code != 0 时 data 为空」）。
+    if (!res.ok || body.code !== PROTOCOL.ENVELOPE_OK_CODE) {
       const err = new Error(body.message ?? `request failed: ${res.status}`) as Error & {
         code?: number;
         status?: number;

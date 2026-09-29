@@ -26,6 +26,43 @@ export const CONTRACT_VERSION = "api-contract-v1.0.0";
  */
 export const API_BASE_PATH: string = "/api/v1";
 
+/**
+ * 跨端协议片段（契约 x-api-protocol 的机械转录）—— **出站层一律引用本组常量**。
+ *
+ * 🛑 为什么不能在各端出站层手写字面量（本仓第 57 条）
+ *    头名 / 令牌前缀 / 信封成功码此前在三个端各写一遍。
+ *    `X-Trace-Id` 更彻底：契约里【一个字都没有】，只活在后端 TraceIdFilter
+ *    与三端字面量里（实测 6 处）。契约或后端改一处 ⇒ 各处静默分叉 ⇒
+ *    全量 401 / 幂等去重失效 / 留痕断链，而 tsc / 构建 / 门禁全绿。
+ *    故本组常量是唯一来源，出站层必须用 PROTOCOL.*（由 build-check ④d 守）。
+ */
+export interface ProtocolSpec {
+  /** 鉴权头名（契约 x-api-protocol.auth-header）。 */
+  readonly AUTH_HEADER: string;
+  /** 令牌前缀（契约 x-api-protocol.auth-scheme）—— 拼 `${SCHEME} ${token}`。 */
+  readonly AUTH_SCHEME: string;
+  /** 租户一致性校验头（服务端仅校验、不采纳其值）。 */
+  readonly TENANT_HEADER: string;
+  /** 留痕头 —— 与响应体 trace_id 并存，用于日志双向检索。 */
+  readonly TRACE_HEADER: string;
+  /** 幂等键请求头名（写请求必带）。 */
+  readonly IDEMPOTENCY_HEADER: string;
+  /** 响应信封字段全集。 */
+  readonly ENVELOPE_FIELDS: readonly string[];
+  /** 信封成功码 —— 契约 §2.0 逐字「code != 0 时 data 为空」，故成功码为 0。 */
+  readonly ENVELOPE_OK_CODE: number;
+}
+
+export const PROTOCOL: ProtocolSpec = Object.freeze({
+  AUTH_HEADER: "Authorization",
+  AUTH_SCHEME: "Bearer",
+  TENANT_HEADER: "X-Tenant-Id",
+  TRACE_HEADER: "X-Trace-Id",
+  IDEMPOTENCY_HEADER: "Idempotency-Key",
+  ENVELOPE_FIELDS: Object.freeze(["code", "message", "data", "trace_id"]),
+  ENVELOPE_OK_CODE: 0,
+});
+
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface Endpoint {

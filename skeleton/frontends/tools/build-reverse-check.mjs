@@ -13,8 +13,11 @@
  * 和"代码是对的"完全一样。故每条判据都必须做反向验证：
  *   **注入一个真实的缺陷 → 判据必须变红 → 还原 → 必须变绿。**
  *
- * 本脚本专门覆盖 `build-check.mjs` 的 `base-path-wiring` 判据（第 56 条）：
- * 契约 Base Path（`servers[0].url = /api/v1`）必须真的进入三端出站 URL。
+ * 本脚本覆盖 `build-check.mjs` 的两条判据：
+ *   · `base-path-wiring`（第 56 条，R1–R6）—— 契约 Base Path（`servers[0].url`）
+ *     必须真的进入三端出站 URL；
+ *   · `cross-end-protocol`（第 57 条，R7–R10）—— 鉴权头名 / 令牌前缀 / 幂等头名 /
+ *     追踪头名 / 信封成功码必须引用生成物 PROTOCOL 常量，不得手抄字面量。
  *
  * 🛑 为什么在这里做而不再写一次性探针
  * ---------------------------------------------------------------------------
@@ -169,6 +172,46 @@ const CASES = [
     expectItem: 'base-path-wiring',
     mutate: (s) => s.replace(/['"]\/api\/v1['"]\s*:/, "'/api':"),
   },
+
+  // --- 第 57 条：跨端协议片段（另三类隐式协议）的反向验证 --------------------
+  {
+    id: 'R7',
+    end: 'admin-web',
+    rel: 'src/api/client.ts',
+    title: '端 A：鉴权头名回退成手写字面量（不引用生成物常量）',
+    expectItem: 'cross-end-protocol',
+    mutate: (s) => s.replace(
+      /headers\[PROTOCOL\.AUTH_HEADER\] = `\$\{PROTOCOL\.AUTH_SCHEME\} \$\{token\}`;/,
+      "headers['Authorization'] = `Bearer ${token}`;"),
+  },
+  {
+    id: 'R8',
+    end: 'client-mp',
+    rel: 'miniprogram/services/request.js',
+    title: '端 C：追踪头名回退成字面量（X-Trace-Id 契约里零声明）',
+    expectItem: 'cross-end-protocol',
+    mutate: (s) => s.replace(
+      /res\.header\[contract\.PROTOCOL\.TRACE_HEADER\]/,
+      "res.header['X-Trace-Id']"),
+  },
+  {
+    id: 'R9',
+    end: 'therapist-app',
+    rel: 'src/api/client.ts',
+    title: '端 B：信封成功码回退成字面量 0（不引用生成物常量）',
+    expectItem: 'cross-end-protocol',
+    mutate: (s) => s.replace(
+      /body\.code !== PROTOCOL\.ENVELOPE_OK_CODE/,
+      'body.code !== 0'),
+  },
+  {
+    id: 'R10',
+    end: 'admin-web',
+    rel: 'src/contract/endpoints.ts',
+    title: '生成物 PROTOCOL 的头名被改成与契约不一致（值漂移，不是缺键）',
+    expectItem: 'cross-end-protocol',
+    mutate: (s) => s.replace(/AUTH_HEADER: "Authorization"/, 'AUTH_HEADER: "X-Auth"'),
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -189,7 +232,7 @@ if (!baselineOk) {
   process.exit(1);
 }
 
-process.stdout.write('===== 构建自检 · base-path-wiring 反向验证（注入 → 必须变红 → 还原 → 必须变绿）=====\n');
+process.stdout.write('===== 构建自检 · base-path-wiring + cross-end-protocol 反向验证（注入 → 必须变红 → 还原 → 必须变绿）=====\n');
 const results = [];
 for (const c of CASES) {
   const r = await caseInject(c);
@@ -217,8 +260,8 @@ process.stdout.write(`还原后三端构建自检：${Object.entries(finalCodes)
   + `${allGreen && leftovers.length === 0 ? '（全绿 ✓，无残留）' : '（异常 ✗）'}\n`);
 
 if (passed === results.length && allGreen && leftovers.length === 0) {
-  process.stdout.write('\nbase-path-wiring 反向验证 PASS —— 判据确实有牙齿，且还原干净。\n');
+  process.stdout.write('\nbuild-check 反向验证 PASS —— 两条判据（base-path-wiring / cross-end-protocol）确实有牙齿，且还原干净。\n');
   process.exit(0);
 }
-process.stdout.write('\nbase-path-wiring 反向验证 FAIL。\n');
+process.stdout.write('\nbuild-check 反向验证 FAIL。\n');
 process.exit(1);

@@ -234,6 +234,18 @@ def load_api_base_path(end_id: str):
 
     故把 ``servers[0].url`` 机械转录为生成物常量，三端 URL 一律由
     ``BASE + path`` 构成 —— 前缀从"注释里的约定"变成"生成物里的常量"。
+
+    🛑 第 57 条的补充（本条修法自己的一个漏洞，已订正）
+    ---------------------------------------------------------------------------
+    初版实现**没有从 ``servers[0].url`` 取值**，而是把 ``base_path`` 当作入参
+    从 ``x-global-conventions['base-path']`` 读出后，**再把字面量手抄进模板**
+    （``lines.append("const API_BASE_PATH = %s;" % js_literal(api_base_path))``）
+    并配一句注释「Value = /api/v1」。于是：**契约改 Base Path ⇒ 生成物照旧**，
+    而门禁只断言"常量存在"、不断言"值等于契约" ⇒ 值漂移静默通过。
+    这正是第 52 条（判据太宽 ⇒ 假绿）的形态，且是本条修法自己引入的。
+    订正：本函数读 ``servers[0].url`` 作为 **权威值**（与契约冻结门禁的
+    ``servers 必须包含 /api/v1`` 断言同源），并与 ``x-global-conventions['base-path']``
+    **互查** —— 两者不一致即 ``MISCONFIGURED`` 退出。于是全链只剩一个真源。
     """
     path = os.path.join(CUT_DIR, "%s.openapi.yaml" % end_id)
     doc = yaml.safe_load(io.open(path, encoding="utf-8").read())
@@ -242,7 +254,74 @@ def load_api_base_path(end_id: str):
         raise SystemExit(
             "MISCONFIGURED: %s 的 servers[0].url 缺失 —— 契约 §2.0 的 Base Path "
             "是三端拼 URL 的唯一依据，不得为空。" % path)
-    return str(servers[0]["url"])
+    url = str(servers[0]["url"])
+    conv = doc.get("x-global-conventions") or {}
+    declared = conv.get("base-path")
+    if declared is not None and str(declared) != url:
+        raise SystemExit(
+            "MISCONFIGURED: %s 的 servers[0].url=%r 与 x-global-conventions['base-path']=%r "
+            "不一致 —— 两处都是「Base Path」的声明，必须同值。" % (path, url, declared))
+    return url
+
+
+def load_api_protocol(end_id: str):
+    """读裁剪契约的 ``x-api-protocol`` —— 跨端共同遵守的**协议片段**（第 57 条）。
+
+    🛑 为什么必须转出（第 57 条：另三类跨端隐式协议）
+    ---------------------------------------------------------------------------
+    第 56 条只修了 URL 前缀。但"跨端共同遵守的协议片段"还有三类同样只写在
+    注释 / prose / 各处手抄的字面量里：
+
+      · **鉴权头名 + 令牌前缀** —— 三端出站层各自手写
+        ``headers.Authorization = `Bearer ${token}```（端 A/B）、
+        ``header.Authorization = 'Bearer ' + token``（端 C）；
+      · **幂等头名** —— 三端各自手写 ``'Idempotency-Key'``；
+      · **追踪头名** —— 端 A/B ``res.headers.get('X-Trace-Id')``、
+        端 C ``res.header['X-Trace-Id']``。**这个头连 prose 里都没有**：
+        契约全域零声明，它只活在后端 ``TraceIdFilter.HEADER`` 常量与前端
+        字面量里（实测 6 处）。
+      · **信封成功码** —— 三端各自写 ``body.code !== 0`` / ``body.code === 0``。
+
+    失效方式与第 56 条完全同型：契约（或后端）改一处 ⇒ 各处静默分叉 ⇒
+    全量 401 / 幂等去重失效 / 留痕断链，而 tsc / vite / 全部门禁**全部仍绿**。
+
+    故把 ``x-api-protocol`` 机械转录为生成物常量，三端出站层一律引用常量。
+    缺失即 ``MISCONFIGURED`` 退出 —— 与 ``servers[0].url`` 同等对待，不给兜底默认值
+    （默认值会让"契约里没有这条约定"变成"悄悄用了旧约定"，比报错更坏）。
+    """
+    path = os.path.join(CUT_DIR, "%s.openapi.yaml" % end_id)
+    doc = yaml.safe_load(io.open(path, encoding="utf-8").read())
+    proto = doc.get("x-api-protocol")
+    if not isinstance(proto, dict):
+        raise SystemExit(
+            "MISCONFIGURED: %s 缺根级 x-api-protocol —— 跨端协议片段（鉴权/幂等/追踪头名、"
+            "令牌前缀、信封成功码）必须是可机械读取的结构化事实，不得只写在 prose 里。" % path)
+    required = ("auth-header", "auth-scheme", "tenant-header", "trace-header",
+                "idempotency-header", "envelope-fields", "envelope-ok-code")
+    missing = [k for k in required if proto.get(k) in (None, "")]
+    if missing:
+        raise SystemExit(
+            "MISCONFIGURED: %s 的 x-api-protocol 缺键 %s —— 三端出站层无法机械取用。"
+            % (path, missing))
+    fields = proto.get("envelope-fields")
+    if not isinstance(fields, list) or not fields:
+        raise SystemExit("MISCONFIGURED: %s 的 x-api-protocol.envelope-fields 必须是非空列表。" % path)
+    ok_code = proto.get("envelope-ok-code")
+    if not isinstance(ok_code, int):
+        raise SystemExit(
+            "MISCONFIGURED: %s 的 x-api-protocol.envelope-ok-code 必须是整数，实为 %r。"
+            % (path, ok_code))
+    return {
+        "auth_header": str(proto["auth-header"]),
+        "auth_scheme": str(proto["auth-scheme"]),
+        "tenant_header": str(proto["tenant-header"]),
+        "trace_header": str(proto["trace-header"]),
+        "idempotency_header": str(proto["idempotency-header"]),
+        "envelope_fields": [str(f) for f in fields],
+        "envelope_ok_code": ok_code,
+        "idempotency_window_hours": proto.get("idempotency-window-hours"),
+        "envelope_rule": str(proto.get("envelope-rule") or ""),
+    }
 
 
 def allowed_roles_of(ops, token_roles):
@@ -300,7 +379,78 @@ def _render_role_expansion(role_expansion, indent, ts):
     return out
 
 
-def render_cjs(target, entries, spec_version, role_expansion, api_base_path):
+def _render_protocol_cjs(proto):
+    """跨端协议片段常量（CommonJS 形态）。逐条转录自契约 x-api-protocol。"""
+    return [
+        "/**",
+        " * 跨端协议片段（契约 x-api-protocol 的机械转录）—— **出站层一律引用本组常量**。",
+        " *",
+        " * 🛑 为什么不能在各端出站层手写字面量（本仓第 57 条）",
+        " *    头名 / 令牌前缀 / 信封成功码此前在三个端各写一遍。",
+        " *    `X-Trace-Id` 更彻底：契约里【一个字都没有】，只活在后端 TraceIdFilter",
+        " *    与三端字面量里（实测 6 处）。契约或后端改一处 ⇒ 各处静默分叉 ⇒",
+        " *    全量 401 / 幂等去重失效 / 留痕断链，而 tsc / 构建 / 门禁全绿。",
+        " *    故本组常量是唯一来源，出站层必须用 PROTOCOL.*（由 build-check ④d 守）。",
+        " */",
+        "const PROTOCOL = Object.freeze({",
+        "  AUTH_HEADER: %s," % js_literal(proto["auth_header"]),
+        "  AUTH_SCHEME: %s," % js_literal(proto["auth_scheme"]),
+        "  TENANT_HEADER: %s," % js_literal(proto["tenant_header"]),
+        "  TRACE_HEADER: %s," % js_literal(proto["trace_header"]),
+        "  IDEMPOTENCY_HEADER: %s," % js_literal(proto["idempotency_header"]),
+        "  ENVELOPE_FIELDS: Object.freeze([%s]),"
+        % ", ".join(js_literal(f) for f in proto["envelope_fields"]),
+        "  ENVELOPE_OK_CODE: %d," % proto["envelope_ok_code"],
+        "});",
+        "",
+    ]
+
+
+def _render_protocol_ts(proto):
+    """跨端协议片段常量（ESM/TS 形态）。含类型，使"忘改"变成编译错误。"""
+    return [
+        "/**",
+        " * 跨端协议片段（契约 x-api-protocol 的机械转录）—— **出站层一律引用本组常量**。",
+        " *",
+        " * 🛑 为什么不能在各端出站层手写字面量（本仓第 57 条）",
+        " *    头名 / 令牌前缀 / 信封成功码此前在三个端各写一遍。",
+        " *    `X-Trace-Id` 更彻底：契约里【一个字都没有】，只活在后端 TraceIdFilter",
+        " *    与三端字面量里（实测 6 处）。契约或后端改一处 ⇒ 各处静默分叉 ⇒",
+        " *    全量 401 / 幂等去重失效 / 留痕断链，而 tsc / 构建 / 门禁全绿。",
+        " *    故本组常量是唯一来源，出站层必须用 PROTOCOL.*（由 build-check ④d 守）。",
+        " */",
+        "export interface ProtocolSpec {",
+        "  /** 鉴权头名（契约 x-api-protocol.auth-header）。 */",
+        "  readonly AUTH_HEADER: string;",
+        "  /** 令牌前缀（契约 x-api-protocol.auth-scheme）—— 拼 `${SCHEME} ${token}`。 */",
+        "  readonly AUTH_SCHEME: string;",
+        "  /** 租户一致性校验头（服务端仅校验、不采纳其值）。 */",
+        "  readonly TENANT_HEADER: string;",
+        "  /** 留痕头 —— 与响应体 trace_id 并存，用于日志双向检索。 */",
+        "  readonly TRACE_HEADER: string;",
+        "  /** 幂等键请求头名（写请求必带）。 */",
+        "  readonly IDEMPOTENCY_HEADER: string;",
+        "  /** 响应信封字段全集。 */",
+        "  readonly ENVELOPE_FIELDS: readonly string[];",
+        "  /** 信封成功码 —— 契约 §2.0 逐字「code != 0 时 data 为空」，故成功码为 0。 */",
+        "  readonly ENVELOPE_OK_CODE: number;",
+        "}",
+        "",
+        "export const PROTOCOL: ProtocolSpec = Object.freeze({",
+        "  AUTH_HEADER: %s," % js_literal(proto["auth_header"]),
+        "  AUTH_SCHEME: %s," % js_literal(proto["auth_scheme"]),
+        "  TENANT_HEADER: %s," % js_literal(proto["tenant_header"]),
+        "  TRACE_HEADER: %s," % js_literal(proto["trace_header"]),
+        "  IDEMPOTENCY_HEADER: %s," % js_literal(proto["idempotency_header"]),
+        "  ENVELOPE_FIELDS: Object.freeze([%s]),"
+        % ", ".join(js_literal(f) for f in proto["envelope_fields"]),
+        "  ENVELOPE_OK_CODE: %d," % proto["envelope_ok_code"],
+        "});",
+        "",
+    ]
+
+
+def render_cjs(target, entries, spec_version, role_expansion, api_base_path, proto):
     lines = []
     lines.append("/**")
     lines.append(" * GENERATED FILE — DO NOT EDIT.")
@@ -331,6 +481,7 @@ def render_cjs(target, entries, spec_version, role_expansion, api_base_path):
     lines.append(" */")
     lines.append("const API_BASE_PATH = %s;" % js_literal(api_base_path))
     lines.append("")
+    lines.extend(_render_protocol_cjs(proto))
     lines.append("const END_TOKEN_ROLES = Object.freeze([%s]);"
                  % ", ".join(js_literal(r) for r in target["token_roles"]))
     lines.append("")
@@ -364,6 +515,7 @@ def render_cjs(target, entries, spec_version, role_expansion, api_base_path):
     lines.append("module.exports = {")
     lines.append("  CONTRACT_VERSION,")
     lines.append("  API_BASE_PATH,")
+    lines.append("  PROTOCOL,")
     lines.append("  END_TOKEN_ROLES,")
     lines.append("  ROLE_EXPANSION,")
     lines.append("  ENDPOINTS,")
@@ -374,7 +526,7 @@ def render_cjs(target, entries, spec_version, role_expansion, api_base_path):
     return "\n".join(lines)
 
 
-def render_ts(target, entries, spec_version, role_expansion, api_base_path):
+def render_ts(target, entries, spec_version, role_expansion, api_base_path, proto):
     lines = []
     lines.append("/**")
     lines.append(" * GENERATED FILE — DO NOT EDIT.")
@@ -404,6 +556,7 @@ def render_ts(target, entries, spec_version, role_expansion, api_base_path):
     lines.append(" */")
     lines.append("export const API_BASE_PATH: string = %s;" % js_literal(api_base_path))
     lines.append("")
+    lines.extend(_render_protocol_ts(proto))
     lines.append("export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';")
     lines.append("")
     lines.append("export interface Endpoint {")
@@ -496,10 +649,11 @@ def main() -> int:
         entries = allowed_roles_of(ops, target["token_roles"])
         role_expansion = load_role_expansion(target["id"], target["token_roles"])
         api_base_path = load_api_base_path(target["id"])
+        proto = load_api_protocol(target["id"])
         if target["flavor"] == "cjs":
-            text = render_cjs(target, entries, spec_version, role_expansion, api_base_path)
+            text = render_cjs(target, entries, spec_version, role_expansion, api_base_path, proto)
         else:
-            text = render_ts(target, entries, spec_version, role_expansion, api_base_path)
+            text = render_ts(target, entries, spec_version, role_expansion, api_base_path, proto)
 
         out = target["out"]
         if args.check:

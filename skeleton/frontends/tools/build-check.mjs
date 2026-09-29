@@ -539,6 +539,120 @@ if (cfg.outbound && cfg.envFile) {
 }
 
 // ---------------------------------------------------------------------------
+// ④d 【三端共享】跨端协议片段必须取自生成物常量（第 57 条）
+// ---------------------------------------------------------------------------
+// 🛑 实测缺口：除 URL 前缀外，"跨端共同遵守的协议片段"还有三类同样只散在
+//    注释 / prose / 各处手抄的字面量里：
+//      · 鉴权头名 + 令牌前缀 —— 三端各自写 `headers.Authorization = \`Bearer ${token}\``；
+//      · 幂等头名 —— 三端各自写 `'Idempotency-Key'`；
+//      · 追踪头名 —— 端 A/B `res.headers.get('X-Trace-Id')`、端 C `res.header['X-Trace-Id']`。
+//        🛑 这个头连 prose 里都没有：契约全域【零声明】，只活在后端
+//        `TraceIdFilter.HEADER` 常量与前端字面量里（实测 6 处）。
+//      · 信封成功码 —— 三端各自写 `body.code !== 0` / `body.code === 0`。
+//    失效方式与第 56 条完全同型：改一处 ⇒ 各处静默分叉 ⇒ 全量 401 /
+//    幂等去重失效 / 留痕断链，而 tsc / vite / 全部门禁**全部仍绿**。
+//
+// 判据形态（第 52/55 条教训：判【调用形态 + 计数等式】，不判"词是否出现"）：
+//   ① 生成物里必须确有 PROTOCOL 常量组，且各键值与契约 x-api-protocol 一致；
+//   ② 出站层必须【引用】PROTOCOL.*（证明它没手抄）；
+//   ③ 出站层不得残留协议字面量（剥注释后判 —— 注释里提到头名正是本仓鼓励的
+//      "把为什么写清楚"，不该判红，见第 55 条）。
+if (cfg.outbound) {
+  const outboundPath = join(END_ROOT, cfg.outbound);
+  const genRel2 = END_ID === 'client-mp'
+    ? 'miniprogram/contract/endpoints.js'
+    : 'src/contract/endpoints.ts';
+  const genPath2 = join(END_ROOT, genRel2);
+  if (!existsSync(outboundPath) || !existsSync(genPath2)) {
+    fail('cross-end-protocol', `缺文件: ${relative(END_ROOT, outboundPath)} / ${relative(END_ROOT, genPath2)}`);
+  } else {
+    const genSrc2 = readFileSync(genPath2, 'utf8');
+    // ① 生成物必须有 PROTOCOL 常量组，且值取自契约 x-api-protocol
+    const expected = [
+      ['AUTH_HEADER', 'Authorization'],
+      ['AUTH_SCHEME', 'Bearer'],
+      ['TENANT_HEADER', 'X-Tenant-Id'],
+      ['TRACE_HEADER', 'X-Trace-Id'],
+      ['IDEMPOTENCY_HEADER', 'Idempotency-Key'],
+    ];
+    const badGen = [];
+    for (const [key, val] of expected) {
+      const re = new RegExp(`\\b${key}\\s*:\\s*"([^"]*)"`);
+      const m = genSrc2.match(re);
+      if (!m) badGen.push(`${key} 缺失`);
+      else if (m[1] !== val) badGen.push(`${key}=${JSON.stringify(m[1])} ≠ 契约 ${JSON.stringify(val)}`);
+    }
+    if (!/ENVELOPE_OK_CODE\s*:\s*0\b/.test(genSrc2)) badGen.push('ENVELOPE_OK_CODE 缺失或 ≠ 0');
+    if (!/ENVELOPE_FIELDS\s*:\s*Object\.freeze\(\s*\[[^\]]*\btrace_id\b/.test(genSrc2)) {
+      badGen.push('ENVELOPE_FIELDS 缺失或不含 trace_id');
+    }
+    if (badGen.length) {
+      fail('cross-end-protocol',
+        `${genRel2} 的 PROTOCOL 常量组与契约 x-api-protocol 不一致:\n      ${badGen.join('\n      ')}\n`
+        + '      请先跑 python frontends/tools/gen-endpoints.py（生成器会读 x-api-protocol）。');
+    } else {
+      // ②③ 出站层：必须引用 PROTOCOL.*，且不得残留协议字面量（剥注释后判）
+      const stripComments2 = (src) => {
+        let out = '';
+        let i = 0, inLine = false, inBlock = false, inStr = null;
+        const n = src.length;
+        while (i < n) {
+          const c = src[i], nx = src[i + 1];
+          if (inLine) { if (c === '\n') { inLine = false; out += c; } i += 1; continue; }
+          if (inBlock) { if (c === '*' && nx === '/') { inBlock = false; i += 2; continue; } i += 1; continue; }
+          if (inStr) {
+            out += c;
+            if (c === '\\') { out += (nx || ''); i += 2; continue; }
+            if (c === inStr) inStr = null;
+            i += 1; continue;
+          }
+          if (c === '/' && nx === '/') { inLine = true; i += 2; continue; }
+          if (c === '/' && nx === '*') { inBlock = true; i += 2; continue; }
+          if (c === '"' || c === "'" || c === '`') { inStr = c; out += c; i += 1; continue; }
+          out += c; i += 1;
+        }
+        return out;
+      };
+      const ob = stripComments2(readFileSync(outboundPath, 'utf8'));
+      const relOut = relative(END_ROOT, outboundPath);
+
+      // 🛑 判"引用形态"而非"标识符出现"：必须见到 PROTOCOL.<KEY> 的【成员访问】。
+      const usedKeys = ['AUTH_HEADER', 'AUTH_SCHEME', 'IDEMPOTENCY_HEADER', 'TRACE_HEADER', 'ENVELOPE_OK_CODE']
+        .filter((k) => new RegExp(`PROTOCOL\\.${k}\\b`).test(ob));
+      const missingUse = ['AUTH_HEADER', 'AUTH_SCHEME', 'IDEMPOTENCY_HEADER', 'TRACE_HEADER', 'ENVELOPE_OK_CODE']
+        .filter((k) => !new RegExp(`PROTOCOL\\.${k}\\b`).test(ob));
+
+      // 残留协议字面量（剥注释后）：头名以字符串字面量出现，或 'Bearer ' 前缀硬编码
+      // 🛑 判"字面量"用**任意引号出现**而非"`NAME:` 键形态"：头名更常见的用法是
+      //    下标访问（端 C 的 `res.header['X-Trace-Id']`），那种写法后面没有冒号
+      //    —— 若只认键形态就会漏掉它（第 52 条：判据太宽/太窄都是缺陷）。
+      //    注释已被剥掉，故"注释里解释头名为什么这么写"不会被误判（第 55 条）。
+      const literalHits = [];
+      for (const headerName of ['Authorization', 'Idempotency-Key', 'X-Trace-Id', 'X-Tenant-Id']) {
+        const re = new RegExp(`(['"\`])${headerName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\1`);
+        if (re.test(ob)) literalHits.push(`头名字面量 ${JSON.stringify(headerName)}`);
+      }
+      if (/(['"`])Bearer[\s'"]|(['"`])Bearer\s*\+/.test(ob)) literalHits.push('令牌前缀字面量 "Bearer "');
+      if (/\bcode\s*[!=]==?\s*0\b/.test(ob)) literalHits.push('信封成功码字面量 0');
+
+      if (missingUse.length) {
+        fail('cross-end-protocol',
+          `${relOut} 未引用生成物 PROTOCOL 常量的这些键: ${missingUse.join(', ')}\n`
+          + '      跨端协议片段（头名 / 令牌前缀 / 信封成功码）必须是引用、不能手抄 —— '
+          + '手抄的会在契约改动时静默分叉（第 57 条）。');
+      } else if (literalHits.length) {
+        fail('cross-end-protocol',
+          `${relOut} 仍残留协议字面量: ${literalHits.join(', ')}\n`
+          + '      ⇒ 契约 x-api-protocol 一改，这里不会跟着改（tsc / 构建都不会报）。');
+      } else {
+        ok('cross-end-protocol',
+          `${relOut} 协议片段全部引用生成物 PROTOCOL 常量（${usedKeys.length} 个键），无字面量残留`);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // ⑤ 真实构建（端 A / 端 B）
 // ---------------------------------------------------------------------------
 if (cfg.realBuild && cfg.realBuild.length) {

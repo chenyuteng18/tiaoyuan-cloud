@@ -27,6 +27,26 @@ const CONTRACT_VERSION = "api-contract-v1.0.0";
  */
 const API_BASE_PATH = "/api/v1";
 
+/**
+ * 跨端协议片段（契约 x-api-protocol 的机械转录）—— **出站层一律引用本组常量**。
+ *
+ * 🛑 为什么不能在各端出站层手写字面量（本仓第 57 条）
+ *    头名 / 令牌前缀 / 信封成功码此前在三个端各写一遍。
+ *    `X-Trace-Id` 更彻底：契约里【一个字都没有】，只活在后端 TraceIdFilter
+ *    与三端字面量里（实测 6 处）。契约或后端改一处 ⇒ 各处静默分叉 ⇒
+ *    全量 401 / 幂等去重失效 / 留痕断链，而 tsc / 构建 / 门禁全绿。
+ *    故本组常量是唯一来源，出站层必须用 PROTOCOL.*（由 build-check ④d 守）。
+ */
+const PROTOCOL = Object.freeze({
+  AUTH_HEADER: "Authorization",
+  AUTH_SCHEME: "Bearer",
+  TENANT_HEADER: "X-Tenant-Id",
+  TRACE_HEADER: "X-Trace-Id",
+  IDEMPOTENCY_HEADER: "Idempotency-Key",
+  ENVELOPE_FIELDS: Object.freeze(["code", "message", "data", "trace_id"]),
+  ENVELOPE_OK_CODE: 0,
+});
+
 const END_TOKEN_ROLES = Object.freeze(["client"]);
 
 /** 契约 x-roles 的 token-role 展开表（本端相关项）。 */
@@ -158,6 +178,7 @@ function endpointById(id) {
 module.exports = {
   CONTRACT_VERSION,
   API_BASE_PATH,
+  PROTOCOL,
   END_TOKEN_ROLES,
   ROLE_EXPANSION,
   ENDPOINTS,
