@@ -22,9 +22,21 @@
  */
 
 import { ENDPOINT_IDS, ENDPOINTS, endpointById, type Endpoint } from '../contract/endpoints';
+import { assertCanCall } from '../contract/access';
 import { getBaseUrl, TIMEOUT_MS } from '../env';
 
 export interface CallOptions {
+  /**
+   * 当前登录角色（therapist / meridian）。
+   * 🛑 **刻意设为必填**，不给默认值、也不允许省略。
+   * ---------------------------------------------------------------------------
+   * 若设为可选，则"忘了传"就等于"跳过角色准入"，而这个缝**不会让任何测试变红**
+   * —— 它只会让一次越权调用成功发出请求，由服务端 403 兜底。
+   * 必填使"少传一个参数"变成**编译错误**（本端 `strict` 开启，tsc 会直接报红），
+   * 即把静默失效变成构建期可见的失败 —— 这是本仓反复使用的同一手法
+   * （第 50/51 条的共同教训：靠人记住的步骤等于没有步骤）。
+   */
+  role: string;
   params?: Record<string, string | number>;
   query?: Record<string, string | number | boolean | undefined>;
   body?: unknown;
@@ -60,10 +72,24 @@ function newIdempotencyKey(): string {
 
 /**
  * 调用一个本端契约允许的 operation。出站前校验 operationId 属于本端。
+ *
+ * 🛑 2026-09-30 起（Task #122）本函数**同时执行 X-3 角色级准入**。
+ * ---------------------------------------------------------------------------
+ * 顺序刻意是"先查归属、再查角色"：
+ *   1. `NOT_IN_THIS_END`（端点不属本端）—— 这是**代码缺陷**，必须先暴露；
+ *   2. `ROLE_NOT_GRANTED`（端点属本端但当前角色未被授予）—— 这是**角色边界**。
+ * 只做第 1 步会让"界面已藏起入口、但代码仍能调通"成为一条缝：
+ * 任何一处漏藏入口的地方都会真的发出请求，由**服务端**的 403 兜底 ——
+ * 那时报出来的是 HTTP 403，排查者会以为是自己权限配错了，
+ * 而真实原因是**界面少藏了一个按钮**。
+ * 故两处判定合流到同一个 `assertCanCall`，避免两套判定不一致。
  */
 export async function call<T = unknown>(
   operationId: string,
-  opts: CallOptions = {}
+  // 🛑 刻意**不给默认值** `= {}`：给了默认值就等于允许省略整个 opts，
+  //    而 `role` 必填这件事会在调用点被悄悄绕过（tsc 报的就是这一条）。
+  //    去掉默认值后，"忘了传 role"必然是编译错误。
+  opts: CallOptions
 ): Promise<{ data: T | undefined; traceId: string; status: number }> {
   if (!isAllowedOperation(operationId)) {
     throw new Error(
@@ -75,6 +101,10 @@ export async function call<T = unknown>(
   if (!endpoint) {
     throw new Error(`contract: unknown operationId: ${operationId}`);
   }
+
+  // X-3：角色级准入。`role` 是必填项，编译期即保证不会漏传；
+// 三种失败（未知角色 / 端点不属本端 / 角色未被授予）由 assertCanCall 分开报。
+  assertCanCall(operationId, opts.role);
 
   let url = getBaseUrl() + fillPath(endpoint.path, opts.params);
   const qs = Object.entries(opts.query ?? {})

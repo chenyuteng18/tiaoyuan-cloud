@@ -43,7 +43,7 @@ python frontends/tools/gen-endpoints.py --check   # 只校验产物与契约一�
 | 端 | 命令 | 说明 |
 |---|---|---|
 | client-mp | `npm run build` → `node ../tools/build-check.mjs --end=client-mp` | 零第三方依赖 |
-| therapist-app | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` | 需 `npm install` |
+| therapist-app | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` · `npm run check:x3` · `npm run check:x3-reverse` | 需 `npm install`；X-3 两组门禁 |
 | admin-web | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` | 需 `npm install` |
 
 **依赖安装（本机实测可用的一条命令）**：
@@ -138,7 +138,7 @@ exit 2 且不得打印 PASS）—— **W10 首跑即为红**，正是它抓出�
 
 ⚠️ 该措辞**尚未经裁定**，本文件不把它写成"已裁定"。
 
-## 8. 🛑 两条写作/路径纪律（由本仓第 50、51 条系统性缺陷逼出，勿回退）
+## 8. 🛑 三条写作/路径/判据纪律（由本仓第 50、51、52 条系统性缺陷逼出，勿回退）
 
 ### 8.1 客户端包内【不得写出禁词原文】—— 一律用指代（第 51 条）
 
@@ -188,3 +188,32 @@ cd ../..                && python compliance/scan_compliance.py --repo-root .  #
 `build-check.mjs` 对端 C 输出 `– real-build: 本端不适用（…无通用打包器…）`。
 这条**不是**失败项也不是通过项，而是**如实登记的未验证面**（对应退出码图例里的 `3` 语义）。
 不要把它读成"端 C 构建已验证"；端 C 的真实验证只覆盖**结构与契约/词表**这三项。
+
+### 8.4 门禁判"必须被使用"类约束时，判【语法形态】，不判"词是否出现"（第 52 条）
+
+第 41 条的载体是 SQL 函数体内 `RAISE` 消息的字符串，第 52 条的载体是 **TypeScript 语句**
+—— 同一族缺陷换了宿主：**判的是"词有没有出现"，不是"行为有没有发生"**。
+
+端 B 的 `x3-check.mjs` 首次全绿，但受控注入 **I5（`void assertCanCall;`，只提及不调用）漏过**，
+一下暴露三条判据同病：
+
+| 判据 | 错误写法（判词） | 能被什么满足 | 正确写法（判形态） |
+|---|---|---|---|
+| `x3-wired`（必须调用） | `includes('assertCanCall')` | `void assertCanCall;` | `assertCanCall\s*\(\s*[^)\s][^)]*\)`（带实参的真调用） |
+| `x3-single-authority`（必须构成判断） | `/['"]meridian['"]/` | `void "meridian";` | 5 条比较/成员判定正则（`==`/`===`、`.includes()`、`.indexOf()`、查表） |
+| `x3-no-hardcoded-list`（禁止清单） | `includes(row)` | `void ['F1'];` | 数组字面量且**至少 2 个端点行号** |
+
+**通用规则（两条，方向相反，别混用）**：
+
+- 约束是「**禁止出现**」⇒ 用全文 `includes()` / 正则即可（端 C 禁用词扫描属这一类）。
+- 约束是「**必须被使用 / 必须构成某种语法结构**」⇒ **必须判语法形态**。
+  「代码里出现了某个名字」永远不等于「那个名字被使用了」。
+
+🛑 **连带纪律（注入用例本身也要"真实"）**：I4 必须注入 `role === "meridian"`（真实判断形态）。
+若按最初写法注入 `void "meridian"`，会得到一个**假红**——门禁确实报红了，
+但报的**不是它该报的原因**（这正是第 36 条那类"反向验证自身的元层缺陷"）。
+**I5 已保留为永久回归用例**，它正是当初漏过的那一组。
+
+🛑 **记住这条的来历**：它不是被"门禁全绿"发现的 —— **门禁首跑就是全绿**。
+一个全绿的门禁**可能只是因为它从来没被真正违反过**；
+只有**受控注入**能回答"这个绿是有条件的绿吗"。
