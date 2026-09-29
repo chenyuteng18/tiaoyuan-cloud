@@ -1,0 +1,25 @@
+<view class="page">
+  <view class="page-head">
+    <text class="page-head-title">我的方案</text>
+    <text class="page-head-sub">查看与本次调理相关的方案</text>
+  </view>
+
+  <view class="card">
+    <text class="opt-label">方案编号</text>
+    <input class="input" placeholder="请填写方案编号" value="{{planId}}" bindinput="onIdInput" />
+    <button class="btn" disabled="{{loading}}" bindtap="query">查询</button>
+  </view>
+
+  <view class="error" wx:if="{{errText}}">{{errText}}</view>
+
+  <view class="card" wx:if="{{loaded && rows.length > 0}}">
+    <text class="card-title">方案内容</text>
+    <view class="row" wx:for="{{rows}}" wx:key="k">
+      <text class="label">{{item.k}}</text>
+      <text class="value">{{item.v}}</text>
+    </view>
+  </view>
+
+  <view class="empty" wx:if="{{loaded && rows.length === 0}}">方案内容为空</view>
+  <view class="hint" wx:if="{{loading}}">正在加载…</view>
+</view>

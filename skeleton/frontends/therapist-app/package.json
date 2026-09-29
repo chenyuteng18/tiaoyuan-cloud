@@ -7,9 +7,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "gen:endpoints": "python ../../tools/gen-endpoints.py",
-    "check:contract": "python ../../tools/gen-endpoints.py --check",
-    "check:build": "node ../../tools/build-check.mjs --end=therapist-app"
+    "gen:endpoints": "python ../tools/gen-endpoints.py",
+    "check:contract": "python ../tools/gen-endpoints.py --check",
+    "check:build": "node ../tools/build-check.mjs --end=therapist-app"
   },
   "dependencies": {
     "react": "^18.3.1",

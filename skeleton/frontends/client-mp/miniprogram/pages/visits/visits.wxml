@@ -1,0 +1,21 @@
+<view class="page">
+  <view class="page-head">
+    <text class="page-head-title">服务记录</text>
+    <text class="page-head-sub">在这里回看每一次服务</text>
+  </view>
+
+  <view class="error" wx:if="{{errText}}">{{errText}}</view>
+
+  <view class="card" wx:if="{{hasCustomer}}">
+    <block wx:if="{{visits.length > 0}}">
+      <view class="list-item" wx:for="{{visits}}" wx:key="visit_id">
+        <text class="list-main">{{item.executed_at}} · 第 {{item.visit_no}} 次</text>
+        <text class="list-sub" wx:if="{{item.confirmed}}">{{item.confirmed}}</text>
+        <text class="list-sub" wx:if="{{item.storeMarked}}">服务门店已记录</text>
+      </view>
+    </block>
+    <view class="empty" wx:if="{{visits.length === 0}}">暂无服务记录</view>
+  </view>
+
+  <view class="hint" wx:if="{{loading}}">正在加载…</view>
+</view>

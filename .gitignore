@@ -75,5 +75,26 @@ _work/tmp/
 
 # 🛑 过程日志与探针输出：可复算，不属证据（证据是 verification/*.md 与
 #    compliance/reports/REVERSE-VERIFICATION-*.md）。*.log 已在上方全局忽略。
+#
+#    🛑 2026-09-30 修正：原规则只列了 `_work/_probe*.sql` 与 `_work/_probe*.py`，
+#    于是同一批探针在 **.txt / .json** 形态下【不被忽略】—— 一次 `git add -A`
+#    就把 3 个过程产物收进了暂存区（`_work/_probe_endpoints_dump.txt` ·
+#    `skeleton/_probe_scan_out.txt` · `skeleton/compliance/reports/_probe-scan.json`）。
+#    **教训**：忽略规则是"按文件名立规、按扩展名写模式"，两者一旦不一致，
+#    缺口就落在"换了输出格式"的那一侧。
+#
+#    🛑 但**不能**用一条全局 `_probe*` 了事 —— 实测 `skeleton/_work/` 下有
+#    **43 个 `_probe*` 已跟踪文件**（14 `.py` / 24 `.sql` / 5 `.txt`，如
+#    `_probe119_policy.sql` / `_probe125_*.py`），它们是**反向验证的取证件**、
+#    被 `verification/*.md` 引用，属交付物。一条全局规则虽不改动已跟踪文件，
+#    却会让**未来**写在这两个目录下的合法探针被静默忽略（静默失败，本仓大忌）。
+#    故改为**按目录精确作用域**，只覆盖"过程产物会出现、而取证件不会出现"的层：
+#      · 仓库根 `_work/`            —— 本次三个过程产物之一在此
+#      · `skeleton/` 根             —— 本次之一在此（写扫描器输出时误落到此）
+#      · `skeleton/compliance/reports/` —— 本次之一在此
+#    `skeleton/_work/` **刻意不列入**（那是取证件的地盘）。
+/_work/_probe*
+/skeleton/_probe*
+/skeleton/compliance/reports/_probe*
 _work/_probe*.sql
 _work/_probe*.py

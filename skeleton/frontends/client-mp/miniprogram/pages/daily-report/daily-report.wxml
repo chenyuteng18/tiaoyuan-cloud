@@ -1,0 +1,61 @@
+<view class="page">
+  <view class="page-head">
+    <text class="page-head-title">每日填报</text>
+    <text class="page-head-sub">全部为选择题，无需打字</text>
+  </view>
+
+  <view class="error" wx:if="{{errText}}">{{errText}}</view>
+  <view class="hint" wx:if="{{okText && !showEcho}}">{{okText}}</view>
+
+  <block wx:if="{{hasCustomer}}">
+    <!-- 选择填报日期（补填窗口内的三天） -->
+    <view class="card">
+      <picker mode="selector" range="{{dates}}" range-key="label" value="{{dateIndex}}" bindchange="onPickDate">
+        <view class="row">
+          <text class="label">填报日期</text>
+          <text class="value">{{dates[dateIndex].value}}（{{dates[dateIndex].label}}）</text>
+        </view>
+      </picker>
+    </view>
+
+    <!-- 题目区：题目源未配置时如实说明，不生成假题目 -->
+    <view class="hint" wx:if="{{!questionsReady}}">
+      填报项待配置，请联系门店。
+    </view>
+
+    <view class="card" wx:if="{{questionsReady}}">
+      <block wx:for="{{questions}}" wx:key="key">
+        <text class="opt-label">{{item.title}}</text>
+        <view class="opt-group">
+          <view class="opt {{picked[item.key] === opt.value ? 'on' : ''}}"
+                wx:for="{{item.options}}"
+                wx:for-item="opt"
+                wx:key="value"
+                data-q="{{item.key}}"
+                data-v="{{opt.value}}"
+                bindtap="onPickOption">{{opt.label}}</view>
+        </view>
+      </block>
+
+      <button class="btn" disabled="{{submitting || loading}}" bindtap="onSubmit">提交</button>
+    </view>
+
+    <!-- 提交即回显：本周 X/7 天 + 上周对比 + 一条可执行建议（P0-09） -->
+    <view class="card" wx:if="{{showEcho}}">
+      <text class="card-title">本周已填</text>
+      <view class="row">
+        <text class="label">本周</text>
+        <text class="value">{{weeklyCount}} / 7 天</text>
+      </view>
+      <view class="row" wx:if="{{weeklyCompareText}}">
+        <text class="label">上周</text>
+        <text class="value">{{weeklyCompareText}}</text>
+      </view>
+      <view class="notice" wx:if="{{suggestion}}">
+        <text class="notice-text">{{suggestion}}</text>
+      </view>
+    </view>
+
+    <view class="hint" wx:if="{{loading}}">正在加载…</view>
+  </block>
+</view>

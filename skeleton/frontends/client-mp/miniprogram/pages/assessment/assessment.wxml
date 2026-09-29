@@ -1,0 +1,38 @@
+<view class="page">
+  <view class="page-head">
+    <text class="page-head-title">评估回看</text>
+    <text class="page-head-sub">查看自己的评估记录</text>
+  </view>
+
+  <view class="card">
+    <text class="opt-label">评估编号</text>
+    <input class="input" placeholder="请填写评估编号" value="{{assessmentId}}" bindinput="onIdInput" />
+    <button class="btn" disabled="{{loading}}" bindtap="query">查询</button>
+  </view>
+
+  <view class="error" wx:if="{{errText}}">{{errText}}</view>
+
+  <block wx:if="{{loaded}}">
+    <view class="card">
+      <text class="card-title">评估信息</text>
+      <view class="row" wx:if="{{assessedAt}}">
+        <text class="label">评估日期</text>
+        <text class="value">{{assessedAt}}</text>
+      </view>
+      <view class="row" wx:if="{{dims.length > 0}}" wx:for="{{dims}}" wx:key="name">
+        <text class="label">{{item.name}}</text>
+        <text class="value">{{item.score}}</text>
+      </view>
+    </view>
+
+    <view class="card" wx:if="{{conclusionReady}}">
+      <text class="card-title">评估记录</text>
+      <view class="row" wx:for="{{conclusionRows}}" wx:key="k">
+        <text class="label">{{item.k}}</text>
+        <text class="value">{{item.v}}</text>
+      </view>
+    </view>
+  </block>
+
+  <view class="hint" wx:if="{{loading}}">正在加载…</view>
+</view>

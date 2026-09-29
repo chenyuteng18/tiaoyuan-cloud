@@ -1,0 +1,34 @@
+<view class="page">
+  <view class="page-head">
+    <text class="page-head-title">量表题组</text>
+    <text class="page-head-sub">按您的档案信息选定</text>
+  </view>
+
+  <view class="error" wx:if="{{errText}}">{{errText}}</view>
+
+  <view class="card">
+    <picker mode="selector" range="{{dimensions}}" value="{{dimIndex}}" bindchange="onPickDim">
+      <view class="row">
+        <text class="label">维度</text>
+        <text class="value">{{dimensions[dimIndex]}}</text>
+      </view>
+    </picker>
+    <button class="btn" disabled="{{loading || !ageGroup}}" bindtap="query">查看题组</button>
+    <view class="neutral" wx:if="{{ageGroupNote}}">{{ageGroupNote}}</view>
+  </view>
+
+  <block wx:if="{{queried}}">
+    <view class="card" wx:if="{{groups.length > 0}}">
+      <view class="list-item" wx:for="{{groups}}" wx:key="id">
+        <text class="list-main">{{item.dimension || '题组'}}</text>
+        <text class="list-sub" wx:if="{{item.version}}">版本 {{item.version}}</text>
+        <view class="opt-group">
+          <view class="opt" wx:for="{{item.options}}" wx:for-item="o" wx:key="*this">{{o}}</view>
+        </view>
+      </view>
+    </view>
+    <view class="empty" wx:if="{{groups.length === 0}}">暂无可查看的题组</view>
+  </block>
+
+  <view class="hint" wx:if="{{loading}}">正在加载…</view>
+</view>

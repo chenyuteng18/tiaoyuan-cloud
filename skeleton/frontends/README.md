@@ -42,7 +42,7 @@ python frontends/tools/gen-endpoints.py --check   # 只校验产物与契约一�
 
 | 端 | 命令 | 说明 |
 |---|---|---|
-| client-mp | `npm run build` → `node ../../tools/build-check.mjs --end=client-mp` | 零第三方依赖 |
+| client-mp | `npm run build` → `node ../tools/build-check.mjs --end=client-mp` | 零第三方依赖 |
 | therapist-app | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` | 需 `npm install` |
 | admin-web | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` | 需 `npm install` |
 
@@ -137,3 +137,54 @@ exit 2 且不得打印 PASS）—— **W10 首跑即为红**，正是它抓出�
 > 三端 SDK / `client-package` 纪律件 / generator-matrix 角色声明）均已就位。
 
 ⚠️ 该措辞**尚未经裁定**，本文件不把它写成"已裁定"。
+
+## 8. 🛑 两条写作/路径纪律（由本仓第 50、51 条系统性缺陷逼出，勿回退）
+
+### 8.1 客户端包内【不得写出禁词原文】—— 一律用指代（第 51 条）
+
+**事实（实测口径，非估计）**：ADR-12 的三张词表对客户端包是**全量扫描且不剥注释**的。
+`compliance/scan_compliance.py` 的 `scan_face()` 逐行直接匹配，**不剥 `/* */`、也不剥 `//`**；
+词表的 `SCOPE` 段逐字声明本面「applied to the WHOLE client package with **no path allow-list**」。
+也就是说：**在客户端包的源码注释里解释"某个词为什么被禁"时写出那个词，本身就是一次命中**，
+会让 `npm run build` 与 CI 的 ADR-12 门禁**同时**变红。
+
+**为什么会踩**：最小复现是"我在注释里说明这条纪律"—— 要说明它就得举反例，一举反例就命中。
+🛑 本人在同一次收口中**连续踩了三次**（写「R2 组点名的归因说法」、把组名写成「与医学宣称相关」、
+在 `daily-report.js` 写「连续未填报」），每次都以为"这次是在解释、不算文案"。
+
+**纪律（照抄执行，不要自行发挥）**：需要指向某个被禁概念时，**只写指代**：
+
+| 允许写 | 不要写 |
+|---|---|
+| `R1 组` / `R2 组`（契约 x-wording-discipline 的词条组编号） | 该组里的任何一个词 |
+| `③ 组` / `④ 组`（契约 x-field-groups 的字段组编号） | 组内字段名 |
+| `扫描面 1` / `扫描面 2` / `扫描面 3`（ADR-12） | 该面词表里的任何一个词 |
+| `W-1` / `W-2` / `W-3`（PRD §2.6.2 的约束编号） | 编号所约束的那类措辞的原文 |
+| 条款号 / 规则号 / config 号 / 函数名 | 用一句自然语言"复述"那条规则里的词 |
+
+🛑 **"换个说法"不等于"不引原文"**：只要句子读起来还能让读者知道那个词是什么，
+就极可能已经命中。**判据是"整份文件里不出现该词"，不是"我这次是在解释"。**
+
+**两侧必须同时复验**（`build-check.mjs` 与主扫描器**同口径**，这是第 51 条的修法本体）：
+
+```bash
+cd frontends/client-mp && node ../tools/build-check.mjs --end=client-mp   # 期望 BUILD OK / exit 0
+cd ../..                && python compliance/scan_compliance.py --repo-root .  # 期望 PASS violations=0
+```
+
+### 8.2 `package.json` 的每一条 `scripts` 必须在【它自己的目录下】真跑过（第 50 条）
+
+三端脚本曾一律写 `../../tools/...`，而 `skeleton/tools/` **不存在**（真实位置是
+`frontends/tools/`，相对三端目录只须上一层 `../tools/`）⇒ 6 条脚本**从未跑通过**，
+却因"此前所有验证都由仓库根直接调脚本"而长期无人发现。**共修正 7 处**
+（`admin-web` 3 · `therapist-app` 3 · `client-mp` 2 中的 2 条 · 本文件 §3 表格 1）。
+
+🛑 **通用规则**：跨目录相对路径**不能用审阅代替执行** —— `../../` 与 `../` 在肉眼审阅里
+同样"看着合理"，只有**实际执行**能证伪。新增或修改任何 `scripts` 后，必须在**该端目录下**
+逐条跑一次并记录退出码。
+
+### 8.3 一处必须写进文件的**反向**发现（端 C 的 `real-build` 是"不适用"，不是"通过"）
+
+`build-check.mjs` 对端 C 输出 `– real-build: 本端不适用（…无通用打包器…）`。
+这条**不是**失败项也不是通过项，而是**如实登记的未验证面**（对应退出码图例里的 `3` 语义）。
+不要把它读成"端 C 构建已验证"；端 C 的真实验证只覆盖**结构与契约/词表**这三项。

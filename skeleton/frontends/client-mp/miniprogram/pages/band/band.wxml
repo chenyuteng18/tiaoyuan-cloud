@@ -1,0 +1,64 @@
+<view class="page">
+  <view class="page-head">
+    <text class="page-head-title">手环数据</text>
+    <text class="page-head-sub">{{bandSourceText}}</text>
+  </view>
+
+  <view class="error" wx:if="{{errText}}">{{errText}}</view>
+
+  <view class="card" wx:if="{{hasCustomer}}">
+    <!-- ① 采集情况：正向计数（W-2） -->
+    <block wx:if="{{!notConnected}}">
+      <view class="row" wx:if="{{collectedText}}">
+        <text class="label">采集情况</text>
+        <text class="value">{{collectedText}}</text>
+      </view>
+      <view class="row" wx:if="{{syncLine}}">
+        <text class="label">同步时间</text>
+        <text class="value">{{syncLine}}</text>
+      </view>
+    </block>
+
+    <!-- R6：未接入态不显示 0、不画空图，只如实说明未接入 -->
+    <block wx:if="{{notConnected}}">
+      <view class="empty">手环未接入</view>
+    </block>
+
+    <!-- ② 指标（① 组白名单：睡眠 / 步数 / 心率 / 静息心率 / 血氧 / 运动） -->
+    <block wx:if="{{!notConnected && metrics.length > 0}}">
+      <view class="list-item" wx:for="{{metrics}}" wx:key="label">
+        <text class="list-main">{{item.label}}：{{item.value}}{{item.unit}}</text>
+        <text class="list-sub" wx:if="{{item.day}}">{{item.day}}</text>
+      </view>
+    </block>
+
+    <!-- W-3 ① ：定位告知，必须与数据同屏（同卡内） -->
+    <view class="notice">
+      <text class="notice-text">{{bandReferenceNotice}}</text>
+    </view>
+  </view>
+
+  <!-- 同步状态（E6）：只呈现状态与可执行的下一步，不作任何原因解释 -->
+  <view class="card" wx:if="{{hasCustomer && syncStateText}}">
+    <text class="card-title">同步状态</text>
+    <view class="row">
+      <text class="label">状态</text>
+      <text class="value">{{syncStateText}}</text>
+    </view>
+    <view class="row" wx:if="{{syncNextActionText}}">
+      <text class="label">建议</text>
+      <text class="value">{{syncNextActionText}}</text>
+    </view>
+    <view class="row" wx:if="{{syncLine}}">
+      <text class="label">同步时间</text>
+      <text class="value">{{syncLine}}</text>
+    </view>
+  </view>
+
+  <!-- 采集能力状态（E5）：能力未接入时如实说明，不伪造数据 -->
+  <view class="hint" wx:if="{{hasCustomer && collectorNote}}">{{collectorNote}}</view>
+
+  <view class="hint" wx:if="{{loading}}">正在加载…</view>
+
+  <button class="btn btn-plain" wx:if="{{hasCustomer}}" bindtap="goProfile">返回我的档案</button>
+</view>

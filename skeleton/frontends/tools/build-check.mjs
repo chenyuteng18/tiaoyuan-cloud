@@ -242,9 +242,27 @@ if (cfg.scanWords) {
     }
     return acc;
   };
-  // 与 compliance 一致：先剥注释再断言（第 41 条：判据被注释满足 ⇒ 假绿）
-  const stripComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-
+  // 🛑🛑 2026-09-30 修正（第 51 条系统性缺陷）：这里**不再剥注释**。
+  //
+  // 旧版本此处的做法是 `stripComments(...)`（剥 /* */ 与 //），并在注释里声称
+  // 「与 compliance 一致」。**那句声称是错的** —— 实测 compliance/scan_compliance.py
+  // 的 scan_face() 是逐行 `line_matches(line, term)` 直接匹配，**不剥任何注释**。
+  //
+  // 两处口径不一致的后果正是本仓反复修的那类假绿：
+  //   · 本端 `npm run build` 绿 —— 因为注释被剥掉了；
+  //   · CI 里 ADR-12 门禁红 —— 因为主扫描器看得见注释。
+  // 于是"本地全绿、推上去红"，而排查者会以为是 CI 环境问题。
+  //
+  // 方向选择（不是随便挑一个）：
+  //   词表的 SCOPE 逐字写着「applied to the WHOLE client package with no path
+  //   allow-list」，而注释确实是客户端包的一部分；且小程序打包后注释可能保留，
+  //   反编译可见。故**注释里的禁词本就是命中**，主扫描器是对的。
+  //   本文件擅自剥注释 = **放松门禁**，而本仓纪律明令「不放宽词表、不加 path 例外」。
+  //   故此处对齐到**更严的一侧**：注释同样参与匹配。
+  //
+  // 这条同时解释了为什么本文件里看不到被禁术语的原文引用 —— 需要说明"某词为什么
+  // 被禁"时，一律**用指代**（如「③ 组字段名」「R7 点名的评价类措辞」），不写原词。
+  // 该约束已登记于 frontends/README.md。
   const scanned = cfg.scanRoots
     .filter((r) => existsSync(join(END_ROOT, r)))
     .flatMap((r) => walk(join(END_ROOT, r)));
@@ -254,7 +272,7 @@ if (cfg.scanWords) {
     if (words === null) { fail('wordlist', `词表缺失：compliance/wordlists/${name}.words`); continue; }
     const hits = [];
     for (const file of scanned) {
-      const code = stripComments(readFileSync(file, 'utf8'));
+      const code = readFileSync(file, 'utf8');
       for (const w of words) if (w && code.includes(w)) hits.push(`${relative(END_ROOT, file)} :: ${w}`);
     }
     if (hits.length) fail('words', `${label}（${name}）命中 ${hits.length} 处:\n      ${hits.join('\n      ')}`);

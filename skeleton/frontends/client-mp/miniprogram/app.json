@@ -1,12 +1,45 @@
 {
   "pages": [
-    "pages/index/index"
+    "pages/login/login",
+    "pages/index/index",
+    "pages/band/band",
+    "pages/daily-report/daily-report",
+    "pages/profile/profile",
+    "pages/visits/visits",
+    "pages/assessment/assessment",
+    "pages/plan/plan",
+    "pages/scale-bank/scale-bank"
   ],
   "window": {
     "navigationBarTitleText": "调元云",
     "navigationBarBackgroundColor": "#2D5A4A",
     "navigationBarTextStyle": "white",
-    "backgroundColor": "#FAF8F4"
+    "backgroundColor": "#FAF8F4",
+    "backgroundTextStyle": "dark"
+  },
+  "tabBar": {
+    "color": "#8A8F8C",
+    "selectedColor": "#2D5A4A",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/band/band",
+        "text": "手环数据"
+      },
+      {
+        "pagePath": "pages/daily-report/daily-report",
+        "text": "每日填报"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "我的档案"
+      }
+    ]
   },
   "style": "v2",
   "sitemapLocation": "sitemap.json"

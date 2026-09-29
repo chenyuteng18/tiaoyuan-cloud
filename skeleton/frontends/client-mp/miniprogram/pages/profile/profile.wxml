@@ -1,0 +1,55 @@
+<view class="page">
+  <view class="page-head">
+    <text class="page-head-title">我的档案</text>
+    <text class="page-head-sub">跨店可查，不必重讲病史</text>
+  </view>
+
+  <view class="error" wx:if="{{errText}}">{{errText}}</view>
+
+  <block wx:if="{{hasCustomer}}">
+    <view class="card">
+      <text class="card-title">基本信息</text>
+      <view class="row" wx:if="{{name}}">
+        <text class="label">姓名</text>
+        <text class="value">{{name}}</text>
+      </view>
+      <view class="row" wx:if="{{gender}}">
+        <text class="label">性别</text>
+        <text class="value">{{gender}}</text>
+      </view>
+      <view class="row" wx:if="{{age}}">
+        <text class="label">年龄</text>
+        <text class="value">{{age}}</text>
+      </view>
+      <view class="row" wx:if="{{screeningResult}}">
+        <text class="label">筛查结论</text>
+        <text class="value">{{screeningResult}}</text>
+      </view>
+      <view class="row" wx:if="{{bandWillingness}}">
+        <text class="label">手环意愿</text>
+        <text class="value">{{bandWillingness}}</text>
+      </view>
+    </view>
+
+    <!-- B5 扩展档案：按 key-value 渲染，不猜结构 -->
+    <view class="card" wx:if="{{intakeReady}}">
+      <text class="card-title">建档信息</text>
+      <view class="row" wx:for="{{intakeRows}}" wx:key="k">
+        <text class="label">{{item.k}}</text>
+        <text class="value">{{item.v}}</text>
+      </view>
+    </view>
+
+    <view class="card">
+      <text class="card-title">更多</text>
+      <button class="btn btn-plain" bindtap="goVisits">服务记录</button>
+      <button class="btn btn-plain" bindtap="goAssessment">评估回看</button>
+      <button class="btn btn-plain" bindtap="goPlan">我的方案</button>
+      <button class="btn btn-plain" bindtap="goScaleBank">量表题组</button>
+    </view>
+
+    <button class="btn btn-plain" bindtap="onLogout">退出登录</button>
+  </block>
+
+  <view class="hint" wx:if="{{loading}}">正在加载…</view>
+</view>
