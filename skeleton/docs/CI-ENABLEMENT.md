@@ -150,6 +150,22 @@ GitHub 真正执行 workflow（未完成）
 在仓库根目录执行。注意：本机的平台默认编码是 GBK，故显式钉 UTF-8
 （`compliance/README.md`「Wordlists and their encoding」一节要求这么做）。
 
+> 🛑🛑 **2026-09-30 重要修正：「仓库根目录」指的是 `product-strategy/`，不是 `skeleton/`。**
+> 本文档此前多处按「cwd = skeleton」书写，那是**错的**，已随仓库根上移一并更正。
+> 理由（详见骨架 README 第 49 条系统性缺陷）：
+> - **7 个门禁测试类**（`ContractConsistencyTest` / `ContractFreezeGateTest` /
+>   `EndpointCoverageLedgerTest` / `UpstreamGapRegistryTest` / `RefundDomainCrossSourceGateTest` /
+>   `RefundWritePathMatrixE2ETest` / `DocTestCountAnchorGateTest`）把"仓库根"**硬编码**为
+>   「同时含 `_work/contract-t6-api-freeze-*.md` 与 `_work/data-dict-entities-ddl-*.md` 的那一层」，
+>   并从 `user.dir` **逐级向上查找**。那一层是 `product-strategy/`。
+> - 仓库若建在 `skeleton/`，则 **clone 到任意位置后向上 4 层都找不到** ⇒
+>   实测 `ContractConsistencyTest` **5 例 4 失败 / BUILD FAILURE**。CI 每次都是全新 checkout，故**必然红**。
+> - `.github/workflows/` 也已从 `skeleton/.github/` 移到**仓库根** —— 原先的位置
+>   **GitHub Actions 根本不会加载**（它只认仓库根的 `.github/workflows/`），
+>   三个 workflow 因此**从未生效**。移动后各 job 加了 `defaults.run.working-directory: skeleton`。
+> - **改回的前提**：若日后要换层级，7 个测试类与 `verification/*.py` 的根解析必须**一并改账**
+>   （或统一改用 `-Ddy.docs.root=<abs>`），**不得只改一处**。
+
 ```bash
 # Git Bash / PowerShell 通用前缀
 export PYTHONUTF8=1
@@ -157,6 +173,10 @@ export PYTHONIOENCODING=utf-8
 # PowerShell 里改写成：
 #   $env:PYTHONUTF8="1"; $env:PYTHONIOENCODING="utf-8"
 ```
+
+> 📌 **下文中凡 `cd skeleton` 或 `python compliance/...` 的命令，请按下述口径理解**：
+> **工作目录 = `skeleton/`**（因为 `compliance/`、`dy-*/`、`verification/` 都在骨架内），
+> 而「仓库根」= 其上一级 `product-strategy/`。CI 里由 `defaults.run.working-directory: skeleton` 承担这个切换。
 
 ### 4.1 一条命令跑完四道门禁（对应 CI job `adr12-compliance-scan`）
 
