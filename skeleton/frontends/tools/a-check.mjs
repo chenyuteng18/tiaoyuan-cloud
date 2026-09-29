@@ -362,38 +362,193 @@ if (entries.length === 0) {
 // ---------------------------------------------------------------------------
 // ⑦ 【覆盖面】源码里不得把"未完结状态"当既定事实用
 // ---------------------------------------------------------------------------
-// 🛑 判据形态（第 52 条教训）：判**使用形态**，不判"词是否出现"。
-//    允许：`if (e.frontier) { ... }`（判存在后**显式处理**）
-//    禁止：把 I 域端点**不着任何未完结标注**地当普通功能渲染
-//          —— 该形态在本门禁里表达为"页面里出现了 I 域端点 id 字面量
-//             而同一文件里没有 unsettledOf / frontier / rulingPending 的引用"。
+// 🛑 判据形态（第 52 条教训）：判**调用形态**，不判"词是否出现"。
+//
+// 🛑 本轮实测两次翻车（第 53 条同型：判据覆盖面没跟上本仓自己的写法）
+// ---------------------------------------------------------------------------
+// 初版只有一条式子：`/unsettledOf|frontier|rulingPending|unsettledEndpoints/`。
+// 两个方向都错：
+//
+//   ① **假红（太窄）**：本仓在 `services/domain.ts` 里**逐字规定**
+//      "页面不得各自手写判断，一律走 `contractNoteOf` 统一出口"。
+//      于是页面写 `contractNoteOf('approveRefund')` + `<UnsettledBar items={note.unsettled}>`
+//      ——**完全合法**却被判红。假红的下场通常是有人把判据删掉，那才是真失效。
+//   ② **词满足（太弱，第 52 条）**：`/frontier/` 会被**注释**里的
+//      "契约 x-frontier" 满足；`/unsettledOf/` 会被一个同名的**未调用**标识符满足。
+//
+// 故本条重写为**三种合法形态的调用判定 + 计数等式**：
+//   (a) 直接调用契约层枚举函数：`unsettledOf(` / `unsettledEndpoints(`
+//   (b) 调用契约层统一出口且**参数是未完结端点 id 字面量**：
+//       `contractNoteOf('approveRefund')` —— 这是本仓规定的写法
+//   (c) 渲染未完结提示条：`<UnsettledBar ...>`
+// 🛑 计数等式：**引用了未完结端点 id 的文件**必须至少命中 (a)/(b)/(c) 之一；
+//    并且 (b) 的**参数**必须在契约的未完结集合里（防"参数写成普通端点 id 也算过"）。
+// 🛑 唯一的**结构性例外**（不是"开个后门"，见下）：`App.tsx` 这类**外壳文件**
+//    只在导航表里以 `requires: <推导函数>()` 形态间接依赖，文件里**不出现端点 id 字面量**。
+//    故它根本不会进入"引用了未完结端点 id"的集合 —— **不需要例外**。
+//    本判据因此对"故意写死字面量"与"用推导函数"这两种写法**等价看待**：
+//    前者会被要求标注（若只是导航表，则标注无从渲染 ⇒ 促使人改成推导函数）；
+//    后者天然干净。这条规则把"外壳不该写死端点 id"变成了**被门禁逼出来的纪律**。
 {
   const files = walk(SRC).filter((f) => /\.(ts|tsx)$/.test(f));
   const bad = [];
+  // 契约里带未完结声明的 operationId 集合（现算，不写死）
+  const unsettledIdSet = new Set(
+    entries.filter((e) => e.frontier || e.rulingPending).map((e) => e.id),
+  );
   for (const f of files) {
     const rel = relative(SRC, f).replace(/\\/g, '/');
-    if (rel.startsWith('contract/')) continue; // 契约层自身
-    const code = stripComments(readFileSync(f, 'utf8'));
-    // 找出该文件引用的端点 id（字符串字面量且在生成物里）
-    const ids = entries.map((e) => e.id).filter((id) => new RegExp(`['"]${id}['"]`).test(code));
-    if (ids.length === 0) continue;
-    const unsettledIds = ids.filter((id) => {
-      const e = entries.find((x) => x.id === id);
-      return e && (e.frontier || e.rulingPending);
-    });
+    if (rel.startsWith('contract/')) continue; // 契约层自身（生成物 / scope.ts 即元信息的住所）
+    const code = stripComments(readFileSync(f, 'utf8')); // 去注释：防"注释里的词"满足判据
+    // ① 该文件引用了哪些**未完结**端点 id 字面量
+    const unsettledIds = [...unsettledIdSet].filter((id) => new RegExp(`['"]${id}['"]`).test(code));
     if (unsettledIds.length === 0) continue;
-    const handles = /unsettledOf|frontier|rulingPending|unsettledEndpoints/.test(code);
+    // ② 三种合法形态（都是**调用/渲染形态**，不是"词出现"）
+    //    (a) 枚举契约层：unsettledOf(e) / unsettledEndpoints()
+    //    (b) 统一出口且**参数逐字是未完结端点 id**：contractNoteOf('approveRefund')
+    //        🛑 参数**必须绑定未完结集合**：若只判 `contractNoteOf(` 出现，
+    //           那么 `contractNoteOf('getCustomer')` 也会过 —— 那是第 52 条的词满足。
+    //    (c) 渲染未完结提示条：<UnsettledBar ...>
+    const callsEnum = /\bunsettledOf\s*\(|\bunsettledEndpoints\s*\(/.test(code);
+    const unsettledIdAlt = [...unsettledIdSet].map(escapeRe).join('|');
+    const callsNoteBound = new RegExp(
+      `\\bcontractNoteOf\\s*\\(\\s*(['"])(${unsettledIdAlt})\\1\\s*\\)`,
+    ).test(code);
+    const rendersBar = /<UnsettledBar\b/.test(code);
+    const handles = callsEnum || callsNoteBound || rendersBar;
     if (!handles) {
-      bad.push(`${rel} 引用了未完结端点 ${unsettledIds.join(', ')} 但未做任何标注（未引用 unsettledOf/frontier/rulingPending）`);
+      bad.push(
+        `${rel} 引用了未完结端点 ${unsettledIds.join(', ')} 但未做任何标注`
+        + `（未出现 unsettledOf(...) / contractNoteOf('<未完结id>') / <UnsettledBar>）`,
+      );
     }
   }
   if (bad.length) {
     fail('unsettled-surfaced',
       `以下文件把契约【未完结】的端点当既定事实使用：\n      ` + bad.join('\n      ')
       + '\n      ⇒ 使用者会以为"占位待冻结"的功能已经可用。'
-      + '本端把 I 域显示为正常功能，而契约逐字标它 x-frontier: 占位待冻结。');
+      + '本端把 I 域显示为正常功能，而契约逐字标它 x-frontier: 占位待冻结。'
+      + '\n      修法（二选一）：① 经 services/domain.ts 的 contractNoteOf(<该端点id>)'
+      + ' + <UnsettledBar> 渲染提示条；'
+      + '② 若本文件是外壳且只在导航表里间接依赖，改用契约层的推导函数'
+      + '（scope.ts 导出），文件内不出现端点 id 字面量。');
   } else {
-    ok('unsettled-surfaced', `引用未完结端点的源文件均带标注（已扫 ${files.length} 个源文件）`);
+    ok('unsettled-surfaced',
+      `引用未完结端点（共 ${unsettledIdSet.size} 个）的源文件均带标注`
+      + `（已扫 ${files.length} 个源文件 · 认 unsettledOf/unsettledEndpoints/contractNoteOf(<未完结id>)/<UnsettledBar> 四种调用形态）`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ⑧ 【跨文件隐式约定】令牌键名必须只有一处定义（本轮实测缺陷的守卫）
+// ---------------------------------------------------------------------------
+// 🛑 实测缺陷（属本仓第 50 条同族，接缝在"跨文件隐式约定"）：
+//    `services/session.ts` 写 `localStorage.setItem('dy.token', ...)`，
+//    而 `api/client.ts` 读 `localStorage.getItem('token')` —— **两个键名**。
+//    ⇒ Authorization 头永远为空、全量 401，而 tsc / 构建 / 既有判据**全不报**。
+//    修法 = 键名收敛到 `services/token-store.ts` 一处 + 本条判据守它。
+// 🛑 判据形态（第 52 条教训）：判【存储访问形态】，不判"词是否出现"。
+//    允许：token-store.ts 内的 `localStorage.*Item(TOKEN_KEY, ...)`（唯一权威点）；
+//    禁止：其它源文件里出现 `localStorage.getItem('...')` /
+//          `localStorage.setItem('...', ...)` / `localStorage.removeItem('...')`
+//          里带**令牌语义**的键名字面量。
+{
+  const files = walk(SRC).filter((f) => /\.(ts|tsx)$/.test(f));
+  const AUTH = join(SRC, 'services', 'token-store.ts');
+  const bad = [];
+  for (const f of files) {
+    if (f === AUTH) continue;                 // 唯一权威点，允许有字面量
+    const code = stripComments(readFileSync(f, 'utf8'));
+    const rel = relative(SRC, f).replace(/\\/g, '/');
+    const re = /localStorage\.(?:get|set|remove)Item\(\s*(['"])((?:[^'"\\]|\\.)*)\1/g;
+    let m;
+    while ((m = re.exec(code))) {
+      const key = m[2];
+      // 令牌语义：键名含 token / jwt / auth 且不是"档位缓存"语义
+      if (/token|jwt|auth/i.test(key)) {
+        bad.push(`${rel}: localStorage 直接用了令牌键名 ${JSON.stringify(key)}`);
+      }
+    }
+  }
+  if (bad.length) {
+    fail('token-single-source',
+      `令牌键名出现了本文件之外的第二处定义：\n      ` + bad.join('\n      ')
+      + '\n      ⇒ 写与读的键名若不一致，Authorization 头会**静默为空**（全量 401），'
+      + '而 tsc / 构建 / 其它判据都不会报。'
+      + '\n      修法：一律经 services/token-store.ts 的 readToken/writeToken/clearToken。');
+  } else {
+    ok('token-single-source', '令牌键名只有 services/token-store.ts 一处定义（其余源文件均经它读写）');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ⑨ 【导航依赖】NAV 的 `requires` 必须可查，且形态被判据覆盖（第 53 条的正向守卫）
+// ---------------------------------------------------------------------------
+// 🛑 为什么端 A 需要这条（端 B 的 x3-check.mjs 已有同款）
+// ---------------------------------------------------------------------------
+// 端 A 的 `requires` 恒真（39/39 端点均授予 admin），它的用途不是"过滤导航"
+// 而是"依赖可查"。但这恰恰让**判据缺失**更难察觉：就算 `requires` 写了一个
+// 契约里不存在的 id，导航项也照样显示（因为恒真），点进去才报错。
+// 故必须有一条判据把"每个 requires 都能在生成物里查到"钉住。
+//
+// 🛑 判据形态（第 53 条教训：覆盖面必须跟上"本仓允许的所有写法"）
+// ---------------------------------------------------------------------------
+// 两种合法形态：
+//   ① 生成物里存在的端点 id **字符串字面量**：`requires: 'getCustomer'`
+//   ② 契约层导出的**推导函数调用**：`requires: firstFrontierEndpointId()`
+// **计数等式**：①的条数 + ②的条数 **必须等于** NAV 里 non-null 的 `requires` 条数。
+// 等式是防"新增第三种形态"的关键 —— 少了它，`requires: (0 ? 'x' : null)` 这类
+// 写法会**两条式子都不命中**，于是"没查到"被当成"没有问题"（第 53 条的静默漏检）。
+{
+  const APP = join(SRC, 'App.tsx');
+  const appCode = stripComments(readFileSync(APP, 'utf8'));
+  const navBlockMatch = appCode.match(/const\s+NAV\s*:\s*readonly\s+NavItem\[\]\s*=\s*Object\.freeze\(\[([\s\S]*?)\]\);/);
+  if (!navBlockMatch) {
+    fail('nav-requires', 'App.tsx 里找不到 NAV 数组（判据无法校验导航依赖；若改名请同步本判据）');
+  } else {
+    const navBlock = navBlockMatch[1];
+    const bad = [];
+
+    // ① 端点 id 字面量
+    const literalIds = [...navBlock.matchAll(/requires:\s*'([^']+)'/g)].map((m) => m[1]);
+    // ② 推导函数调用形态（无参）
+    const callFns = [...navBlock.matchAll(/requires:\s*([A-Za-z_$][\w$]*)\s*\(\s*\)/g)].map((m) => m[1]);
+    // 计数等式
+    const requiresTotal = (navBlock.match(/requires:/g) ?? []).length;
+    const nullCount = (navBlock.match(/requires:\s*null/g) ?? []).length;
+    const nonNullExpected = requiresTotal - nullCount;
+    const covered = literalIds.length + callFns.length;
+
+    if (covered !== nonNullExpected) {
+      bad.push(
+        `requires 的形态未被判据覆盖：non-null 的 requires 有 ${nonNullExpected} 条，`
+        + `判据只认出 ${covered} 条（字面量 ${literalIds.length} + 推导函数 ${callFns.length}）。`
+        + '新增了第三种写法（如内联三元 / 变量拼接）会静默漏检 —— 第 53 条的形态。',
+      );
+    }
+
+    // ① 每一条字面量 id 必须在生成物里查得到
+    const unknownIds = literalIds.filter((id) => !entries.some((e) => e.id === id));
+    if (unknownIds.length) {
+      bad.push(`以下 requires 写了生成物里不存在的端点 id：${unknownIds.join(', ')}`
+        + '（导航项会静默保留，点进去才报错）');
+    }
+
+    // ② 每一个推导函数名必须是 scope.ts 真的导出的函数（防"凭空调用"）
+    const scopeCode = stripComments(readFileSync(SCOPE, 'utf8'));
+    const notExported = callFns.filter((fn) => !new RegExp(`export\\s+function\\s+${escapeRe(fn)}\\s*\\(`).test(scopeCode));
+    if (notExported.length) {
+      bad.push(`以下 requires 调用了 scope.ts 未导出的函数：${notExported.join(', ')}`
+        + '（推导函数必须来自契约层，页面/外壳不得自造依赖源）');
+    }
+
+    if (bad.length) {
+      fail('nav-requires', '导航依赖不可查或形态未被覆盖：\n      ' + bad.join('\n      '));
+    } else {
+      ok('nav-requires',
+        `NAV 的 ${nonNullExpected} 条非 null requires 全部可查`
+        + `（字面量 ${literalIds.length} 条均命中生成物；推导函数 ${callFns.length} 条均为 scope.ts 导出；计数等式成立）`);
+    }
   }
 }
 
@@ -418,6 +573,11 @@ console.log('\nA OK  (admin-web)  契约元信息未丢项 · 范围层现算 ·
 /** 剥注释：仅用于"判据不应被注释满足"的场景（本仓第 41/51 条教训）。 */
 function stripComments(t) {
   return t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
+/** 转义正则元字符（用于把"端点 id 集合"拼进正则分支）。 */
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function walk(dir) {

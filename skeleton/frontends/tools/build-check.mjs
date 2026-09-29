@@ -106,6 +106,8 @@ const ENDS = {
   'admin-web': {
     label: '端 A · 管理员 Web',
     contractKey: 'admin-web',
+    // 🛑 同端 B 纪律：这里列的是**本轮实装的面**，不是骨架期占位。
+    //    漏列一项 ⇒ "文件被删了门禁也不会红"（第 53 条同型的静默漏检）。
     required: [
       'package.json',
       'tsconfig.json',
@@ -116,6 +118,24 @@ const ENDS = {
       'src/env/index.ts',
       'src/api/client.ts',
       'src/contract/endpoints.ts',
+      // 契约元信息层（范围 / 未完结 / 仅超管 / 分域 —— 端 A 的真实边界都在这里）
+      'src/contract/scope.ts',
+      // 应用层
+      'src/services/token-store.ts',
+      'src/services/session.ts',
+      'src/services/errors.ts',
+      'src/services/domain.ts',
+      'src/ui/tokens.ts',
+      'src/ui/components.tsx',
+      // 页面
+      'src/pages/LoginPage.tsx',
+      'src/pages/DashboardPage.tsx',
+      'src/pages/CustomerConsolePage.tsx',
+      'src/pages/StorePage.tsx',
+      'src/pages/RefundWorkbenchPage.tsx',
+      'src/pages/AuditPage.tsx',
+      'src/pages/DocTemplatePage.tsx',
+      'src/pages/UnsettledPage.tsx',
     ],
     scanWords: false,
     scanRoots: [],
@@ -309,6 +329,66 @@ if (existsSync(appJsonPath)) {
     existsSync(join(END_ROOT, 'miniprogram', p + ext))));
   if (missing.length) fail('pages', `app.json 声明但文件缺失: ${missing.join(', ')}`);
   else ok('pages', `${declared.length} 个页面，文件齐全`);
+}
+
+// ---------------------------------------------------------------------------
+// ④b 【三端共享】令牌键名单一来源（本轮实测缺陷的守卫）
+// ---------------------------------------------------------------------------
+// 🛑 实测缺陷（第 50 条同族，接缝在【跨文件隐式约定】）：
+//    端 A / 端 B 的 `services/session.ts` 写 `localStorage.setItem('dy.token', ...)`，
+//    而 `api/client.ts` 读 `localStorage.getItem('token')` —— **两个键名**。
+//    ⇒ 出站 `Authorization` 头**永远为空** ⇒ 全量 401。
+//    🛑 它完全静默：tsc 不报（两个字符串都是合法字符串）、构建不报、
+//      既有门禁不报（查的是"端点属不属本端""角色授没授予"）。
+//       只有**真发一次带鉴权的请求**才会暴露，而那时报的是 401 ——
+//       排查者会先去怀疑账号权限，而不是"两个文件用了两个键名"。
+//    修法两层：① 键名收敛到一个模块（端 A = `services/token-store.ts`，
+//    端 B = `services/session.ts` 内的 TOKEN_KEY）；② 本条判据禁止**别处**
+//    再出现令牌语义的裸 localStorage 键名字面量。
+// 🛑 判据形态（第 52 条教训）：判【存储访问形态】，不判"词是否出现"。
+{
+  const TOKEN_SEMANTIC = /token|jwt|auth/i;
+  const walkTs = (dir, acc = []) => {
+    if (!existsSync(dir)) return acc;
+    for (const name of readdirSync(dir)) {
+      if (name === 'node_modules' || name.startsWith('.')) continue;
+      const p = join(dir, name);
+      if (statSync(p).isDirectory()) walkTs(p, acc);
+      else if (/\.(ts|tsx)$/i.test(name)) acc.push(p);
+    }
+    return acc;
+  };
+  const srcDir = join(END_ROOT, 'src');
+  const files = walkTs(srcDir);
+  if (files.length === 0) {
+    notes.push('  – token-single-source: 本端无 src/（不适用）');
+  } else {
+    // 权威点：端 A 是 token-store.ts；端 B 是 services/session.ts（含 TOKEN_KEY 常量）
+    const AUTH_FILES = new Set([
+      join(srcDir, 'services', 'token-store.ts'),
+      join(srcDir, 'services', 'session.ts'),
+    ]);
+    const hits = [];
+    for (const f of files) {
+      if (AUTH_FILES.has(f)) continue;
+      const code = readFileSync(f, 'utf8');
+      const re = /localStorage\.(?:get|set|remove)Item\(\s*(['"])((?:[^'"\\]|\\.)*)\1/g;
+      let m;
+      while ((m = re.exec(code))) {
+        if (TOKEN_SEMANTIC.test(m[2])) {
+          hits.push(`${relative(END_ROOT, f)} :: ${JSON.stringify(m[2])}`);
+        }
+      }
+    }
+    if (hits.length) {
+      fail('token-single-source',
+        `令牌键名出现了权威点之外的第二处定义:\n      ${hits.join('\n      ')}\n`
+        + '      ⇒ 写与读的键名若不一致，Authorization 头会【静默为空】（全量 401），\n'
+        + '        而 tsc / 构建 / 其它判据都不会报。');
+    } else {
+      ok('token-single-source', `令牌键名仅存在于权威点（已扫 ${files.length} 个源文件）`);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

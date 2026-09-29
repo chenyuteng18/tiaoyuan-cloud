@@ -23,6 +23,7 @@
 
 import { ENDPOINT_IDS, ENDPOINTS, endpointById, type Endpoint } from '../contract/endpoints';
 import { assertCanCall } from '../contract/access';
+import { getToken } from '../services/session';
 import { getBaseUrl, TIMEOUT_MS } from '../env';
 
 export interface CallOptions {
@@ -118,7 +119,13 @@ export async function call<T = unknown>(
   if (qs.length) url += (url.includes('?') ? '&' : '?') + qs.join('&');
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = localStorage.getItem('token');
+  // 🛑 令牌**一律经 services/session.ts 的 getToken() 读取**（唯一权威点），
+  //    不得在本文件直接写 `localStorage.getItem('...')`。
+  //    原因（本轮实测缺陷，第 50 条同族）：本文件原读 `'token'`，
+  //    而 session 层写的是 `'dy.token'` ⇒ 键名不一致 ⇒ Authorization 头
+  //    **永远为空** ⇒ 全量 401，而 tsc / 构建 / 既有门禁**全部不报**。
+  //    守这条的是 `tools/build-check.mjs` 的 `token-single-source` 判据（三端共享）。
+  const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (endpoint.method !== 'GET') {
     headers['Idempotency-Key'] = opts.idempotencyKey ?? newIdempotencyKey();

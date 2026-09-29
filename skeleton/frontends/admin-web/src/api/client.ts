@@ -18,6 +18,7 @@
  */
 
 import { ENDPOINT_IDS, ENDPOINTS, endpointById, type Endpoint } from '../contract/endpoints';
+import { readToken } from '../services/token-store';
 import { getBaseUrl, TIMEOUT_MS } from '../env';
 
 export interface CallOptions {
@@ -47,7 +48,20 @@ function fillPath(path: string, params?: Record<string, string | number>): strin
   return out;
 }
 
-function newIdempotencyKey(): string {
+/**
+ * 生成一个幂等键（**仅在契约未指定幂等键构成时使用**）。
+ *
+ * 🛑 为什么要把本函数导出，而不是让 `call()` 内部独享
+ * ---------------------------------------------------------------------------
+ * 契约对**少数端点**逐字指定了幂等键的**构成语义**，此时"随机值"是**错的**：
+ *   · I3 `uploadDocTemplate` 的 `x-idempotency-key = (tenant_id, doc_type, file_hash)`
+ *     —— 语义是"同一份文件重传不该产生第二个模板"。
+ *   随机键会让重复上传**每次都成功**，从而绕过幂等语义（静默的语义失效）。
+ * 故契约指定构成的端点必须由调用方**按要素显式构造**键并传入 `idempotencyKey`；
+ * 本函数只作为"契约未指定"时的兜底。
+ * `tools/a-check.mjs` ④ `xkey-values` 守"契约声明的键构成已被转录"这一事实。
+ */
+export function newIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return `ad-${crypto.randomUUID()}`;
   }
@@ -76,7 +90,13 @@ export async function call<T = unknown>(
   if (qs.length) url += (url.includes('?') ? '&' : '?') + qs.join('&');
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = localStorage.getItem('token');
+  // 🛑 令牌**一律经 services/token-store.ts 读取**，不得在本文件直接写
+  //    `localStorage.getItem('...')`。
+  //    原因（本轮实测缺陷）：本文件原读 `'token'`，而 session 层写的是
+  //    `'dy.token'` ⇒ 键名不一致 ⇒ Authorization 头**永远为空** ⇒ 全量 401，
+  //    且 tsc / 构建 / 既有门禁**全部不报**（第 50 条同族的"跨文件隐式约定"）。
+  //    门禁 `tools/a-check.mjs` 的 `token-single-source` 判据守着这一条。
+  const token = readToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (endpoint.method !== 'GET') {
     headers['Idempotency-Key'] = opts.idempotencyKey ?? newIdempotencyKey();
