@@ -25,7 +25,33 @@ export interface Endpoint {
   readonly method: HttpMethod;
   readonly path: string;
   readonly grantedRoles: readonly string[];
+  /** 契约 x-row-scope：行级范围随 admin 子档位变化（缺省 = 契约未声明）。 */
+  readonly rowScope?: string;
+  /** 契约 x-super-admin-only：仅超管（tenant 级）。 */
+  readonly superAdminOnly?: boolean;
+  /** 契约 x-ruling-pending：取值系推断、**待裁定** —— 不得当定论实现。 */
+  readonly rulingPending?: string;
+  /** 契约 x-frontier：占位待冻结 —— 不得当已冻结契约用。 */
+  readonly frontier?: string;
+  /** 契约 x-idempotency-key：幂等键构成说明。 */
+  readonly idempotencyKeySpec?: string;
 }
+
+/** 契约角色由哪些 token-role 构成（逐条取自契约 x-roles）。 */
+export interface RoleExpansion {
+  readonly tokens: readonly string[];
+  readonly end: string;
+  readonly display: string;
+}
+
+/** 本端相关角色 → token-role 展开（契约 x-roles 的机械转录）。 */
+export const ROLE_EXPANSION: Readonly<Record<string, RoleExpansion>> = Object.freeze({
+  "admin": {
+    tokens: Object.freeze(["manager", "area", "hq"]),
+    end: "web",
+    display: "管理员（门店负责人 / 区域督导 / 总部运营）",
+  },
+});
 
 export const END_TOKEN_ROLES: readonly string[] = Object.freeze([
   "admin",
@@ -38,6 +64,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     method: "GET",
     path: "/audit/coverage",
     grantedRoles: Object.freeze(["admin"]),
+    rowScope: "卡片可给门店（仅本店、三数同显）；告警动作归 P1-04、对门店不可见",
   },
   {
     id: "listAuditSignals",
@@ -45,6 +72,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     method: "GET",
     path: "/audit/signals",
     grantedRoles: Object.freeze(["admin"]),
+    rowScope: "门店负责人仅本店、区域督导仅辖区、总部全量；门店与加盟商完全不可见",
   },
   {
     id: "authLogin",
@@ -185,6 +213,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     method: "GET",
     path: "/doc-templates",
     grantedRoles: Object.freeze(["admin"]),
+    frontier: "占位待冻结",
   },
   {
     id: "createDocTemplate",
@@ -192,6 +221,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     method: "POST",
     path: "/doc-templates",
     grantedRoles: Object.freeze(["admin"]),
+    frontier: "占位待冻结",
   },
   {
     id: "uploadDocTemplate",
@@ -199,6 +229,8 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     method: "POST",
     path: "/doc-templates/uploads",
     grantedRoles: Object.freeze(["admin"]),
+    frontier: "占位待冻结",
+    idempotencyKeySpec: "(tenant_id, doc_type, file_hash)",
   },
   {
     id: "downloadDocTemplate",
@@ -206,6 +238,8 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     method: "GET",
     path: "/doc-templates/{id}/download",
     grantedRoles: Object.freeze(["admin"]),
+    superAdminOnly: true,
+    frontier: "占位待冻结",
   },
   {
     id: "listDocTemplateVersions",
@@ -213,6 +247,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     method: "GET",
     path: "/doc-templates/{id}/versions",
     grantedRoles: Object.freeze(["admin"]),
+    frontier: "占位待冻结",
   },
   {
     id: "createDocTemplateVersion",
@@ -220,6 +255,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     method: "POST",
     path: "/doc-templates/{id}/versions",
     grantedRoles: Object.freeze(["admin"]),
+    frontier: "占位待冻结",
   },
   {
     id: "publishDocTemplateVersion",
@@ -227,6 +263,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     method: "POST",
     path: "/doc-templates/{id}/versions/{version}/publish",
     grantedRoles: Object.freeze(["admin"]),
+    frontier: "占位待冻结",
   },
   {
     id: "createPlan",
@@ -269,6 +306,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     method: "POST",
     path: "/refunds/{id}/approvals",
     grantedRoles: Object.freeze(["admin"]),
+    rulingPending: "审批角色白名单未由上游逐项明示；当前取值系「可见≠可审批」推断，待裁定",
   },
   {
     id: "createRefundReceipt",

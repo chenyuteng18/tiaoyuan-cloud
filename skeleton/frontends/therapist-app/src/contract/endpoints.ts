@@ -25,7 +25,38 @@ export interface Endpoint {
   readonly method: HttpMethod;
   readonly path: string;
   readonly grantedRoles: readonly string[];
+  /** 契约 x-row-scope：行级范围随 admin 子档位变化（缺省 = 契约未声明）。 */
+  readonly rowScope?: string;
+  /** 契约 x-super-admin-only：仅超管（tenant 级）。 */
+  readonly superAdminOnly?: boolean;
+  /** 契约 x-ruling-pending：取值系推断、**待裁定** —— 不得当定论实现。 */
+  readonly rulingPending?: string;
+  /** 契约 x-frontier：占位待冻结 —— 不得当已冻结契约用。 */
+  readonly frontier?: string;
+  /** 契约 x-idempotency-key：幂等键构成说明。 */
+  readonly idempotencyKeySpec?: string;
 }
+
+/** 契约角色由哪些 token-role 构成（逐条取自契约 x-roles）。 */
+export interface RoleExpansion {
+  readonly tokens: readonly string[];
+  readonly end: string;
+  readonly display: string;
+}
+
+/** 本端相关角色 → token-role 展开（契约 x-roles 的机械转录）。 */
+export const ROLE_EXPANSION: Readonly<Record<string, RoleExpansion>> = Object.freeze({
+  "meridian": {
+    tokens: Object.freeze(["meridian"]),
+    end: "app",
+    display: "经络师（APP）",
+  },
+  "therapist": {
+    tokens: Object.freeze(["therapist"]),
+    end: "app",
+    display: "调理师（APP）",
+  },
+});
 
 export const END_TOKEN_ROLES: readonly string[] = Object.freeze([
   "therapist",

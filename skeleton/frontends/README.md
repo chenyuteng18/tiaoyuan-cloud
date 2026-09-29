@@ -44,7 +44,7 @@ python frontends/tools/gen-endpoints.py --check   # 只校验产物与契约一�
 |---|---|---|
 | client-mp | `npm run build` → `node ../tools/build-check.mjs --end=client-mp` | 零第三方依赖 |
 | therapist-app | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` · `npm run check:x3` · `npm run check:x3-reverse` | 需 `npm install`；X-3 两组门禁 |
-| admin-web | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` | 需 `npm install` |
+| admin-web | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` · `npm run check:a` · `npm run check:a-reverse` | 需 `npm install` |
 
 **依赖安装（本机实测可用的一条命令）**：
 
@@ -138,7 +138,7 @@ exit 2 且不得打印 PASS）—— **W10 首跑即为红**，正是它抓出�
 
 ⚠️ 该措辞**尚未经裁定**，本文件不把它写成"已裁定"。
 
-## 8. 🛑 四条写作/路径/判据纪律（由本仓第 50、51、52、53 条系统性缺陷逼出，勿回退）
+## 8. 🛑 五条写作/路径/判据/管道纪律（由本仓第 50、51、52、53、54 条系统性缺陷逼出，勿回退）
 
 ### 8.1 客户端包内【不得写出禁词原文】—— 一律用指代（第 51 条）
 
@@ -252,3 +252,72 @@ cd ../..                && python compliance/scan_compliance.py --repo-root .  #
 
 **回归用例**：反向验证 **I8** 把 `requires` 换成内联三元（第三种形态），
 断言门禁必须因此报红 —— 它是那条交叉核对的永久守卫。
+
+### 8.6 契约 → 生成器 → 前端 是一条管道：每类被声明过的元信息都必须有【可机械验证的落点】（第 54 条）
+
+前四条（8.2~8.5）问的是"路径对不对 / 口号一不一致 / 判据强不强 / 判据宽不宽"。
+第 54 条问的是**第五件事**：**契约里写下的约束，和前端实际拿到的约束，是不是同一份**。
+
+端 A 落地时撞见的形态：`tools/gen-endpoints.py` 初版只转出
+`id / row / method / path / grantedRoles`，把端 A 真正吃紧的 4 类操作级 `x-` 键
+（`x-row-scope` · `x-super-admin-only` · `x-ruling-pending` · `x-frontier`）
+**以及契约顶层 `x-roles`（`admin` 的子档位 `[manager, area, hq]`）一个都没转**。
+
+🛑 **为什么它比前四条更难发现**：**它的失效是完全静默的** ——
+生成物看着正常、`gen-endpoints.py --check` 也绿、三端构建全过。
+只有**人肉逐条读契约**才发现"界面少了一道约束"。
+它属于同一族缺陷的**第三个接缝**：第 41 条在 SQL 字符串、第 52/53 条在 TS 判据、
+**第 54 条在生成器**。
+
+🛑 **同一份生成器，在端 B 无害、在端 A 致命**：
+
+| | 端 B `therapist-app` | 端 A `admin-web` |
+|---|---|---|
+| 端点级角色 | 有分叉（`both=22 / meridian-only=7`） | **无分叉**（实测 `39/39` 全 `["admin"]`） |
+| `grantedRoles`（初版唯一转出的元信息） | **就是全部边界** | **恒为 `["admin"]`，检它等于没检** |
+| 真实边界所在 | 端点级角色（X-3 矩阵） | **那 4 类被丢掉的 `x-` 键**（行级范围 / 仅超管 / 待冻结 / 待裁定） |
+
+⇒ 端 B 靠 X-3 门禁就够；端 A 必须另立**元信息完整性门禁** `tools/a-check.mjs`。
+
+**修法（两层，缺一不可）**：
+
+1. **让生成器转出**：`gen-endpoints.py` 新增 `OP_X_KEYS` / `OPTIONAL_FIELDS` /
+   `load_role_expansion()`（读契约顶层 `x-roles` 产出 `ROLE_EXPANSION`）/
+   `_opt_lines()`（缺省不写键，保持生成物最小）/ `_render_role_expansion()`；
+   `Endpoint` 接口新增 5 个可选字段 + `RoleExpansion` + `ROLE_EXPANSION`
+   （向后兼容：端 B/C 仅新增声明、无行为变更，`--check` 三端仍 `[OK]`）。
+2. **让门禁咬住契约**：`a-check.mjs` 的 **`xkey-coverage`** 把契约里
+   **实际出现的每一个**操作级 `x-` 键枚举一遍（11 类），
+   或已转出、或在白名单里**具名**豁免。
+   ⇒ 契约将来新增第 5 类 `x-` 键会**自己报红**，而不是静默漏过。
+
+🛑 **本轮我自己又踩了三次同型坑（全部由门禁首跑 / 反向验证抓出，不是由"全绿"抓出）**：
+
+- **① 门禁自己的解析与判据不咬合**：初版解析生成物时**没把 `grantedRoles` 填进
+  entry** ⇒ `xkey-transcribed` 报假红（`x-callable-roles 应落到 grantedRoles`）。
+  **是门禁自己错了**。修法同时新增 `parse-fields` 判据，**交叉证明**
+  `TRANSOUT` 里每个目标字段都真的解析出来了。
+- **② 新判据首跑假红 4 条**：`parse-coverage` 拿契约 `x-contract-row` 与生成物 `row`
+  做**逐值集合比对**，结果报"漏转 D5"+"凭空造 D5-a/b/c"。
+  真实建模是：契约的 `x-contract-row` 是**合同行**（`D5` 一行对应
+  **D5-a/D5-b/D5-c 三个操作**），生成物的 `row` 是**子档位细化**、**不是字面拷贝**。
+  修法 = 改成**三层比对**（操作数相等 / 生成物 row 去 `-x` 后缀须命中契约行 /
+  契约每行须至少一个子档位）。
+- **③ 第 52 条的第三个宿主**：反向验证 **I5/I7 双双漏过** ——
+  `scope-wired` 用 `scopeText.includes('ENDPOINTS')`（被
+  `for (const e of ENDPOINTS)` 这类**使用处**满足）；
+  `role-expansion` 用 `/ROLE_EXPANSION/.test(genText)`（把
+  `export const ROLE_EXPANSION` 改名成 `ROLE_EXPANSION_UNUSED` 后，
+  **字符串里仍含该词**）。
+  修法 = 判**导入形态**（必须 `import { ... } from './endpoints'` 且含 `ENDPOINTS`/`endpointById`）
+  与**导出形态**（必须存在 `export const ROLE_EXPANSION:`）。
+
+**回归用例**：反向验证 `a-reverse-check.mjs` **10 组**受控注入
+（含 I1/I2/I3 删元信息、I4 硬编码清单、I5 摘导入、I6/I7 手写子档位、
+I8/I9 伪造端点/行、I10 未完结端点当既定事实用），
+断言每组必红、逐字节还原后必绿 ⇒ **10/10 PASS / 还原后 `exit=0`**。
+
+🛑 **通用规则**：
+**凡是"契约写了而前端拿不到"的约束，失效应默认假定为静默**，
+只能由"把契约里出现的键枚举一遍"这类**覆盖面型判据**抓住；
+且生成管道里**每类被声明过的元信息都必须有一个可机械验证的落点**。

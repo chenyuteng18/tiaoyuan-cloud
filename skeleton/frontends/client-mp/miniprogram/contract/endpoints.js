@@ -19,6 +19,15 @@
 const CONTRACT_VERSION = "api-contract-v1.0.0";
 const END_TOKEN_ROLES = Object.freeze(["client"]);
 
+/** 契约 x-roles 的 token-role 展开表（本端相关项）。 */
+const ROLE_EXPANSION = Object.freeze({
+  "client": {
+    tokens: Object.freeze(["client"]),
+    end: "mp",
+    display: "客户（小程序）",
+  },
+});
+
 const ENDPOINTS = Object.freeze([
   {
     id: "authLogin",
@@ -139,6 +148,7 @@ function endpointById(id) {
 module.exports = {
   CONTRACT_VERSION,
   END_TOKEN_ROLES,
+  ROLE_EXPANSION,
   ENDPOINTS,
   ENDPOINT_IDS,
   endpointById,

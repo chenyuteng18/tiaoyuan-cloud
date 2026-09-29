@@ -104,6 +104,29 @@ HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 # 契约条目的行标识写在 summary 开头，形如 "A1 登录" / "D5-b 方案查阅" / "E5 日期探测…"。
 ROW_RE = re.compile(r"^([A-Z]\d+(?:-[a-z])?)\s")
 
+# -----------------------------------------------------------------------------
+# operation 级契约元信息 —— 对【界面】有约束力，必须转出
+# -----------------------------------------------------------------------------
+# 🛑 为什么这些必须转出（本仓第 54 条系统性缺陷）
+# -----------------------------------------------------------------------------
+# 初版只转出 id / row / method / path / grantedRoles，**丢掉了下列 4 类 x- 键**。
+# 它们在契约里对界面有硬约束，丢掉之后前端只能"凭记忆"实现：
+#   · x-row-scope          —— 同一端点对不同 admin 子档位的行级范围不同
+#                              （F3「门店负责人仅本店、区域督导仅辖区、总部全量」）
+#   · x-super-admin-only   —— I7 仅超管（tenant 级，不跨租户）
+#   · x-ruling-pending     —— G4 审批角色白名单系推断、**待裁定**（不得当定论用）
+#   · x-frontier           —— I1~I7「占位待冻结」（不得当已冻结契约用）
+# 丢掉的表现是**静默**的：生成物看起来完全正常，--check 也绿 ——
+# 只有人肉读契约才发现"界面少了一道约束"。与第 50 条同族：
+# **"契约写下的约束"与"前端拿到的约束"是两件事**，中间任何一环丢项都不会报错。
+OP_X_KEYS = (
+    ("x-row-scope", "rowScope", "str"),
+    ("x-super-admin-only", "superAdminOnly", "bool"),
+    ("x-ruling-pending", "rulingPending", "str"),
+    ("x-frontier", "frontier", "str"),
+    ("x-idempotency-key", "idempotencyKeySpec", "str"),
+)
+
 
 def load_operations(end_id: str):
     """从裁剪后的契约读出该端的全部 HTTP operation（不管角色）。"""
@@ -119,7 +142,7 @@ def load_operations(end_id: str):
                 continue
             summary = (op.get("summary") or "").strip()
             row_match = ROW_RE.match(summary)
-            ops.append({
+            entry = {
                 "method": m,
                 "path": p,
                 "operationId": op.get("operationId"),
@@ -127,9 +150,64 @@ def load_operations(end_id: str):
                 "row": row_match.group(1) if row_match else "",
                 "summary": summary,
                 "tags": list(op.get("tags") or []),
-            })
+            }
+            for yaml_key, field, kind in OP_X_KEYS:
+                raw = op.get(yaml_key)
+                if raw is None:
+                    continue
+                if kind == "bool":
+                    entry[field] = bool(raw)
+                else:
+                    entry[field] = str(raw)
+            ops.append(entry)
     ops.sort(key=lambda o: (o["path"], o["method"]))
     return ops
+
+
+def load_role_expansion(end_id: str, token_roles):
+    """
+    从裁剪契约顶层的 ``x-roles`` 读出**本端角色 → token-role** 的展开表。
+
+    🛑 为什么必须从契约读，而不是在生成器或前端手写
+    ---------------------------------------------------------------------------
+    ``x-roles.admin.token-role = [manager, area, hq]`` 是契约的声明；
+    前端若手写一份 ``{admin: ['manager','area','hq']}``，就又造出了第二份清单
+    （本仓第 46 条同型：契约一改就漂移，且漂移不会让门禁变红）。
+    ⇒ 一律从契约现取。
+
+    🛑 一处必须如实登记的落差
+    ---------------------------------------------------------------------------
+    ``admin`` 的展开值是 **3 个 token-role**，而本端产物里每个端点的
+    ``grantedRoles`` 只有 ``["admin"]`` 一项（裁剪管线判的是"契约角色 ∩ 本端
+    token-roles"，其中本端 token-roles 取自矩阵的 ``token-role: admin``）。
+    两者**不是同一层**：前者是"admin 这个角色由哪几种账号构成"，
+    后者是"这个端点允许 admin 这一角色"。故本函数单独产出 ``ROLE_EXPANSION``，
+    首页与它**不得**混算（混算会得出"39 端点 × 3 子角色"这种假数量）。
+    """
+    path = os.path.join(CUT_DIR, "%s.openapi.yaml" % end_id)
+    doc = yaml.safe_load(io.open(path, encoding="utf-8").read())
+    roles_block = doc.get("x-roles") or {}
+    out = {}
+    for end_role, spec in roles_block.items():
+        if not isinstance(spec, dict):
+            continue
+        tr = spec.get("token-role")
+        if tr is None:
+            continue  # store_customer_service：token-role 为 null（无端、无接口）
+        tokens = tr if isinstance(tr, list) else [tr]
+        out[end_role] = {
+            "tokens": [str(t) for t in tokens],
+            "end": spec.get("end") or "",
+            "display": spec.get("display") or "",
+        }
+    # 只保留与本端 token-roles 相关的那几条（其余端不关心）+ 如实标注"本端可见"
+    tokens_of_end = set(token_roles)
+    trimmed = {}
+    for end_role, spec in out.items():
+        related = bool(set(spec["tokens"]) & tokens_of_end) or end_role in tokens_of_end
+        if related:
+            trimmed[end_role] = spec
+    return trimmed
 
 
 def allowed_roles_of(ops, token_roles):
@@ -149,7 +227,45 @@ def js_literal(value: str) -> str:
     return '"%s"' % value.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def render_cjs(target, entries, spec_version):
+# 契约元信息字段 → 输出顺序（只输出确实存在的，缺省即不写该键）
+OPTIONAL_FIELDS = (
+    ("rowScope", "str"),
+    ("superAdminOnly", "bool"),
+    ("rulingPending", "str"),
+    ("frontier", "str"),
+    ("idempotencyKeySpec", "str"),
+)
+
+
+def _opt_lines(e, indent):
+    """按 OPTIONAL_FIELDS 顺序输出存在值（缺省不写，保持生成物最小）。"""
+    out = []
+    for field, kind in OPTIONAL_FIELDS:
+        if field not in e:
+            continue
+        v = e[field]
+        if kind == "bool":
+            out.append("%s%s: %s," % (indent, field, "true" if v else "false"))
+        else:
+            out.append("%s%s: %s," % (indent, field, js_literal(v)))
+    return out
+
+
+def _render_role_expansion(role_expansion, indent, ts):
+    """角色展开表的字面量（逐条从契约现取，不手写）。"""
+    out = []
+    for end_role in sorted(role_expansion):
+        spec = role_expansion[end_role]
+        toks = ", ".join(js_literal(t) for t in spec["tokens"])
+        out.append("%s%s: {" % (indent, js_literal(end_role)))
+        out.append("%s  tokens: Object.freeze([%s])," % (indent, toks))
+        out.append("%s  end: %s," % (indent, js_literal(spec["end"])))
+        out.append("%s  display: %s," % (indent, js_literal(spec["display"])))
+        out.append("%s}," % indent)
+    return out
+
+
+def render_cjs(target, entries, spec_version, role_expansion):
     lines = []
     lines.append("/**")
     lines.append(" * GENERATED FILE — DO NOT EDIT.")
@@ -173,6 +289,11 @@ def render_cjs(target, entries, spec_version):
     lines.append("const END_TOKEN_ROLES = Object.freeze([%s]);"
                  % ", ".join(js_literal(r) for r in target["token_roles"]))
     lines.append("")
+    lines.append("/** 契约 x-roles 的 token-role 展开表（本端相关项）。 */")
+    lines.append("const ROLE_EXPANSION = Object.freeze({")
+    lines.extend(_render_role_expansion(role_expansion, "  ", False))
+    lines.append("});")
+    lines.append("")
     lines.append("const ENDPOINTS = Object.freeze([")
     for e in entries:
         lines.append("  {")
@@ -182,6 +303,7 @@ def render_cjs(target, entries, spec_version):
         lines.append("    path: %s," % js_literal(e["path"]))
         lines.append("    grantedRoles: Object.freeze([%s]),"
                      % ", ".join(js_literal(r) for r in e["grantedRoles"]))
+        lines.extend(_opt_lines(e, "    "))
         lines.append("  },")
     lines.append("]);")
     lines.append("")
@@ -197,6 +319,7 @@ def render_cjs(target, entries, spec_version):
     lines.append("module.exports = {")
     lines.append("  CONTRACT_VERSION,")
     lines.append("  END_TOKEN_ROLES,")
+    lines.append("  ROLE_EXPANSION,")
     lines.append("  ENDPOINTS,")
     lines.append("  ENDPOINT_IDS,")
     lines.append("  endpointById,")
@@ -205,7 +328,7 @@ def render_cjs(target, entries, spec_version):
     return "\n".join(lines)
 
 
-def render_ts(target, entries, spec_version):
+def render_ts(target, entries, spec_version, role_expansion):
     lines = []
     lines.append("/**")
     lines.append(" * GENERATED FILE — DO NOT EDIT.")
@@ -234,7 +357,29 @@ def render_ts(target, entries, spec_version):
     lines.append("  readonly method: HttpMethod;")
     lines.append("  readonly path: string;")
     lines.append("  readonly grantedRoles: readonly string[];")
+    lines.append("  /** 契约 x-row-scope：行级范围随 admin 子档位变化（缺省 = 契约未声明）。 */")
+    lines.append("  readonly rowScope?: string;")
+    lines.append("  /** 契约 x-super-admin-only：仅超管（tenant 级）。 */")
+    lines.append("  readonly superAdminOnly?: boolean;")
+    lines.append("  /** 契约 x-ruling-pending：取值系推断、**待裁定** —— 不得当定论实现。 */")
+    lines.append("  readonly rulingPending?: string;")
+    lines.append("  /** 契约 x-frontier：占位待冻结 —— 不得当已冻结契约用。 */")
+    lines.append("  readonly frontier?: string;")
+    lines.append("  /** 契约 x-idempotency-key：幂等键构成说明。 */")
+    lines.append("  readonly idempotencyKeySpec?: string;")
     lines.append("}")
+    lines.append("")
+    lines.append("/** 契约角色由哪些 token-role 构成（逐条取自契约 x-roles）。 */")
+    lines.append("export interface RoleExpansion {")
+    lines.append("  readonly tokens: readonly string[];")
+    lines.append("  readonly end: string;")
+    lines.append("  readonly display: string;")
+    lines.append("}")
+    lines.append("")
+    lines.append("/** 本端相关角色 → token-role 展开（契约 x-roles 的机械转录）。 */")
+    lines.append("export const ROLE_EXPANSION: Readonly<Record<string, RoleExpansion>> = Object.freeze({")
+    lines.extend(_render_role_expansion(role_expansion, "  ", True))
+    lines.append("});")
     lines.append("")
     lines.append("export const END_TOKEN_ROLES: readonly string[] = Object.freeze([")
     for r in target["token_roles"]:
@@ -250,6 +395,7 @@ def render_ts(target, entries, spec_version):
         lines.append("    path: %s," % js_literal(e["path"]))
         lines.append("    grantedRoles: Object.freeze([%s]),"
                      % ", ".join(js_literal(r) for r in e["grantedRoles"]))
+        lines.extend(_opt_lines(e, "    "))
         lines.append("  },")
     lines.append("]);")
     lines.append("")
@@ -293,10 +439,11 @@ def main() -> int:
     for target in TARGETS:
         ops = load_operations(target["id"])
         entries = allowed_roles_of(ops, target["token_roles"])
+        role_expansion = load_role_expansion(target["id"], target["token_roles"])
         if target["flavor"] == "cjs":
-            text = render_cjs(target, entries, spec_version)
+            text = render_cjs(target, entries, spec_version, role_expansion)
         else:
-            text = render_ts(target, entries, spec_version)
+            text = render_ts(target, entries, spec_version, role_expansion)
 
         out = target["out"]
         if args.check:

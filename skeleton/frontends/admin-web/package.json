@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "gen:endpoints": "python ../tools/gen-endpoints.py",
     "check:contract": "python ../tools/gen-endpoints.py --check",
-    "check:build": "node ../tools/build-check.mjs --end=admin-web"
+    "check:build": "node ../tools/build-check.mjs --end=admin-web",
+    "check:a": "node ../tools/a-check.mjs",
+    "check:a-reverse": "node ../tools/a-reverse-check.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
