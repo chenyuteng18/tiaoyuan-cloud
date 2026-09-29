@@ -1,0 +1,46 @@
+{
+  "name": "dy-sdk-client-mp",
+  "version": "api-contract-v1.0.0",
+  "description": "三端（客户小程序 / 调理师·经络师 APP / 管理员 Web）一次冻结的接口契约。  版本号规则（语义化，与 info.version 同值）：   - MAJOR（破坏级）：字段删除 / 改名 / 类型变更；可见性档位变更；枚举值语义变更；错误码语义变更；     涉可见性档位的 MAJOR 变更须触发「变更业务裁定」（不得按\"体验优化\"处理）。   - MINOR（兼容级）：新增可选请求字段 / 新增接口 / 新增响应字段。   - PATCH（文档级）：注释 / 示例 / 措辞修正，不动字段与语义。  🛑 措辞纪律：client_end=mp 可见字段不得含\"退款\"\"诊断\"；同步时间精确到日。 ",
+  "license": "Proprietary",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "babel src -d dist",
+    "prepare": "npm run build",
+    "test": "mocha --require @babel/register --recursive"
+  },
+  "browser": {
+    "fs": false
+  },
+  "dependencies": {
+    "@babel/cli": "^7.0.0",
+    "superagent": "^5.3.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.0.0",
+    "@babel/plugin-proposal-class-properties": "^7.0.0",
+    "@babel/plugin-proposal-decorators": "^7.0.0",
+    "@babel/plugin-proposal-do-expressions": "^7.0.0",
+    "@babel/plugin-proposal-export-default-from": "^7.0.0",
+    "@babel/plugin-proposal-export-namespace-from": "^7.0.0",
+    "@babel/plugin-proposal-function-bind": "^7.0.0",
+    "@babel/plugin-proposal-function-sent": "^7.0.0",
+    "@babel/plugin-proposal-json-strings": "^7.0.0",
+    "@babel/plugin-proposal-logical-assignment-operators": "^7.0.0",
+    "@babel/plugin-proposal-nullish-coalescing-operator": "^7.0.0",
+    "@babel/plugin-proposal-numeric-separator": "^7.0.0",
+    "@babel/plugin-proposal-optional-chaining": "^7.0.0",
+    "@babel/plugin-proposal-pipeline-operator": "^7.0.0",
+    "@babel/plugin-proposal-throw-expressions": "^7.0.0",
+    "@babel/plugin-syntax-dynamic-import": "^7.0.0",
+    "@babel/plugin-syntax-import-meta": "^7.0.0",
+    "@babel/preset-env": "^7.0.0",
+    "@babel/register": "^7.0.0",
+    "expect.js": "^0.3.1",
+    "mocha": "^8.0.1",
+    "sinon": "^7.2.0"
+  },
+  "files": [
+    "dist"
+  ]
+}

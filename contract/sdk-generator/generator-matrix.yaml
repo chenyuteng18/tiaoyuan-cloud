@@ -1,0 +1,134 @@
+# =============================================================================
+# 三端 SDK 生成配置矩阵（S1-1 交付物 ① ：SDK 生成配置入仓）
+#
+# 唯一权威输入 = ../openapi-v1.0.0.yaml （api-contract-v1.0.0）
+# 本文件是【声明】，不是【产物】—— 见 README.md §「离线边界」。
+# 未在本机执行生成：本机无 openapi-generator 可执行件（~/.m2 与 npm global 均无）。
+# 严禁把本文件当作"已生成 SDK"的证据；SDK 产物由 CI 在联网/有件环境执行后入 contract/sdk/。
+# =============================================================================
+
+spec: ../openapi-v1.0.0.yaml
+spec-version: api-contract-v1.0.0
+
+generator:
+  name: openapi-generator-cli
+  version: 7.10.0
+  # 离线边界：构建期（validate 阶段）不联网、不执行本生成器；
+  # 仅由本文件 + generate.sh 的 --dry-run 做静态复核（端点集 / 行号集 / 可见性矩阵）。
+  acquire:
+    maven: "org.openapitools:openapi-generator-cli:7.10.0:jar"
+    npm: "@openapitools/openapi-generator-cli@2.13.4"
+    offline-ok: false
+
+# -----------------------------------------------------------------------------
+# 端一 · 客户小程序（端 = 承载方式；契约解耦，见契约 §1.1）
+# -----------------------------------------------------------------------------
+targets:
+  - id: client-mp
+    label: 端一 · 客户小程序
+    token-role: client
+    generator: javascript
+    additional-properties:
+      moduleName: DyClientSdk
+      projectName: dy-sdk-client-mp
+      usePromises: "true"
+      useES6: "true"
+      supportES6: "true"
+      # 小程序无 Node fetch；请求适配器由端内实现（wx.request），此处只生成类型与路径常量
+      apiDocPath: "docs"
+      hideGenerationTimestamp: "true"
+      disallowAdditionalPropertiesIfNotPresent: "false"
+    # 客户端禁入：这些行在本端【不生成任何调用面】—— 服务端亦 403（X-1 双保险）
+    exclude-contract-rows: [G1, G2, G3, G4, G5, H1, I8]
+    forbid-path-fragments: ["refund", "retention", "esign", "derived", "verdict", "audit"]
+    # ---------------------------------------------------------------------
+    # 🛑 片段例外：必须**点名**声明，不得靠放宽 forbid-path-fragments 实现。
+    #
+    # 背景：`retention` 一词在本产品里有**两个不同语义**——
+    #   · G3 退款挽留  /refunds/{id}/retentions        客户禁入（fragment 要拦的就是它）
+    #   · E5 手环数据保留窗口 retention_window_days    客户【合法可见】
+    #     （契约逐字标注 x-visible-to: [client]；
+    #      且矩阵 invariants 的 INV-5 逐字点名 "E5.retention_window_days" 为客户端字段）
+    # 二者同词异义。若为了让 E5 过检而把 "retention" 从 forbid-path-fragments 里删掉，
+    # 就会**永久失去**对 G3 的字符串兜底 —— 那是拿"判据的牙齿"换"眼前一条假红"，不划算。
+    #
+    # 故本表采用「点名放行、其余全拦」：fragment 一条不减，例外逐条具名 + 写理由。
+    # 例外命中会在校验报告里显式打印（不静默跳过）。
+    #
+    # 判据：例外名与「path / schema 名 / 产物 model 文件 stem」在
+    #       归一化（只留小写字母数字）后**全等**才算命中例外 ——
+    #       子串匹配会把同族的其它名字一起放过，等于偷偷放宽判据。
+    # ---------------------------------------------------------------------
+    forbid-fragment-exceptions:
+      - name: BandAvailableDatesDataRetentionWindowDays
+        reason: >-
+          E5「手环数据可用日期」的派生模型（由 BandAvailableDatesData 的
+          probe.retention_window_days 提升而来，该字段 x-visible-to: [client]）。
+          语义是「手环数据保留窗口天数」，与 G3 的退款挽留无关。
+          INV-5 逐字点名它为客户端字段，故必须在客户包内。
+    output: ../sdk/client-mp
+
+# -----------------------------------------------------------------------------
+# 端二 · 调理师 · 经络师 APP
+# -----------------------------------------------------------------------------
+  - id: therapist-app
+    label: 端二 · 调理师 / 经络师 APP
+    token-roles: [therapist, meridian]
+    generator: typescript-fetch
+    additional-properties:
+      npmName: dy-sdk-therapist-app
+      npmVersion: 1.0.0
+      supportsES6: "true"
+      withoutRuntimeChecks: "true"
+      hideGenerationTimestamp: "true"
+    # APP 端含退款域只读（G2），但 G3/G4/G5 写操作按角色收窄（服务端 403 为准）
+    #
+    # 🛑 2026-09-28 · B-4 清理：此处原为 `[H1]`，已改为空。**为什么可以删**：
+    #   H1 = `POST /esign/callbacks/{provider}`，契约里 `x-callable-roles` 为**空**
+    #   （它是电子签厂商的**服务端回调**，不是任何端的调用面）。因此：
+    #     · 角色判据已经把它剔除，写不写这条排除**产物完全相同**（裁剪管线
+    #       `cut_spec()` 判 `role_ok=False`，`why="role"`）；
+    #     · 且**没有任何其它检查消费它** —— 管线的 `check_matrix_consistency()`
+    #       只核对 client-mp 的排除清单与 `x-client-forbidden` 是否一致。
+    #   ⇒ 这是一条**永不生效的声明**（DEAD declaration）：留着会让矩阵读起来
+    #   "本端对 H1 有一道控制"，而控制实际来自契约。删掉它不放松任何东西。
+    #   守护见 `skeleton/compliance/sdk-surface-gate.py` 的 **FACE 4**（排除声明必须咬合），
+    #   被它放行的唯一例外是 client-mp 对 `x-client-forbidden` 行的**镜像声明**
+    #   （那条被管线的完备性检查反向消费，删了会让别的门禁红）。
+    exclude-contract-rows: []
+    output: ../sdk/therapist-app
+
+# -----------------------------------------------------------------------------
+# 端三 · 管理员 Web
+# -----------------------------------------------------------------------------
+  - id: admin-web
+    label: 端三 · 管理员 Web
+    token-role: admin
+    generator: typescript-axios
+    additional-properties:
+      npmName: dy-sdk-admin-web
+      npmVersion: 1.0.0
+      supportsES6: "true"
+      withSeparateModelsAndApi: "true"
+      apiPackage: api
+      modelPackage: model
+      hideGenerationTimestamp: "true"
+    exclude-contract-rows: []
+    output: ../sdk/admin-web
+
+# -----------------------------------------------------------------------------
+# 全端共用：生成后必须成立的静态不变量（由 --dry-run / 契约闸门测试复核）
+# 与硬纪律对齐：可见性永远服务端 403；客户包内不得出现"退款"；TBD 不得填数。
+# -----------------------------------------------------------------------------
+invariants:
+  - id: INV-1
+    rule: 三端生成的路径集 ⊆ openapi paths 集（不得凭空多出路径）
+  - id: INV-2
+    rule: 每端 client 侧不得生成 exclude-contract-rows 所列行对应的任何路径
+  - id: INV-3
+    rule: 客户小程序产物内不得出现"退款"二字（构建期 grep 命中即失败，X-2）
+  - id: INV-4
+    rule: 生成产物只做类型 / 路径常量，不含业务判定逻辑（判定在服务端，唯一权威 X-1）
+  - id: INV-5
+    rule: 带 x-tbd-allowed 的字段（E5.retention_window_days、F4.a3_observability）
+            生成出的类型必须允许 TBD 字面，不得收窄为纯 number —— 缺失不得补 0 / TBD 不得填数

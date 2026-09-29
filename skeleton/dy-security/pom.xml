@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.diaoyuanyun</groupId>
+        <artifactId>diaoyuanyun-skeleton</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>dy-security</artifactId>
+    <name>dy-security</name>
+    <description>权限拦截 / 字段裁剪(序列化前整体移除) / 门禁守卫 (ADR-05/07, T-4~T-6/H-1/H-4/H-8)</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.diaoyuanyun</groupId>
+            <artifactId>dy-tenancy</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

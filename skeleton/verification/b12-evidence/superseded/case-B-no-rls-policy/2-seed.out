@@ -1,0 +1,15 @@
+BEGIN
+SET
+INSERT 0 2
+COMMIT
+BEGIN
+SET
+INSERT 0 1
+COMMIT
+BEGIN
+SET
+INSERT 0 1
+COMMIT
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/97_b12_seed.sql:49: 错误:  新行违背了表"customer_state_transition"的行级安全策略

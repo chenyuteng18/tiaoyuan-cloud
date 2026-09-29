@@ -1,0 +1,71 @@
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:30: 注意:  B0 OK: 当前用户 dy_app_b12 非超级用户
+DO
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:50: 注意:  B1 OK: customer_state_transition / band 均存在且带 tenant_id
+DO
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:86: 注意:  B2 OK: 非法 to_state 被 CHECK 拒绝 (SQLSTATE 23514)
+DO
+ROLLBACK
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:115: 注意:  B2b OK: 非法 from_state 被 CHECK 拒绝 (SQLSTATE 23514)
+DO
+ROLLBACK
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:159: 注意:  B3 OK: 14 态逐项均被接受 (取值集 = 恰好 14 态, 探针行数=14)
+DO
+ROLLBACK
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:189: 注意:  B4 OK: 租户A 只见自己的行, 看不到租户B (cst=1 band=1)
+DO
+COMMIT
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:205: 注意:  B4b OK: 租户B 看不到租户A (对称)
+DO
+COMMIT
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:221: 注意:  B5 OK: 未设上下文 -> 两表零行 (fail-closed 生效)
+DO
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:237: 注意:  B5b OK: 空串上下文 -> 两表零行 (NULLIF 归一成功)
+DO
+COMMIT
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:270: 注意:  B5c OK: 两表跨租户写入均被 WITH CHECK 拒绝
+DO
+ROLLBACK
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:307: 注意:  B6 OK: customer 表零 DDL 改动 (无 status CHECK / 列定义同 V1 / 列集合 = 8 列)
+DO
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:351: 注意:  B7 提示: 本仓库 DDL 内不存在 device 表 (data-dict §2.5 的 device 未入骨架), 无法做双表并存比对
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:351: 注意:  B7 OK: band 主键=band_id / 无 store_id / 带 customer_id —— 未与 device 合并
+DO
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:383: 注意:  B8 OK: 两表 ENABLE+FORCE 在位, owner=非超级用户, USING/WITH CHECK 双 NULLIF
+DO
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:406: 注意:  B9 OK: 1 客户 : 1 active 手环 由部分唯一索引强制
+DO
+ROLLBACK
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:430: 注意:  B10 OK: 每客户最多 1 条当前态 由部分唯一索引强制
+DO
+ROLLBACK
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:469: 注意:  B11 OK: blocked 必须带 missing_items; 齐备时放行
+DO
+ROLLBACK
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:503: 注意:  B12: band_telemetry 在本仓库 DDL 中【不存在】→ FK 闭合按纪律【跳过】(不新建表, 待 F-2 定案)
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:503: 注意:  B12: band_sync_probe 在本仓库 DDL 中【不存在】→ FK 闭合按纪律【跳过】(不新建表, 待 F-2 定案)
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:503: 注意:  B12: band_daily_coverage 在本仓库 DDL 中【不存在】→ FK 闭合按纪律【跳过】(不新建表, 待 F-2 定案)
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:503: 注意:  B12 结论: 存在=0 已闭合FK=0 跳过=3 (总 3 表)
+DO
+==========================================
+ ALL B-ENTITY ASSERTIONS PASSED (B0-B12)
+==========================================

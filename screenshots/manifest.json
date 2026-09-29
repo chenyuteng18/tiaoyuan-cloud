@@ -1,0 +1,233 @@
+[
+  {
+    "name": "01_overview_top",
+    "note": "服务全链路总览 · 9 环节闭环 + 3 大门禁",
+    "role": "all",
+    "screen": "overview",
+    "scrollY": 0
+  },
+  {
+    "name": "02_overview_bot",
+    "note": "服务全链路总览 · 下半（门禁与交付边界）",
+    "role": "all",
+    "screen": "overview",
+    "scrollY": 470
+  },
+  {
+    "name": "03_saas",
+    "note": "A1 SaaS 租户与组织架构 · 品牌/区域/门店三级租户模型",
+    "role": "all",
+    "screen": "saas",
+    "scrollY": 0
+  },
+  {
+    "name": "04_policy",
+    "note": "A2 总部管控与门店自治 · 哪些必须集中、哪些可以放权",
+    "role": "all",
+    "screen": "policy",
+    "scrollY": 0
+  },
+  {
+    "name": "05_crossstore",
+    "note": "A3 跨店通兑与责任归属 · 连锁特有",
+    "role": "all",
+    "screen": "crossstore",
+    "scrollY": 0
+  },
+  {
+    "name": "06_hqboard",
+    "note": "A4 总部看板与门店健康度 · 稽核/排名/反博弈",
+    "role": "all",
+    "screen": "hqboard",
+    "scrollY": 50
+  },
+  {
+    "name": "07_gate_idle",
+    "note": "01 入口筛查 · 禁忌门禁（初始态）",
+    "role": "all",
+    "screen": "gate",
+    "scrollY": 0
+  },
+  {
+    "name": "08_gate_blocked",
+    "note": "01 入口筛查 · 禁忌门禁（拦截态 · 交互后）",
+    "role": "all",
+    "screen": "gate",
+    "scrollY": 0
+  },
+  {
+    "name": "09_consent_top",
+    "note": "02 建档与知情同意 · 先建档留疼再签授权",
+    "role": "all",
+    "screen": "consent",
+    "scrollY": 0
+  },
+  {
+    "name": "10_consent_bot",
+    "note": "02 建档与知情同意 · 下半",
+    "role": "all",
+    "screen": "consent",
+    "scrollY": 270
+  },
+  {
+    "name": "11_baseline",
+    "note": "03 基线评估与诊断 · 表现类优先 / 年龄段兜底",
+    "role": "all",
+    "screen": "baseline",
+    "scrollY": 0
+  },
+  {
+    "name": "12_plan",
+    "note": "04 方案出具与审核 · 完整性/有效性/可行性",
+    "role": "all",
+    "screen": "plan",
+    "scrollY": 0
+  },
+  {
+    "name": "13_device",
+    "note": "05 设备参数一键下发 · 审核通过后自动下发",
+    "role": "all",
+    "screen": "device",
+    "scrollY": 0
+  },
+  {
+    "name": "14_agree",
+    "note": "06 协议书签署与确认 · 含退款/终止条款",
+    "role": "all",
+    "screen": "agree",
+    "scrollY": 0
+  },
+  {
+    "name": "15_exec",
+    "note": "07 执行调理 · 生活方式闭环（每日填报 + 手环采集）",
+    "role": "all",
+    "screen": "exec",
+    "scrollY": 0
+  },
+  {
+    "name": "16_assess",
+    "note": "08 周期评估（每 7 次）· 指标 + 依从性 + 设备数据",
+    "role": "all",
+    "screen": "assess",
+    "scrollY": 0
+  },
+  {
+    "name": "17_verdict_top",
+    "note": "09 效果判定与退款门禁 · 四条分支",
+    "role": "all",
+    "screen": "verdict",
+    "scrollY": 0
+  },
+  {
+    "name": "18_verdict_bot",
+    "note": "09 效果判定与退款门禁 · 下半（判定即动作）",
+    "role": "all",
+    "screen": "verdict",
+    "scrollY": 322
+  },
+  {
+    "name": "19_close",
+    "note": "10 效果确认与归档结案 · 趋势归因 / 可脱敏沉淀",
+    "role": "all",
+    "screen": "close",
+    "scrollY": 0
+  },
+  {
+    "name": "20_state_top",
+    "note": "11 状态机与规则配置 · 业务规则全部可配置",
+    "role": "all",
+    "screen": "state",
+    "scrollY": 0
+  },
+  {
+    "name": "21_state_mid",
+    "note": "11 状态机与规则配置 · 中段",
+    "role": "all",
+    "screen": "state",
+    "scrollY": 650
+  },
+  {
+    "name": "22_state_bot",
+    "note": "11 状态机与规则配置 · 底段",
+    "role": "all",
+    "screen": "state",
+    "scrollY": 933
+  },
+  {
+    "name": "23_detail_top",
+    "note": "D1 客户管理详情 · 手环反馈数据",
+    "role": "all",
+    "screen": "detail",
+    "scrollY": 0
+  },
+  {
+    "name": "24_detail_bot",
+    "note": "D1 客户管理详情 · 下半",
+    "role": "all",
+    "screen": "detail",
+    "scrollY": 631
+  },
+  {
+    "name": "25_mask_client",
+    "note": "合规验证 · 客户端（小程序）退款字样已遮蔽为 ▨▨▨",
+    "role": "client",
+    "screen": "state",
+    "scrollY": 0
+  },
+  {
+    "name": "25b_mask_verdict",
+    "note": "合规验证 · 客户端在判定屏的遮蔽效果",
+    "role": "client",
+    "screen": "verdict",
+    "scrollY": 300
+  },
+  {
+    "name": "26_mask_meridian",
+    "note": "合规验证 · 经络师（APP）可见完整退款判定链路",
+    "role": "meridian",
+    "screen": "verdict",
+    "scrollY": 0
+  },
+  {
+    "name": "27_nav_client",
+    "note": "权限差异 · 客户端仅可见 4 屏（导航过滤后）",
+    "role": "client",
+    "screen": "overview",
+    "scrollY": 0
+  },
+  {
+    "name": "28_nav_therapist",
+    "note": "权限差异 · 调理师端可见屏与导航过滤结果",
+    "role": "therapist",
+    "screen": "consent",
+    "scrollY": 0
+  },
+  {
+    "name": "29_pnl_client",
+    "note": "E1 健康资产损益 · 客户（小程序）· 原始值 + 健康指数 + 变化量 + 手环过程线",
+    "role": "client",
+    "screen": "pnlClient",
+    "scrollY": 0
+  },
+  {
+    "name": "30_pnl_therapist",
+    "note": "E2 健康资产损益 · 调理师（APP）· 模块级损益，本角色不含判定结论与结算内容",
+    "role": "therapist",
+    "screen": "pnlTherapist",
+    "scrollY": 0
+  },
+  {
+    "name": "31_pnl_meridian",
+    "note": "E2 同屏 · 经络师（APP）· 角色级差异化：完整口径含判定结论",
+    "role": "meridian",
+    "screen": "pnlTherapist",
+    "scrollY": 0
+  },
+  {
+    "name": "32_pnl_admin",
+    "note": "E3 健康资产损益 · 管理员（Web）· 完整内部口径 + 行级 scope",
+    "role": "hq",
+    "screen": "pnlAdmin",
+    "scrollY": 0
+  }
+]

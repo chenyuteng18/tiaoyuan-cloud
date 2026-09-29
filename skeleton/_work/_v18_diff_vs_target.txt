@@ -1,0 +1,252 @@
+654a655,675
+> --   (a0) 🛑🛑 能力守卫一：执行本自证的角色**不得**绕过 RLS
+> --        【本段于 2026-09-27 由 119 反向验证的实测抓出后从 V19 回补】
+> --        实测：用 `postgres`（rolsuper=t / rolbypassrls=t）跑本文件的 (e) 段时，
+> --        自证以 `(e5)` 报错 —— 消息是"租户 B 用租户 A 已占用的 device_id 建档
+> --        没有抛错（返回值 = ALREADY_EXISTS）"，读起来像【函数坏了】。
+> --        真因恰好相反：**函数完全正确**，是证据的效力前提不成立 ——
+> --        BYPASSRLS 绕过行级安全 ⇒ `set_config('app.tenant_id', 租户B)` 之后，
+> --        那条 `SELECT count(*) FROM device WHERE device_id = p_device_id`
+> --        **仍然看得见租户 A 的那一行** ⇒ v_mine = 1 ⇒ 判定链落到"是我的"分支 ⇒
+> --        返回 ALREADY_EXISTS。本迁移依赖 RLS 的判据共 4 条（e3 不落库 / e5 零行 /
+> --        e5 对照 / e8），它们全部建立在"当前角色受 RLS 约束"之上。
+> --        ⇒ 没有本守卫时，那 4 条会以【归因错误】的面目报红；而若有人照字面去"修函数"，
+> --          会改坏一个本来正确的实现。这与 V19 的 (a0) 是同一件事、同一段代码。
+> --   (a1) 🛑 能力守卫二：RLS 策略本身必须还按 app.tenant_id 隔离
+> --        (a0) 只排除了"完全绕过"这一种；更隐蔽的是**策略被改动或缺失**
+> --        （例如被改成 `USING (true)`），那会让同样的 4 条判据静默假绿
+> --        —— 所有租户互相可见，而自证全绿、连一条报错都没有。
+> --        ⇒ 断言策略【定义内容】而非存在性，且 USING 与 WITH CHECK **都**必须引用
+> --          app.tenant_id（只查一条会漏掉"读隔离在、写隔离没了"）。
+> --   (a) 两个函数必须真的存在（见下方 (a) 段）
+> --
+656a678,679
+> --       🛑 依赖 RLS 的 4 条判据（e3 不落库 / e5 零行 / e5 对照 / e8）的效力，
+> --          由 (a0)/(a1) 两段守卫保证 —— 见文件头说明。
+703a727,732
+>     v_bypass        boolean;
+>     -- 🛑 2026-09-27（119）：两条函数体【剥掉行注释后】的代码态。
+>     --    见下方 "把两条函数体【先剥掉行注释】再匹配" 那一大段说明 ——
+>     --    prosrc 原样保留注释 ⇒ 所有语句形态判据都可以被注释满足（实测假绿）。
+>     v_register_code text;
+>     v_retire_code   text;
+716a746,833
+>     -- ==================================================================
+>     -- (a0) 🛑🛑 能力守卫一：执行本自证的角色**不得**绕过 RLS
+>     --
+>     --   【本段于 2026-09-27 由 119 反向验证的实测抓出后，从 V19 逐字回补】
+>     --   实测（119 的 I(a0) 用例）：用 `postgres`（rolsuper=t / rolbypassrls=t）
+>     --   跑本文件的 (e) 段，自证以 (e5) 报错，消息逐字是
+>     --       "租户 B 用【租户 A 已占用的 device_id】建档没有抛错（返回值 = ALREADY_EXISTS）"
+>     --   —— 读起来像 **register_device 坏了**。真因恰好相反：函数完全正确，
+>     --   是证据的效力前提不成立。BYPASSRLS 会绕过行级安全 ⇒
+>     --   `set_config('app.tenant_id', 租户B)` 之后那条
+>     --       SELECT count(*) FROM device WHERE device_id = p_device_id
+>     --   **仍然看得见租户 A 的那一行** ⇒ v_mine = 1 ⇒ 判定链落到"是我的"分支
+>     --   ⇒ 返回 ALREADY_EXISTS ⇒ (e5) 报红。
+>     --
+>     --   🛑 这是本仓反复出现的同一族形态：「判据的适用范围 = 它的锚点范围」。
+>     --      本自证里依赖 RLS 的判据共 4 条（(e3) 不落库、(e5) 零行、
+>     --      (e5) 对照、(e8) 可见性），它们的有效性**完全建立**在
+>     --      "当前角色受 RLS 约束"之上。BYPASSRLS 会让这 4 条**静默失效**：
+>     --        · (e5) 会以"竟然返回 ALREADY_EXISTS"的面目报红（归因错误）；
+>     --        · (e3)/(e8) 同理以归因错误的面目报红或假绿。
+>     --      而若有人为了"让自证通过"去改函数，会改坏一个**本来正确**的实现。
+>     --   ⇒ 故在此显式断言，让红指向真原因（角色不对），而不是指向函数。
+>     --
+>     --   🛑 为什么必须用 `rolbypassrls` 而不是 `current_setting('is_superuser')`：
+>     --      两者不等价 —— 一个 **非超级用户** 也可以被授予 BYPASSRLS。
+>     --    🛑 顺带说明为什么本仓的应用角色是对的：
+>     --      实测 diaoyuanyun 的 super=false / bypassrls=false，
+>     --      即生产路径上 RLS 是真的在起作用的 —— 本守卫只是要求
+>     --      "跑迁移/自证的角色"与"跑应用的角色"在这一点上一致。
+>     -- ==================================================================
+>     SELECT rolbypassrls INTO v_bypass FROM pg_roles WHERE rolname = current_user;
+> 
+>     IF v_bypass IS NULL THEN
+>         RAISE EXCEPTION
+>             'V18 自证失败(a0): 查不到当前角色 % 的 rolbypassrls 属性（pg_roles 无此角色？）', current_user;
+>     END IF;
+>     IF v_bypass THEN
+>         RAISE EXCEPTION
+>             'V18 自证失败(a0): 当前角色 % 拥有 BYPASSRLS ⇒ 本自证【依赖 RLS 的 4 条判据全部失去效力】，'
+>             '继续执行只会产出一份"看起来跑了、实际什么都没验"的证据。'
+>             '🛑 具体失效路径（本机已实测）：BYPASSRLS 会绕过行级安全 ⇒ '
+>             '以租户 B 的上下文执行 `SELECT count(*) FROM device WHERE device_id = <租户A的设备>` '
+>             '仍会看到那一行 ⇒ register_device 的判定链落到"是我的"分支 ⇒ 返回 ALREADY_EXISTS ⇒ '
+>             '自证 (e5) 以"跨租户撞号没有抛错"的面目报红。'
+>             '🛑 那条红是【归因错误】的：函数是对的，是证据的效力前提不成立。'
+>             '若照它的字面意思去改函数，会改坏一个本来正确的实现。'
+>             '正确处置：用一个【不】绕过 RLS 的角色跑本迁移（本仓应用角色 diaoyuanyun '
+>             '实测 super=false / bypassrls=false，即为正确选择），'
+>             '而不是放宽本自证或修改函数。', current_user;
+>     END IF;
+> 
+>     -- ==================================================================
+>     -- (a1) 🛑 能力守卫二：当前角色必须【看得见该看的行、看不见不该看的行】
+>     --
+>     --   (a0) 排除了 BYPASSRLS 这一种"完全绕过"的情形，但还有一种更隐蔽的：
+>     --   **RLS 策略本身被改动或缺失**。它会让 4 条判据同样静默失效，而角色属性完全正常。
+>     --   ⇒ 在本自证写入任何行之前，先用已知答案的探针把 RLS 的实际行为量出来：
+>     --     `SELECT 1 FROM pg_policies WHERE tablename='device'` 必须恰有 1 条策略，
+>     --     且 policydef 里的 USING 与 WITH CHECK 都引用 app.tenant_id。
+>     --   🛑 为什么是"量行为"而不是"断言策略存在"：
+>     --      存在性断言挡不住"策略被改成了 USING (true)"这种改动 —— 而那会让
+>     --      (e8) 静默假绿（所有租户互相可见）。故必须断言策略的【定义内容】。
+>     --   🛑 这里刻意断言**两条**: USING 与 WITH CHECK 都必须引用 app.tenant_id。
+>     --      只查其中一条会漏掉"读隔离在、写隔离没了"（或反之）——
+>     --      而写隔离缺失会让 (f2) 清场后的残留检查静默通过。
+>     -- ==================================================================
+>     IF (SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'device') <> 1 THEN
+>         RAISE EXCEPTION
+>             'V18 自证失败(a1): device 表上的 RLS 策略数 ≠ 1 个 —— '
+>             '本自证的 4 条 RLS 判据（(e3) 不落库 / (e5) 零行 / (e5) 对照 / (e8) 可见性）'
+>             '全部建立在"策略按 app.tenant_id 隔离"之上。'
+>             '🛑 这种情形下角色属性正常（(a0) 会通过），但判据同样静默失效 ⇒ '
+>             '必须在写入任何探针数据之前把它变成显式红。';
+>     END IF;
+> 
+>     IF NOT EXISTS (
+>         SELECT 1 FROM pg_policies
+>          WHERE schemaname = 'public' AND tablename = 'device'
+>            AND qual        LIKE '%app.tenant_id%'
+>            AND with_check  LIKE '%app.tenant_id%'
+>     ) THEN
+>         RAISE EXCEPTION
+>             'V18 自证失败(a1): device 的策略虽然存在，但其 USING / WITH CHECK 未同时引用 app.tenant_id。'
+>             '🛑 断言【定义内容】而不是存在性：一条 `USING (true)` 的策略能让'
+>             '(e8)（跨租户不可见）静默假绿 —— 所有租户互相可见，而自证全绿。'
+>             '而 WITH CHECK 缺失会让写入不受租户约束，使 (f2) 的清场残留检查失去意义。';
+>     END IF;
+> 
+797a915,947
+>     -- ------------------------------------------------------------------
+>     -- 🛑🛑 2026-09-27（119 反向验证）· 把两条函数体【先剥掉行注释】再匹配
+>     --
+>     --   【为什么必须这一步 —— 不是风格，是判据的效力】
+>     --   PG 会把 `AS $tag$ ... $tag$` 之间的内容**原样**存进 pg_proc.prosrc，
+>     --   注释也在里面。V18 的函数体注释里【逐字】写着它自己要做的事：
+>     --        -- 🛑 谓词里带 `status <> 'retired'` 是为了让这条 UPDATE 在并发下**正确**：
+>     --        --       ① INSERT ... ON CONFLICT 的 ROW_COUNT=1 ⇒ 真的是本次建出来的
+>     --        -- 本函数显式拒绝这种"覆盖既有上下文"的调用（fail-closed）。
+>     --   于是所有"函数体里出现过 X"形态的判据都可以被**注释**满足。
+>     --
+>     --   【实测证据（119 的 I(c4)）】
+>     --   注入"删掉回归语里那句 `AND status <> 'retired'`"（代码改动，语法仍合法）：
+>     --       修复前 ⇒ 自证打印"自证通过"    ← 静默假绿：判据被注释满足
+>     --       修复后 ⇒ 自证报 (c4)
+>     --   同一形态在 (b5) 上更隐蔽：`ON\s+CONFLICT` 在函数体里有 **2 处代码**
+>     --   + 1 处注释同时命中 ⇒ 连"哪一处满足了判据"都说不清。
+>     --
+>     --   【口径】
+>     --   · **语句形态判据必须在下述 v_code 上匹配**（= prosrc 逐行剥掉 `--` 之后的部分）；
+>     --   · 同时保留【锚点】：`INSERT INTO device\M` / `UPDATE device\M` 起锚、
+>     --     以 `;` 为界（`[^;]*` 不跨语句）—— 判据的适用范围 = 它的锚点范围。
+>     --   · (b1)(b2)(b3) 在执行期就做了逐行剥注释（见上方的 regexp_replace(ln,'--.*$','')），
+>     --     故它们本来就不受影响；本步只是把同一机制补到语句形态判据上。
+>     -- ------------------------------------------------------------------
+>     SELECT string_agg(regexp_replace(ln, '--.*$', ''), E'\n')
+>       INTO v_register_code
+>       FROM regexp_split_to_table(v_register_body, E'\n') AS t(ln);
+> 
+>     SELECT string_agg(regexp_replace(ln, '--.*$', ''), E'\n')
+>       INTO v_retire_code
+>       FROM regexp_split_to_table(v_retire_body, E'\n') AS t(ln);
+> 
+803c953
+<     IF v_register_body !~ 'INSERT\s+INTO\s+device\M' THEN
+---
+>     IF v_register_code !~ 'INSERT\s+INTO\s+device\M' THEN
+805c955
+<             'V18 自证失败(b4): register_device 的函数体里没有 INSERT INTO device —— '
+---
+>             'V18 自证失败(b4): register_device 的函数体（剥注释后的代码态）里没有 INSERT INTO device —— '
+811c961,966
+<     IF v_register_body !~ 'ON\s+CONFLICT' THEN
+---
+>     -- (b5) register_device 的 INSERT 必须带 ON CONFLICT
+>     --   🛑🛑 2026-09-27 由 119 反向验证的探针抓出：初版判据 `ON\s+CONFLICT`
+>     --      **既无锚点、也没剥注释**，而函数体里有 2 处代码 + 1 处注释都含这个子串
+>     --      ⇒ "判据的满足来源"与"它要保护的那条语句"之间没有绑定关系。
+>     --   ⇒ 双重收紧：① 在【剥注释后的代码态】上匹配；② 从 `INSERT INTO device` 起锚。
+>     IF v_register_code !~ 'INSERT\s+INTO\s+device\M[^;]*ON\s+CONFLICT' THEN
+813c968
+<             'V18 自证失败(b5): register_device 的 INSERT 没有 ON CONFLICT —— '
+---
+>             'V18 自证失败(b5): register_device 的 INSERT 语句没有 ON CONFLICT —— '
+816c971,973
+<             '（23505 也可能来自其它唯一约束）。故必须用库层的原子 upsert。';
+---
+>             '（23505 也可能来自其它唯一约束）。故必须用库层的原子 upsert。'
+>             '🛑 判据在【剥注释后的代码态】上匹配，且从 `INSERT INTO device` 起锚：'
+>             '不带这两者的写法会被函数体注释里同款子串满足（119 已把这条钉成机械事实）。';
+822c979
+<     IF v_register_body !~ 'ON\s+CONFLICT\s*\(\s*device_id\s*\)' THEN
+---
+>     IF v_register_code !~ 'ON\s+CONFLICT\s*\(\s*device_id\s*\)' THEN
+841c998
+<     IF v_register_body !~ 'RAISE\s+EXCEPTION[^;]*另一租户' THEN
+---
+>     IF v_register_code !~ 'RAISE\s+EXCEPTION[^;]*另一租户' THEN
+851,852c1008,1009
+<             '🛑 判据从 `RAISE EXCEPTION` 起锚：本函数体注释里逐字含"另一租户"，'
+<             '不带锚点的写法会被注释满足。';
+---
+>             '🛑 判据在【剥注释后的代码态】上匹配、且从 `RAISE EXCEPTION` 起锚：'
+>             '本函数体注释里逐字含"另一租户"，不带这两者的写法会被注释满足。';
+857c1014
+<     IF v_register_body !~ 'FROM\s+device\M[^;]*device_id\s*=\s*p_device_id' THEN
+---
+>     IF v_register_code !~ 'FROM\s+device\M[^;]*device_id\s*=\s*p_device_id' THEN
+868c1025
+<     IF v_register_body !~ 'INSERT\s+INTO\s+device\M[^;]*tenant_id' THEN
+---
+>     IF v_register_code !~ 'INSERT\s+INTO\s+device\M[^;]*tenant_id' THEN
+879c1036
+<     IF v_retire_body !~ 'UPDATE\s+device\M' THEN
+---
+>     IF v_retire_code !~ 'UPDATE\s+device\M' THEN
+881c1038
+<             'V18 自证失败(c1): retire_device 的函数体里没有 UPDATE device —— '
+---
+>             'V18 自证失败(c1): retire_device 的函数体（剥注释后的代码态）里没有 UPDATE device —— '
+887c1044
+<     IF v_retire_body ~ 'DELETE\s+FROM\s+device\M' THEN
+---
+>     IF v_retire_code ~ 'DELETE\s+FROM\s+device\M' THEN
+893c1050
+<     IF v_retire_body !~ 'SET\s+status\s*=' THEN
+---
+>     IF v_retire_code !~ 'SET\s+status\s*=' THEN
+897c1054,1065
+<     IF v_retire_body !~ 'status\s*<>\s*''retired''' THEN
+---
+>     --   🛑🛑 2026-09-27 由 119 反向验证的受控注入抓出：初版判据
+>     --      `status\s*<>\s*'retired'` **既无锚点、也没剥注释**，而函数体的注释里
+>     --      （prosrc 会原样保留）逐字含
+>     --          🛑 谓词里带 `status <> 'retired'` 是为了让这条 UPDATE 在并发下**正确**：
+>     --      ⇒ 把代码处那句谓词删掉之后，判据仍被**注释**满足 ⇒ 静默假绿、自证全绿。
+>     --        实测（119 的 I(c4)）：注入"删掉代码处的 `AND status <> 'retired'`"，
+>     --        修复前 = 打印"自证通过"；修复后 = 报 (c4)。
+>     --   ⇒ 双重收紧：① 在【剥注释后的代码态】上匹配；② 从 `UPDATE device` 起锚、
+>     --      以 `;` 为界（`[^;]*` 不跨语句）。两者都需要：
+>     --      只做 ② 仍会被"函数体注释里那句 `AND status <> 'retired'`"命中
+>     --      （注释就在同一函数体内，且离 UPDATE 很近）；只做 ① 则丢失适用范围。
+>     IF v_retire_code !~ 'UPDATE\s+device\M[^;]*status\s*<>\s*''retired''' THEN
+899c1067
+<             'V18 自证失败(c4): retire_device 的 UPDATE 谓词里没有 `status <> ''retired''`。'
+---
+>             'V18 自证失败(c4): retire_device 的【状态迁移 UPDATE 语句自身】谓词里没有 `status <> ''retired''`。'
+902,904c1070,1073
+<             '这与 V17 的 (c6) 是同一类教训，也与 E2 在 2026-09-26 修掉的'
+<             '"看起来不覆盖、实际没覆盖"同族：保证必须由【库层条件】给出，'
+<             '不能依赖一次可能过期的读。';
+---
+>             '这与 V17 的 (c6) 是同一类教训：保证必须由【库层条件】给出，'
+>             '不能依赖一次可能过期的读。'
+>             '🛑 判据在【剥注释后的代码态】上匹配、且从 UPDATE device 起锚：'
+>             '本函数体注释里逐字含同款字面量（119 的 I(c4) 已实测这条假绿）。';
+913c1082
+<     IF v_retire_body !~ 'UPDATE\s+device\M[^;]*tenant_id\s*=\s*p_tenant_id' THEN
+---
+>     IF v_retire_code !~ 'UPDATE\s+device\M[^;]*tenant_id\s*=\s*p_tenant_id' THEN

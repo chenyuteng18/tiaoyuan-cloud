@@ -1,0 +1,9 @@
+Compiled from "Architectures.java"
+public final class com.tngtech.archunit.library.Architectures$LayeredArchitecture$DependencySettings {
+  final java.lang.String description;
+  final java.util.function.BiFunction<com.tngtech.archunit.library.Architectures$LayeredArchitecture$LayerDefinitions, com.tngtech.archunit.base.DescribedPredicate<com.tngtech.archunit.core.domain.Dependency>, com.tngtech.archunit.base.DescribedPredicate<com.tngtech.archunit.core.domain.Dependency>> ignoreExcludedDependencies;
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture consideringAllDependencies();
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture consideringOnlyDependenciesInAnyPackage(java.lang.String, java.lang.String...);
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture consideringOnlyDependenciesInLayers();
+  com.tngtech.archunit.library.Architectures$LayeredArchitecture$DependencySettings(com.tngtech.archunit.library.Architectures$1);
+}

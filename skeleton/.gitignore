@@ -1,0 +1,80 @@
+# ============================================================================
+# 🛑 2026-09-30 层级变更说明（先读这条，否则会误判本文件的作用范围）：
+#   本文件作用于 skeleton/ 子树。仓库根已上移到【上一级 product-strategy/】，
+#   根级 .gitignore 覆盖全局规则（target/ node_modules/ 大体积备份等），
+#   两者是"根兜底 + 子树细化"的关系，不是重复。
+#   为何上移：7 个门禁测试类把"仓库根"定义为含 _work/ 与 PRD 的那一层
+#   （即 product-strategy），仓库建在 skeleton/ 时 CI 全新 checkout 必红。
+#   详见根 product-strategy/.gitignore 顶部与本仓 README「第 49 条系统性缺陷」。
+# ============================================================================
+# 本仓库此前的状态：既非 git 仓库, 也【没有】.gitignore。
+#
+# 后果不是抽象的「反正会被忽略」—— 已真实发生过一次源码树污染:
+#   ① surefire 测试运行把日志写进 dy-app/logs/（默认 ${LOG_DIR:-logs}）
+#   ② 开发期 mvn spring-boot:run 同样把日志写进 dy-app/logs/ 与 ./logs/
+# 前者由 dy-app/src/test/resources/logback-test.xml 修掉, 后者由
+# dy-app/pom.xml 的 spring-boot:run systemPropertyVariables 修掉。
+# 本文件是第三道防线: 万一将来仍有路径漏到源码树, 也不会被误提交。
+#
+# 注意: 这不是「修复手段」, 只是兜底。真正的修复是让日志落点正确
+# （见 dy-app 的 TestLogOutputIsolationTest —— 该用例刻意不依赖 .gitignore,
+#  因为「没被提交」不等于「没被写进源码树」）。
+# ============================================================================
+
+# 构建产物
+target/
+*.class
+
+# 运行期日志（日志落点正确时不应存在；存在即为污染残留，不应提交）
+logs/
+**/logs/
+*.log
+
+# 压缩归档（RollingFileAppender 的 .gz 历史文件）
+*.log.*
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+# 本地环境覆盖（可能含凭据，绝不提交）
+application-local.yml
+application-local.properties
+.env
+
+# ============================================================================
+# 以下为 CI 接入基线追加（只补上面缺失的规则，未改动/删除上面任何一行）。
+# ============================================================================
+
+# compliance/reports/ —— 区分「构建产物」与「证据」。
+#
+# 忽略：pom.xml 的四道门禁都绑定在 validate 阶段
+#   (adr12-compliance-scan / s16-zero-derived-gate /
+#    s18-contract-conformance / s19-sdk-surface-gate)，
+#   每次构建都会把这四个文件重写一遍。把它们提交进版本库只会产生
+#   无意义的 diff 与合并冲突，故忽略。
+compliance/reports/last-build*.json
+
+# 保留：反向验证报告是【证据】，不是产物，必须在版本库里可追溯 ——
+#   compliance/reports/REVERSE-VERIFICATION-*.md
+#   上面那条 glob 只匹配 last-build*.json，不会误伤 .md。
+#   若日后有人想把整个 reports/*.json 忽略掉，务必先确认
+#   ci-scan.json / baseline.json / manual-scan.json / s16-*.json
+#   是否也属证据 —— 本基线刻意【没有】忽略它们，留待人工裁定。
+
+# IDE 补充（上面已有 .idea/ *.iml .vscode/，此处补 Eclipse 系）
+*.iws
+.settings/
+.project
+.classpath
+
+# OS 补充
+ehthumbs.db
+Desktop.ini
+
+# frontends 的 node_modules/ 与 dist/ 由 frontends/.gitignore 覆盖，
+# 已实测生效（frontends/admin-web/node_modules、frontends/therapist-app/dist
+# 均被忽略）。此处刻意不重复声明，避免两处规则日后各自漂移。

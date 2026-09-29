@@ -1,0 +1,134 @@
+# =============================================================================
+# ADR-12 SCAN FACE 1  --  REFUND WORDING
+# =============================================================================
+# Authority : ADR-12 (arch-decisions-lead-2026-09-19.md section 12)
+#             H-2 (arch-constraints-inventory-2026-09-19.md, rule H-2)
+#             contract-t6-api-freeze-2026-09-19.md
+#               - section 5.1 rule R1 (client-visible field / enum names must not
+#                 contain the refund wording)
+#               - section 5 row X-2 (build-time scan of the mini-program bundle)
+#             PRD section 2.4 X-2  (mini-program package)
+#
+# CITATION RULE: this file cites sources by SEMANTIC ANCHOR (section / rule id /
+# item title / config number / function name), never by line number. Line
+# numbers in the upstream documents drifted within a single session (the PRD
+# moved three times in 90 seconds on 2026-09-21), and a citation that silently
+# points at the wrong line is worse than no citation: it manufactures false
+# confidence. See the standing rule in the team ledger.
+# Owner     : see ../owners.csv  ->  subject = scan1_refund
+# Encoding  : UTF-8 (readers MUST decode as UTF-8, never as platform ANSI/GBK)
+#
+# SCOPE: the CLIENT (mini-program) package ONLY. Internal documents and
+#        管理端/经络师端 sources are NOT scanned by this face -- the refund
+#        wording is a legitimate internal business term there.
+#
+# CHANNEL PARITY: this wordlist is applied to the WHOLE client package with no
+#        path allow-list, so the wording cannot survive in a channel that was
+#        merely forgotten, i.e. the "the page was changed but the push template
+#        was not" silent-failure mode. For the record, the channels that MUST
+#        stay covered are:
+#          - i18n resource tables
+#          - enum names             (client-package/enums)
+#          - constants              (client-package/constants)
+#          - error copy             (client-package/errors)
+#          - analytics event names  (client-package/analytics)
+#          - subscription-message templates (client-package/subscribe-messages)
+#          - api path lists         (client-package/api)
+#
+# FORMAT
+#   one term per line; '#' starts a comment.
+#   ASCII identifier-like terms are matched with word boundaries and
+#   case-insensitively; all other terms are matched as substrings.
+# =============================================================================
+退款
+退费
+退钱
+返款
+原路退回
+refund
+
+# =============================================================================
+# DECISION ON RECORD -- 2026-09-21 (team-lead ruling)
+# 04 表协议正文 / refund 域服务端字段名 与 scan1 的关系
+# =============================================================================
+# TRIGGER
+#   PRD 给 04 表 §六 起的字段名 `agreement.refund_clause_snapshot` 按构造就是
+#   本词表的命中项：`refund` 是词条，ASCII 侧按标识符分段匹配，而
+#   `refund_clause_snapshot` 的段序列第一段正是 `refund`。同表的中性兄弟字段
+#   (`agreement.clause_service_nature` / `agreement.privacy_scope_json` /
+#   `agreement.band_clause_text`) 全部安静，故这不是误报面,而是命名本身。
+#   同理：04 表 8 章含「退款/终止/归档」章节名，`退款` 走 CJK 子串匹配。
+#
+# 依据锚点（一律按稳定标识引用，不写行号）
+#   PRD 附录 C.1 `agreement` 实体表       -> refund_clause_snapshot 为该实体字段
+#   PRD 附录 C.1.5 04 表字段映射 · §六     -> 章节名「退款/终止/归档」
+#   PRD 附录 C.1 `doc_template` ★ 实体     -> content(text) + version(int)，version 递增不可覆盖
+#   PRD 附录 C.4 P0-27                     -> 文书/协议文本模板管理与后台编辑
+#   PRD 附录 C config #46                  -> doc_template_editable
+#   PRD 附录 C.6 QC-6                      -> 本裁定的 PRD 侧登记（协议正文不下发客户端）
+#
+# 与 QC-6 的关系：本裁定与 PRD QC-6 是同一裁定的两侧。QC-6 附了一条不可省的
+# 验收项 -- 「签署前全文可读 + 可回看」，即不得退化为「客户只看中性摘要就签」。
+# 本面与本裁定都不削弱该条：正文只是"不下发为客户端包资产"，它仍须经服务端 /
+# 厂商侧页面完整可读、可回看。别把「不下发」误读成「客户看不到」。
+#
+# QC-6 澄清（防反向强制，team-lead 2026-09-21 落定）
+#   QC-6 的「全文可读」指的是「协议书**正文全文（8 章）**」，**不是**「客户个人的
+#   健康数据 / 禁忌结论」。这是两个对象：
+#     - 正文全文的可读性 = 法律文书的可读性要求；
+#     - 逐人健康数据是否随签署稿出域 = Q-E1 的问题。
+#   🛑 QC-6 的验收项**不得被援引为「所以回显必须进 PDF」** —— 那是用一个防降级
+#   条款去**反向强制出域**。有了本条澄清，QC-6 与 P0-02 之间不存在真冲突。
+#
+# RULING: 三层归属
+#   1) 协议/文书正文（含 04 表 §六「退款/终止/归档」章节名）
+#      -> 不得作为客户端包资产下发（含富文本资源 / JSON 文案表 / 静态 HTML）。
+#         唯一存放点 = 服务端 `doc_template.content`（PRD 1749），签署时由服务端
+#         渲染 / 快照；呈现走服务端或厂商侧页面。
+#   2) 客户端侧标识符（字段名 / 常量 / i18n 键 / api 路径 / 埋点）
+#      -> 一律不得出现 `refund_clause_snapshot`、`/api/v1/agreement/refund-clause`
+#         这类服务端词汇；客户端若确需引用，用中性别名。本条不构成新政策，
+#         与既有 Anti-Slop 硬规则同源。
+#   3) 门禁本身
+#      -> 不放宽词表、不加 path 例外、不加白名单。门禁报出的是真信号
+#         （说明这些名字确实进了客户端包），正确动作是把名字移出客户端。
+#
+# 服务端字段名本身不违规：本文件 SCOPE 段已逐字声明本面只扫客户端包，
+# 管理端 / 经络师端 / 内部文档中的退款措辞是合法的内部业务词汇。
+#
+# 覆盖边界（显式登记，不留静默缝）
+#   scan1 不覆盖 `doc_template.content` 本身，也不覆盖由它渲染出的任何客户端
+#   产物；只有当某个构建/生成步骤把渲染结果写入 client-package/** 且扩展名在
+#   TEXT_SUFFIXES 内时，scan1 才覆盖它。换言之：本面保护的是「已经落进客户端
+#   包的文件」，不是「数据库里的文本」，也不是「服务端/厂商侧渲染出的页面」。
+#
+# 升格条件
+#   若将来要求把协议正文下发到客户端包 -> 须先走 ADR-12 变更（因为要动 channel
+#   parity 保证：本词表施加于整个客户端包且无 path allow-list，加例外通道等于
+#   制造「这一页改了、推送模板没改」的静默失效）。不得就地开口子。
+#
+# 未决项（不由本词表推定，也不得写成「已关闭」）
+#
+#   编号归属（勿另立号：同一决策挂两个编号 = 口径漂移的起点）
+#     Q-E1 登记于 `_work/contract-t6-api-freeze-2026-09-19.md` §待裁定 · Q-E1
+#     Q-E2 登记于 PRD 附录 C.6
+#     二者同源，须同批复核。选型件内为行内引用编号（EV-7），本词表一律用 Q-E1。
+#
+#   Q-E1（健康数据出域 / 法务）：
+#     (ii) 为「按方案 a 关闭 Q-E1」创造了**条件**；最终是否关闭，取决于
+#     「**禁忌结论回显是否进入送签 PDF 正文**」的裁定。
+#       - 方案 a：回显**只留在客户端页面**，送签 PDF 正文只承载**中性结论性
+#         表述** -> 送签文本不含逐人健康信息 -> 出域问题关闭；
+#       - 方案 b：为满足 QC-6 的「全文可读 + 可回看」把回显内容**一并渲染进
+#         签署稿** -> 该 PDF 含健康相关敏感个人信息 -> **仍是出域**，须走
+#         **授权范围 + 存储地域 / 不出境 + DPA**。
+#     🛑 两方案不得合并表述，不得写成「已关闭」。
+#     ⚠️ 已撤回的过度声称（勿再引入）：「送签 PDF 由服务端生成 -> 可控制不含
+#        逐人禁忌结论 -> **同时解掉**健康数据出域」。中间缺一步：「服务端生成」
+#        只决定**谁渲染**，不决定**渲染什么进 PDF**。team-lead 2026-09-21 已
+#        撤回并订正为上面的措辞，以订正版为准。
+#
+#   Q-E2（法务 / 业务方）：协议正文是否必须出现「退款」字样。若法务要求正文含
+#   退款条款，则正文措辞须由业务方 + 法务明确。本裁定不依赖 Q-E2（文本已移出
+#   包体），但 Q-E2 决定正文措辞。我方不替业务方决定法律文书措辞。
+# =============================================================================

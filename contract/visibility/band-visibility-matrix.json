@@ -1,0 +1,79 @@
+{
+  "_comment": "派生导出 —— 供端侧构建期消费。非权威源，权威源为 _work/contract-t6-api-freeze-2026-09-19.md §3.1。",
+  "_derived_from": {
+    "upstream_authority": "_work/contract-t6-api-freeze-2026-09-19.md §3.1",
+    "openapi": "contract/openapi-v1.0.0.yaml#/x-visibility-matrix",
+    "config_slot": "cfg:band.visibility (config #43)",
+    "prototype": "prototype/index.html#D1-四端可见性矩阵"
+  },
+  "contract_version": "api-contract-v1.0.0",
+  "field_groups": {
+    "raw_data": {
+      "label": "① 手环原始数据",
+      "fields": ["sleep_minutes", "steps", "heart_rate_avg", "resting_heart_rate", "spo2", "sport_type"]
+    },
+    "capture_status": {
+      "label": "② 采集状态",
+      "fields": ["captured_days", "synced_at", "link_state"],
+      "_note": "「手环接入状态」归入本组（契约 §3.3 冲突点 C-1 消歧）"
+    },
+    "gap_reason": {
+      "label": "③ 缺口原因分类",
+      "fields": ["gap_reason"],
+      "_note": "内部枚举 7 值；客户端一律 403"
+    },
+    "derived_result": {
+      "label": "④ 派生结果",
+      "fields": ["a3_applicable", "a3_value", "as_value", "effect_verdict", "refund_eligibility"],
+      "_note": "客户端一律 403；调理师可见但不得作对客户不利依据。字段名逐字取自 openapi-v1.0.0.yaml（BandDerivedData / CustomerDetailData 的 x-field-group: derived_result）—— 本清单是派生导出，不是第二张手工清单"
+    }
+  },
+  "matrix": {
+    "client": {
+      "raw_data": true,
+      "capture_status": true,
+      "gap_reason": false,
+      "derived_result": false,
+      "_hard_boundary": "③④ 为硬约束，不得通过配置放开；放开属「变更业务裁定」"
+    },
+    "therapist": {
+      "raw_data": true,
+      "capture_status": true,
+      "gap_reason": true,
+      "derived_result": true,
+      "derived_not_adverse_to_customer": true
+    },
+    "meridian": {
+      "raw_data": true,
+      "capture_status": true,
+      "gap_reason": true,
+      "derived_result": true
+    },
+    "admin": {
+      "raw_data": true,
+      "capture_status": true,
+      "gap_reason": true,
+      "derived_result": true,
+      "scope_narrowed_by_row": true,
+      "row_levels": ["own_store", "region", "all"]
+    },
+    "store_customer_service": {
+      "_endless": true,
+      "_note": "无端（不使用系统）· 该界面不成立 —— 任何字段组均不成立"
+    }
+  },
+  "enforcement": {
+    "mode": "server_side_403",
+    "fail_closed": true,
+    "trim_not_null": true,
+    "_rule": "无权限字段整体不下发 —— 不是 null、不是空串、不是空数组；前端隐藏不算实现"
+  },
+  "client_sync_state": {
+    "enum": ["syncing", "synced", "sync_failed", "no_data_today"],
+    "_isolation": "与内部 gap_reason 为两套独立枚举；本枚举无「未佩戴」取值（合同 §3.3 冲突点 C-3）"
+  },
+  "internal_gap_reason": {
+    "enum": ["no_open", "sync_failed", "not_worn", "compliant_removal", "involuntary_technical", "beyond_retention_window", "unknown"],
+    "_visibility": "仅 ③ 可见角色可读；客户端 403"
+  }
+}

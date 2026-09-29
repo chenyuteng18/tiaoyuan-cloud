@@ -1,0 +1,18 @@
+-- 91: re-applying V1 only (EXPECTED TO SUCCEED: V1 now has DROP POLICY IF EXISTS) --
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V1__baseline_tenant_rls.sql:18: 注意:  关系 "tenant" 已经存在, 跳过
+CREATE TABLE
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V1__baseline_tenant_rls.sql:35: 注意:  关系 "customer" 已经存在, 跳过
+CREATE TABLE
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V1__baseline_tenant_rls.sql:37: 注意:  关系 "idx_customer_tenant" 已经存在, 跳过
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+DROP POLICY
+CREATE POLICY
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V1__baseline_tenant_rls.sql:105: 注意:  关系 "audit_log" 已经存在, 跳过
+CREATE TABLE
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V1__baseline_tenant_rls.sql:107: 注意:  关系 "idx_audit_log_tenant" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V1__baseline_tenant_rls.sql:117: 注意:  关系 "schema_migration" 已经存在, 跳过
+CREATE TABLE
+91: V1 重复应用成功 —— 幂等成立（S1-2 验收④）

@@ -1,0 +1,70 @@
+﻿########## 0) ARTIFACT UNDER TEST ##########
+file   : C:\Users\lenovo\WorkBuddy\2026-09-16-10-37-59\deliverables\product-strategy\skeleton\dy-app\src\main\resources\db\migration\V1__baseline_tenant_rls.sql
+bytes  : 5848
+md5    : 5CCF8990E0F7498FE0B48EA697748ACC
+
+########## 1) BASELINE (expect BUILD SUCCESS / exit 0) ##########
+EXIT=0
+VERDICT: [INFO] BUILD SUCCESS
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 30, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 13, Failures: 0, Errors: 0, Skipped: 0
+
+########## BREAK-1: FORCE ROW LEVEL SECURITY -> NO FORCE (expect BUILD FAILURE) ##########
+INJECTED      : ALTER TABLE customer FORCE ROW LEVEL SECURITY  ->  NO FORCE ROW LEVEL SECURITY
+EXPECT FAIL AT: A6 (FORCE 语义) / A1 (租户A 读到全表) / 未设上下文读到 2 行
+EXIT          : 1  (non-zero = correctly CAUGHT)
+VERDICT       : [INFO] BUILD FAILURE
+ACTUAL FAILURE: RlsTenantIsolationTest.policy_metadata_must_show_enable_force_and_nullif_on_both_sides:429 customer 必须 FORCE ROW LEVEL SECURITY（防 owner 绕过） ==> expected: <true> but was: <false>
+  | A1 also caught (psql gate): True
+  | fail-closed also caught   : True
+ALL FAILURE LINES: RlsCoverageGateTest.every_tenant_table_has_force_rls_in_the_real_database:210 租户表在真库中的 RLS 强制要素不完整（ADR-02 第 2 层）: || RlsTenantIsolationTest.cross_tenant_insert_is_rejected_by_with_check:300 租户A 上下文下成功插入了租户B 的行 —— WITH CHECK 未生效（写入侧隔离已破） ==> Expected org.springframework.dao.DataAccessException to be thrown, but nothing was thrown. || RlsTenantIsolationTest.empty_string_context_yields_zero_rows_and_never_a_500:273 空串上下文读到 2 行，应为 0 行 ==> expected: <0> but was: <2> || RlsTenantIsolationTest.leftover_empty_setting_must_still_yield_zero_rows:414 SET LOCAL 残留值（''）下读到 2 行 —— fail-closed 被破坏 ==> expected: <0> but was: <2> || RlsTenantIsolationTest.policy_metadata_must_show_enable_force_and_nullif_on_both_sides:429 customer 必须 FORCE ROW LEVEL SECURITY（防 owner 绕过） ==> expected: <true> but was: <false> || RlsTenantIsolationTest.psql_gate_script_a0_to_a8_must_pass:158 psql 门禁未通过: A1 → 断言失败; psql EXIT=3 || RlsTenantIsolationTest.tenant_a_writes_then_tenant_b_reads_zero_rows_and_vice_versa:189 租户A 应看到自己的 2 行（种子 1 + 新增 1） ==> expected: <2> but was: <3> || RlsTenantIsolationTest.tenant_session_variable_must_not_survive_the_transaction:350 SET LOCAL 结束后（残留 ''）应零行，实际 2 行 ==> expected: <0> but was: <2> || RlsTenantIsolationTest.undefined_setting_form_yields_null_and_zero_rows:383 未定义(NULL)形态下读到 2 行，应为 0 行（fail-closed） ==> expected: <0> but was: <2> || RlsTenantIsolationTest.without_context_query_returns_zero_rows_not_the_whole_table:234 未设 app.tenant_id 时读到 2 行：fail-closed 被破坏，全表泄漏！ ==> expected: <0> but was: <2>
+
+########## BREAK-2: NULLIF -> COALESCE(default tenant) i.e. fail-open (expect BUILD FAILURE) ##########
+INJECTED      : NULLIF(current_setting('app.tenant_id', true), '')::uuid
+                -> COALESCE(NULLIF(...), 'aaaaaaaa-1111-1111-1111-111111111111')::uuid
+EXPECT FAIL AT: A3 (未设上下文读到 1 行) / A4 (空串上下文读到 1 行)
+EXIT          : 1  (non-zero = correctly CAUGHT)
+VERDICT       : [INFO] BUILD FAILURE
+ACTUAL FAILURE: RlsTenantIsolationTest.empty_string_context_yields_zero_rows_and_never_a_500:273 空串上下文读到 1 行，应为 0 行 ==> expected: <0> but was: <1>
+  | A3 also caught (psql gate): True
+  | A4 also caught (psql gate): False
+ALL FAILURE LINES: RlsTenantIsolationTest.empty_string_context_yields_zero_rows_and_never_a_500:273 空串上下文读到 1 行，应为 0 行 ==> expected: <0> but was: <1> || RlsTenantIsolationTest.leftover_empty_setting_must_still_yield_zero_rows:414 SET LOCAL 残留值（''）下读到 1 行 —— fail-closed 被破坏 ==> expected: <0> but was: <1> || RlsTenantIsolationTest.policy_metadata_must_show_enable_force_and_nullif_on_both_sides:454 未设上下文读到 1 行：策略退化为 allow-all（USING(true) 形态） ==> expected: <0> but was: <1> || RlsTenantIsolationTest.psql_gate_script_a0_to_a8_must_pass:158 psql 门禁未通过: A3 → 断言失败; psql EXIT=3 || RlsTenantIsolationTest.tenant_session_variable_must_not_survive_the_transaction:350 SET LOCAL 结束后（残留 ''）应零行，实际 1 行 ==> expected: <0> but was: <1> || RlsTenantIsolationTest.undefined_setting_form_yields_null_and_zero_rows:383 未定义(NULL)形态下读到 1 行，应为 0 行（fail-closed） ==> expected: <0> but was: <1> || RlsTenantIsolationTest.without_context_query_returns_zero_rows_not_the_whole_table:234 未设 app.tenant_id 时读到 1 行：fail-closed 被破坏，全表泄漏！ ==> expected: <0> but was: <1>
+
+########## BREAK-3: USING/WITH CHECK -> (true) i.e. allow-all (expect BUILD FAILURE) ##########
+INJECTED      : USING (tenant_id = NULLIF(...)::uuid)      -> USING (true)
+                WITH CHECK (tenant_id = NULLIF(...)::uuid) -> WITH CHECK (true)
+EXPECT FAIL AT: A1/A2 (双向串租户) / A5 (跨租户写入被放行) / A7 (策略不含 NULLIF)
+EXIT          : 1  (non-zero = correctly CAUGHT)
+VERDICT       : [INFO] BUILD FAILURE
+ACTUAL FAILURE: RlsTenantIsolationTest.cross_tenant_insert_is_rejected_by_with_check:300 租户A 上下文下成功插入了租户B 的行 —— WITH CHECK 未生效（写入侧隔离已破） ==> Expected org.springframework.dao.DataAccessException to be thrown, but nothing was thrown.
+  | A1 also caught (psql gate): True
+  | A7 also caught (metadata):  True
+ALL FAILURE LINES: RlsTenantIsolationTest.cross_tenant_insert_is_rejected_by_with_check:300 租户A 上下文下成功插入了租户B 的行 —— WITH CHECK 未生效（写入侧隔离已破） ==> Expected org.springframework.dao.DataAccessException to be thrown, but nothing was thrown. || RlsTenantIsolationTest.empty_string_context_yields_zero_rows_and_never_a_500:273 空串上下文读到 2 行，应为 0 行 ==> expected: <0> but was: <2> || RlsTenantIsolationTest.leftover_empty_setting_must_still_yield_zero_rows:414 SET LOCAL 残留值（''）下读到 2 行 —— fail-closed 被破坏 ==> expected: <0> but was: <2> || RlsTenantIsolationTest.policy_metadata_must_show_enable_force_and_nullif_on_both_sides:446 USING 必须含 NULLIF（fail-closed 归一），实际: true ==> expected: <true> but was: <false> || RlsTenantIsolationTest.psql_gate_script_a0_to_a8_must_pass:158 psql 门禁未通过: A1 → 断言失败; psql EXIT=3 || RlsTenantIsolationTest.tenant_a_writes_then_tenant_b_reads_zero_rows_and_vice_versa:189 租户A 应看到自己的 2 行（种子 1 + 新增 1） ==> expected: <2> but was: <3> || RlsTenantIsolationTest.tenant_session_variable_must_not_survive_the_transaction:350 SET LOCAL 结束后（残留 ''）应零行，实际 2 行 ==> expected: <0> but was: <2> || RlsTenantIsolationTest.undefined_setting_form_yields_null_and_zero_rows:383 未定义(NULL)形态下读到 2 行，应为 0 行（fail-closed） ==> expected: <0> but was: <2> || RlsTenantIsolationTest.without_context_query_returns_zero_rows_not_the_whole_table:234 未设 app.tenant_id 时读到 2 行：fail-closed 被破坏，全表泄漏！ ==> expected: <0> but was: <2>
+
+########## 5) RESTORE (expect BUILD SUCCESS again + byte-identical artifact) ##########
+EXIT=0  (0 = restored correctly)
+VERDICT: [INFO] BUILD SUCCESS
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 30, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 13, Failures: 0, Errors: 0, Skipped: 0
+bytes  : 5848 (baseline 5848)
+md5    : 5CCF8990E0F7498FE0B48EA697748ACC (baseline 5CCF8990E0F7498FE0B48EA697748ACC)
+byte-identical: True
+
+########## CLEANUP ##########
+leftover 'NO FORCE'     : False
+leftover 'COALESCE(...)' : False
+leftover 'USING (true)' : False
+
+########## FINALLY ##########
+artifact restored: True
+temp backup removed: True

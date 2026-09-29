@@ -1,0 +1,14 @@
+-- 96: applying V1 (baseline) --
+CREATE TABLE
+CREATE TABLE
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+CREATE TABLE
+CREATE INDEX
+CREATE TABLE
+-- 96: applying V2 (B entities: customer_state_transition + band) --
+psql:C:/Users/lenovo/AppData/Local/Temp/b12-injection.JGLxAe/V2.no_check.sql:101: 错误:  语法错误 在 "," 或附近的
+LINE 16:     to_state       VARCHAR(32)  NOT NULL),
+                                                  ^

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.diaoyuanyun</groupId>
+        <artifactId>diaoyuanyun-skeleton</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>dy-tenancy</artifactId>
+    <name>dy-tenancy</name>
+    <description>租户上下文 / X-Tenant-Id 一致性 / RLS 会话变量 / 行级 scope (ADR-01/02/05)</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.diaoyuanyun</groupId>
+            <artifactId>dy-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- servlet: TenantContextFilter 依赖 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- AOP: RLS 会话变量设置切面 (用已缓存的 spring-aop + aspectjweaver, 不引入 starter 以离线可构建) -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-aop</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.aspectj</groupId>
+            <artifactId>aspectjweaver</artifactId>
+        </dependency>
+        <!-- RlsSessionAspect 需要取"当前事务绑定的连接": DataSourceUtils (spring-jdbc) 与
+             TransactionSynchronizationManager (spring-tx)。版本由 spring-boot BOM 管理。 -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-tx</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- RlsSessionAspectTest: 用 H2 作为"真实 JDBC 连接"载体 (被测行为是"用哪条连接", 不依赖 H2 支持 RLS)。
+             spring-boot-starter-test 已含 mockito / spring-test / junit5。 -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

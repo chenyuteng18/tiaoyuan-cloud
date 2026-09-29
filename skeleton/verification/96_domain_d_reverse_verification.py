@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+S3-2a · 契约域 D（D1~D4）反向验证 —— 「注入错误必须被抓住」。
+
+针对 S3-2a 落地的 D1~D4 四类缺口逐一注入：
+  I1  码无主：把 D1 的 fulfillment:write 改成不存在的码
+  I2  四道闸门被短路：assertAllGatesPassed 改成无条件放行
+  I3  客户字段裁剪被删：visitInternalVisibleTo 恒 true（客户看到 gate_check_json）
+  I4  visit_no 账本被改坏：nextVisitNo 恒返回 1（不做 MAX+1）
+
+锚点 ASCII / 唯一 / 逐字节还原 —— 见同目录 93/95_*.py 的既有纪律。
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+SKELETON = os.path.dirname(HERE)
+
+MAVEN_CMD = r"C:\opt\apache-maven-3.9.9\bin\mvn.cmd"
+JAVA_HOME_WIN = r"C:\Program Files\Eclipse Adoptium\jdk-17.0.20.101-hotspot"
+PG_BIN_WIN = r"C:\Program Files\PostgreSQL\17\bin"
+RUN_BASE = ["-o", "-q", "-DskipTests", "install"]
+
+PG_ENV = {
+    "DY_PG_HOST": "127.0.0.1",
+    "DY_PG_PORT": "5432",
+    "DY_PG_SUPER_PASSWORD": "postgres",
+}
+
+INJECTIONS = [
+    {
+        "id": "I1",
+        "gap": "码无主：把 D1 的 fulfillment:write 改成不存在的码",
+        "target": "dy-app/src/main/java/com/diaoyuanyun/dy/app/fulfillment/controller/FulfillmentController.java",
+        "old": '@RequirePermission("fulfillment:write")',
+        "new": '@RequirePermission("fulfillment:phantom")',
+        "runner": "gate",
+        "test": "PermissionCodeRegistrationGateTest",
+        "must_see": "every_require_permission_code_has_at_least_one_holder",
+        "expected": "码级门禁第②条必须报 orphans 非空（fulfillment:phantom 无人持有）",
+    },
+    {
+        "id": "I2",
+        "gap": "四道闸门被短路：assertAllGatesPassed 无条件放行",
+        "target": "dy-app/src/main/java/com/diaoyuanyun/dy/app/fulfillment/domain/FulfillmentGateGuard.java",
+        "old": "if (!missing.isEmpty()) {",
+        "new": "if (false && !missing.isEmpty()) {",
+        "runner": "e2e",
+        "test": "FulfillmentDomainDEndpointsE2ETest",
+        "must_see": "missing_gate_is_403_with_names",
+        "expected": "E2E 必须变红：缺同意书时 D1 不再 403 —— 四道闸门被整体短路，"
+                    "PRD P0-08 的执行前置失效",
+    },
+    {
+        "id": "I3",
+        "gap": "客户字段裁剪被删：visitInternalVisibleTo 恒 true",
+        "target": "dy-app/src/main/java/com/diaoyuanyun/dy/app/fulfillment/service/FulfillmentService.java",
+        "old": "public static boolean visitInternalVisibleTo(VisibilityRole role) {\n"
+              "        return role != null && role != VisibilityRole.CLIENT;\n"
+              "    }",
+        "new": "public static boolean visitInternalVisibleTo(VisibilityRole role) {\n"
+              "        return true;\n"
+              "    }",
+        "runner": "e2e",
+        "test": "FulfillmentDomainDEndpointsE2ETest",
+        "must_see": "client_sees_no_gate_check",
+        "expected": "E2E 必须变红：客户响应体出现 gate_check_json —— 契约 x-visible-to 不含 client",
+    },
+    {
+        "id": "I4",
+        "gap": "visit_no 账本被改坏：nextVisitNo 恒返回 1（不做 MAX+1）",
+        "target": "dy-app/src/main/java/com/diaoyuanyun/dy/app/fulfillment/repository/FulfillmentLedger.java",
+        "old": "Integer max = jdbc.queryForObject(\n"
+              "                    \"SELECT coalesce(max(visit_no), 0) FROM visit WHERE customer_id = ?::uuid\",\n"
+              "                    Integer.class, customerId.toString());\n"
+              "            return (max == null ? 0 : max) + 1;",
+        "new": "Integer max = 0;\n"
+              "            return 1;",
+        "runner": "e2e",
+        "test": "FulfillmentDomainDEndpointsE2ETest",
+        "must_see": "meridian_creates_visit",
+        "expected": "E2E 必须变红：第二次核销 visit_no 不递增 —— 客户维度全局唯一账本 U2 被破坏",
+    },
+]
+
+
+def read_bytes(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def read_text(path: str) -> str:
+    return read_bytes(path).decode("utf-8").replace("\r\n", "\n")
+
+
+def write_text(path: str, content: str) -> None:
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write(content)
+
+
+def restore_bytes(path: str, raw: bytes) -> None:
+    with open(path, "wb") as f:
+        f.write(raw)
+
+
+def mvn(args: list[str], extra_env: dict | None = None):
+    env = dict(os.environ)
+    parts = [os.path.dirname(MAVEN_CMD), PG_BIN_WIN]
+    if os.path.isdir(JAVA_HOME_WIN):
+        parts.append(os.path.join(JAVA_HOME_WIN, "bin"))
+        env["JAVA_HOME"] = JAVA_HOME_WIN
+    env["PATH"] = os.pathsep.join(parts + [env.get("PATH", "")])
+    if extra_env:
+        env.update(extra_env)
+    proc = subprocess.run([MAVEN_CMD] + args, cwd=SKELETON, env=env,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    return proc.returncode, proc.stdout.decode("utf-8", errors="replace")
+
+
+def build() -> tuple[int, str]:
+    return mvn(RUN_BASE)
+
+
+def run_test(test_class: str, need_pg: bool):
+    args = ["-o", "-pl", "dy-app", "test",
+            "-Dtest=" + test_class, "-DfailIfNoTests=false"]
+    return mvn(args, PG_ENV if need_pg else None)
+
+
+def extract_failure_block(output: str) -> str:
+    lines = output.splitlines()
+    out = []
+    in_block = False
+    for ln in lines:
+        if re.match(r"^\[ERROR\] (Failures|Errors):", ln):
+            in_block = True
+        if in_block:
+            out.append(ln)
+        if in_block and ln.startswith("[INFO]"):
+            break
+    return "\n".join(out)
+
+
+def main() -> int:
+    report = []
+    ok = True
+
+    print("== 基线（注入前必须全绿）==", flush=True)
+    bc, bo = build()
+    if bc != 0:
+        print(bo[-3000:])
+        print("🛑 基线 install 失败")
+        return 2
+    for cls, pg in (("PermissionCodeRegistrationGateTest", False),
+                    ("FulfillmentDomainDEndpointsE2ETest", True)):
+        rc, ro = run_test(cls, pg)
+        print(f"  baseline {cls}: {'PASS' if rc == 0 else 'FAIL'}", flush=True)
+        if rc != 0:
+            print(extract_failure_block(ro)[-2500:])
+            print(f"🛑 基线 {cls} 不是绿的")
+            return 2
+
+    touched: dict[str, bytes] = {}
+    for inj in INJECTIONS:
+        path = os.path.join(SKELETON, inj["target"])
+        raw = read_bytes(path)
+        original = read_text(path)
+        if path not in touched:
+            touched[path] = raw
+
+        print(f"\n== {inj['id']} · {inj['gap']} ==", flush=True)
+        hits = original.count(inj["old"])
+        if hits == 0:
+            print("🛑 锚点未命中: " + inj["old"][:160])
+            ok = False
+            report.append((inj, "ANCHOR-MISS", "", "锚点未命中"))
+            continue
+        if hits > 1:
+            print(f"🛑 锚点不唯一（{hits} 次）")
+            ok = False
+            report.append((inj, "ANCHOR-AMBIGUOUS", "", f"{hits} 次"))
+            continue
+
+        write_text(path, original.replace(inj["old"], inj["new"], 1))
+        try:
+            bc, bo = build()
+            if bc != 0:
+                print("  注入后编译失败（也算被抓住）", flush=True)
+                report.append((inj, "COMPILE-FAIL", extract_failure_block(bo), "编译失败"))
+                ok = False
+                continue
+            rc, ro = run_test(inj["test"], need_pg=(inj["runner"] == "e2e"))
+            caught = (rc != 0) and (inj["must_see"] in ro)
+            print(f"  {inj['id']} 注入后 {inj['test']}: "
+                  f"{'RED(被抓)' if rc != 0 else 'GREEN(未被抓!)'}", flush=True)
+            if not caught:
+                ok = False
+                print("  🛑 未被抓住: " + inj["must_see"])
+                print(extract_failure_block(ro)[-2000:])
+                report.append((inj, "NOT-CAUGHT", extract_failure_block(ro), inj["expected"]))
+            else:
+                report.append((inj, "CAUGHT", extract_failure_block(ro), inj["expected"]))
+        finally:
+            restore_bytes(path, touched[path])
+            print("  已还原: " + inj["target"], flush=True)
+
+    print("\n== 逐字节还原校验 ==", flush=True)
+    for path, raw in touched.items():
+        now = read_bytes(path)
+        rel = os.path.relpath(path, SKELETON).replace(os.sep, "/")
+        if now == raw:
+            print(f"  ✔ 逐字节一致: {rel}  ({len(raw)} 字节)", flush=True)
+        else:
+            ok = False
+            print(f"  🛑 还原后不一致: {rel}", flush=True)
+
+    print("\n== 还原后基线 ==", flush=True)
+    bc, bo = build()
+    if bc != 0:
+        print(bo[-3000:]); ok = False
+    else:
+        for cls, pg in (("PermissionCodeRegistrationGateTest", False),
+                        ("FulfillmentDomainDEndpointsE2ETest", True)):
+            rc, ro = run_test(cls, pg)
+            print(f"  final {cls}: {'PASS' if rc == 0 else 'FAIL'}", flush=True)
+            if rc != 0:
+                ok = False
+
+    out_path = os.path.join(HERE, "96_domain_d_reverse_verification.md")
+    with open(out_path, "w", encoding="utf-8", newline="") as f:
+        f.write("# S3-2a · 契约域 D 反向验证证据\n\n")
+        f.write("三列证据：注入内容 | 预期失败点 | 实际失败断言原文\n\n")
+        f.write("> 🛑 编码须知同 94_domain_b_reverse_verification.md：乱码为证据原貌，判定以英文方法名/码为准。\n\n")
+        for inj, verdict, proof, expected in report:
+            f.write(f"## {inj['id']} · {inj['gap']}\n\n")
+            f.write(f"- 目标文件：`{inj['target']}`\n")
+            f.write(f"- 注入：`{inj['old'][:120]}` -> `{inj['new'][:120]}`\n")
+            f.write(f"- 捕捉者：{'码级门禁' if inj['runner']=='gate' else '真请求 E2E'} `{inj['test']}`\n")
+            f.write(f"- 预期失败点：{expected}\n")
+            f.write(f"- 判定：**{verdict}**\n")
+            f.write("- 实际失败断言原文：\n\n```\n")
+            f.write((proof or "(empty)")[:4000])
+            f.write("\n```\n\n")
+        f.write(f"\n被触碰源文件（逐字节还原校验）：\n\n")
+        for path in touched:
+            rel = os.path.relpath(path, SKELETON).replace(os.sep, "/")
+            f.write(f"- `{rel}`\n")
+        f.write(f"\n总体：{'全部被抓 且 已还原全绿' if ok else '存在未通过项（见上）'}\n")
+
+    print("\n证据已落盘: " + out_path, flush=True)
+    print("\n总体: " + ("PASS" if ok else "FAIL"))
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

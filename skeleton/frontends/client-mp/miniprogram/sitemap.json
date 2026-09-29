@@ -1,0 +1,9 @@
+{
+  "desc": "骨架阶段不开放索引",
+  "rules": [
+    {
+      "action": "disallow",
+      "page": "*"
+    }
+  ]
+}

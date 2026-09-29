@@ -1,0 +1,178 @@
+  PASS  能解析出 ROLES 定义
+  PASS  能解析出 REFUND_ROLES 定义
+  PASS  能解析出 SCREENS 定义
+
+=== A. 端形态矩阵 ===
+  PASS  ROLES 共 7 个角色
+  PASS  角色「总部运营」声明端形态
+  PASS  角色「总部运营」端形态 = Web
+  PASS  角色「区域督导」声明端形态
+  PASS  角色「区域督导」端形态 = Web
+  PASS  角色「门店负责人」声明端形态
+  PASS  角色「门店负责人」端形态 = Web
+  PASS  角色「门店客服」声明端形态
+  PASS  角色「门店客服」端形态 = 无端（不使用系统）
+  PASS  角色「调理师」声明端形态
+  PASS  角色「调理师」端形态 = APP
+  PASS  角色「经络师」声明端形态
+  PASS  角色「经络师」端形态 = APP
+  PASS  角色「客户」声明端形态
+  PASS  角色「客户」端形态 = 小程序
+  PASS  END_OF 映射已建立
+  PASS  END_OF 覆盖 hq
+  PASS  END_OF 覆盖 area
+  PASS  END_OF 覆盖 manager
+  PASS  END_OF 覆盖 shop
+  PASS  END_OF 覆盖 therapist
+  PASS  END_OF 覆盖 meridian
+  PASS  END_OF 覆盖 client
+
+=== B. 端形态与退款可见性一致 ===
+  PASS  客户（小程序）不在 REFUND_ROLES
+  PASS  调理师（APP）不在 REFUND_ROLES
+  PASS  门店客服（无端）不在 REFUND_ROLES
+  PASS  经络师（APP）在 REFUND_ROLES
+  PASS  hq（Web）在 REFUND_ROLES
+  PASS  area（Web）在 REFUND_ROLES
+  PASS  manager（Web）在 REFUND_ROLES
+  PASS  可见性矩阵表含「端形态」列
+  PASS  矩阵明示门店客服为无端
+  PASS  矩阵标注 R4c 结构性不可观测
+
+=== C. 三条跨端硬约束 ===
+  PASS  约束① 服务端判定 / 后端 403 兜底
+  PASS  约束② 小程序包内无退款字样与接口
+  PASS  约束③ 同一 APP 内角色级差异化
+  PASS  角色切换按钮展示端形态小字
+  PASS  「全部」按钮标注三端
+
+=== D. config #28 冲突清除（客户端倒计时） ===
+  PASS  原型中不存在「退款到账倒计时」字样
+  PASS  SLA 倒计时不再声明「双向可见」
+  PASS  SLA 倒计时改为内部可见
+  PASS  客户端倒计时告知改为电话/当面
+
+=== D2. 「入口移到客户端」旧设计残留清除 ===
+  PASS  已清除旧表述：客户自助提交退款
+  PASS  已清除旧表述：客户端自助直退
+  PASS  已清除旧表述：门店端看不到、也拦截不了
+  PASS  已清除旧表述：入口唯一性（旧）
+  PASS  新表述「代录唯一性」已建立
+  PASS  代录人限定经络师 / 门店负责人
+  PASS  requested_at / created_at 分离已体现
+  PASS  旧枢纽论点已标注作废并给出新兜底
+
+=== E. 结构完整性 ===
+  PASS  <div> 与 </div> 数量一致
+  PASS  script 标签闭合
+  PASS  页面引用了 P.* 渲染函数且 render() 已调用
+  PASS  SCREENS 条目非空
+  PASS  ticks 列表项富文本均包在 <span> 内（防 flex 横向错排）
+  PASS  ticks 列表项总数与「已包 span」数一致（37 条全量覆盖）
+
+=== F. D1「客户管理详情 · 手环反馈数据」四端可见性 ===
+  PASS  SCREENS 含 D1 客户管理详情屏
+  PASS  D1 屏编号为 D1
+  PASS  D1 屏对所有角色可见（role=all）
+  PASS  P.detail 渲染函数已定义
+  PASS  D1 按角色分支渲染（curRole）
+  PASS  D1 明示「门店客服无端 · 界面不成立」
+  PASS  D1 含四端适配一览表
+  PASS  D1 含四端可见性矩阵（字段组四档）
+  PASS  客户端专属区块已用标记隔离（CLIENT-VIEW）
+  PASS  客户端区块不含派生字段「依从性」
+  PASS  客户端区块不含派生字段「退款」
+  PASS  客户端区块不含派生字段「效果判定」
+  PASS  客户端区块不含派生字段「AS」
+  PASS  客户端区块不含派生字段「结算」
+  PASS  客户端区块不含派生字段「门槛」
+  PASS  客户端区块不含派生字段「gap_reason」
+  PASS  客户端区块含 W-1 边界（只给数据本身）
+  PASS  客户端区块含 W-2 正向计数与中性描述
+  PASS  客户端区块含 W-3 同步时间精确到日
+  PASS  客户端区块声明「不单独用于任何判定」
+  PASS  内部角色可见缺口原因分类（gap_reason）
+  PASS  内部角色可见派生结果（依从性 / AS）
+  PASS  明示缺口不得作为不利依据
+  PASS  明示手环只进依从性、不进效果主判据
+  PASS  接入未就绪显示「手环未接入」
+  PASS  未接入时不得以 0 值 / 空图表 / 示例数据顶替
+  PASS  config #43 band_visibility 已声明
+  PASS  按「角色 × 字段组」配置（非按端）
+  PASS  明示 #43 与 #40 独立、不得合并
+  PASS  明示手环数据为客户级、不做门店锁定
+  PASS  D1 屏引用 X-1 服务端判定（后端 403）
+  PASS  六角色均可无异常渲染 D1（运行时）
+  PASS  运行时：客户端 D1 渲染结果零派生结论
+  PASS  运行时：客户端 D1 无 SVG 图表
+  PASS  运行时：客户端 D1 含 W-2 正向计数
+  PASS  运行时：客户端 D1 含 W-3 同步时间精确到日
+  PASS  运行时：内部四端 D1 均含缺口原因与四端矩阵
+  PASS  运行时：未接入态四端均显示「手环未接入」
+  PASS  运行时：未接入态不出现 A3=71% 示例值
+  PASS  运行时：未接入态不出现 SVG 空图表
+  PASS  运行时：未接入态不出现 0 值占位
+  PASS  运行时：未接入态客户端仍零派生结论
+  PASS  运行时：D1「all」退款字样与 §2.2 矩阵一致
+  PASS  运行时：D1「client」退款字样与 §2.2 矩阵一致
+  PASS  运行时：D1「therapist」退款字样与 §2.2 矩阵一致
+  PASS  运行时：D1「meridian」退款字样与 §2.2 矩阵一致
+  PASS  运行时：D1「manager」退款字样与 §2.2 矩阵一致
+  PASS  运行时：D1「shop」退款字样与 §2.2 矩阵一致
+  PASS  D1 渲染函数体已定位
+  PASS  运行时：D1 未使用 data-nomask 绕过遮蔽
+  PASS  运行时：D1 六角色渲染结果两两非空且互异
+  PASS  运行时：D1「client」声明服务端为唯一权威
+  PASS  运行时：D1「client」声明本端不持有权威副本/不转发
+  PASS  运行时：D1「therapist」声明服务端为唯一权威
+  PASS  运行时：D1「therapist」声明本端不持有权威副本/不转发
+  PASS  运行时：D1「meridian」声明服务端为唯一权威
+  PASS  运行时：D1「meridian」声明本端不持有权威副本/不转发
+  PASS  运行时：D1「manager」声明服务端为唯一权威
+  PASS  运行时：D1「manager」声明本端不持有权威副本/不转发
+  PASS  D1 数据来源链含「厂商 App」跳（非小程序取数）
+  PASS  D1 明示三端皆为消费方
+  PASS  D1 运行时渲染全部通过
+
+=== G. 06 屏《调理协议书》文书能力（正文 / 版本 / 上传 / 占位符） ===
+  PASS  P.agree 渲染函数已定义
+  PASS  06 屏 SCREENS 条目 role 仍为 therapist（上传区走条件渲染，不得改 role 换权限）
+  PASS  超管判定为单一入口 isSuperAdmin()（与 canSeeRefund() 同款写法）
+  INFO  P.agree 八角色渲染成功
+  PASS  P.agree 八角色均渲染非空
+  PASS  06 屏渲染结果零 NaN / undefined / [object Object]
+  PASS  G1 门禁横幅「无效退款」合规约束逐字保留
+  PASS  G1 门禁横幅首句逐字保留
+  PASS  G1 状态机说明「任一前置缺失返回 403」逐字保留
+  PASS  G1 状态机四态链逐字保留
+  PASS  G1 要点卡 6 条 ticks 保留（疗程 / 评估 / 退款终止 / 主动权利 / 数据授权 / 双方签署）
+  PASS  G1 客户确认卡「签署 / 确认 / 重签」要点保留
+  PASS  G1 客户确认卡两个按钮保留
+  PASS  G2 文书正文卡标题逐字（含模板版本）
+  PASS  G2 卡片标注「服务端渲染」
+  PASS  G2 正文 8 章章名逐条齐全
+  PASS  G2 章名清单行数恰为 8（整块删除即变红）
+  PASS  G2 QC-6 不可省验收项逐字出现
+  PASS  G2 版本信息 chip 与「历史版本可回看、不可覆盖」
+  PASS  G2 签署绑定 doc_template_id / doc_template_version
+  PASS  G2 渲染快照与哈希纪律（snapshot + hash + 不回溯）
+  PASS  G3 上传区文案含「双形态：上传文件 / 在线编辑」
+  PASS  G3 上传区权限注明「仅超级管理员（tenant 级）可编辑」+「门店只读」
+  PASS  G3 上传约束逐字（PDF / DOCX / Markdown · ≤10 MiB · SHA-256 · 幂等）
+  PASS  G3 上传区含文件选择控件与「或在线编辑全文」按钮
+  PASS  G3 上传件反病毒 / 反脚本纪律（不解压执行宏）
+  PASS  G3 反向：上传位对非超管六角色不可见（条件渲染未被旁路）
+  PASS  G3 反向：非超管角色亦不得出现上传约束文案
+  PASS  G3 上传位可见性 = isSuperAdmin() 语义（hq 与 all 可见）
+  PASS  G4 白名单 6 个占位符逐条呈现
+  PASS  G4 占位符表格行数恰为 6（整块删除即变红）
+  PASS  G4 渲染示例值逐条（门店 / 姓名 / 脱敏手机 / 签署日 / 方案版本）
+  PASS  G4 手机号脱敏示例为「138****8800」（前 3 后 4）
+  PASS  G4 渲染纪律①「未在白名单内的占位符 → 渲染期报错，不静默留空」
+  PASS  G4 渲染纪律②「客户手机号强制脱敏（前 3 后 4），原名不得出现在文书内」
+  PASS  G4 白名单的数据边界语义（健康类数据不得注册为占位符）
+  PASS  G4 反向：健康类 / 手环类 / 退款类占位符零注册
+  PASS  G4 反向：实际注册占位符集合恰为白名单 6 项（越界即变红）
+
+=====================================
+结果：158 通过 / 0 失败  (合计 158)

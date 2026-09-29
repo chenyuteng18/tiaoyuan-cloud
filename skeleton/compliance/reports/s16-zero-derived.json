@@ -1,0 +1,32 @@
+{
+  "gate": "s1-6-client-zero-derived",
+  "repo_root": "C:\\Users\\lenovo\\WorkBuddy\\2026-09-16-10-37-59\\deliverables\\product-strategy\\skeleton",
+  "verdict": "PASS",
+  "violation_count": 0,
+  "violations": [],
+  "audit": {
+    "FACE 1 no-zero-derived-names": {
+      "files_scanned": 8,
+      "terms_checked": 6,
+      "violations": 0
+    },
+    "FACE 3 no-client-forbidden-paths": {
+      "forbidden_paths_checked": 7,
+      "violations": 0
+    },
+    "FACE 2 allowlist-within-contract": {
+      "contract_client_paths": 14,
+      "allowlist_entries": 13,
+      "permitted_but_undeclared": 1,
+      "violations": 0
+    },
+    "FACE 4 gate-self-check": {
+      "derived_fields": 6,
+      "contract_paths": 45,
+      "allowlist_entries": 13
+    }
+  },
+  "permitted_but_undeclared": [
+    "/customers/{id}/intake-profile"
+  ]
+}

@@ -1,0 +1,100 @@
+COL audit_log.action character varying(64)
+COL audit_log.actor character varying(128)
+COL audit_log.created_at timestamp with time zone
+COL audit_log.hash character(64)
+COL audit_log.id uuid
+COL audit_log.payload text
+COL audit_log.prev_hash character(64)
+COL audit_log.target_id character varying(128)
+COL audit_log.target_type character varying(64)
+COL audit_log.tenant_id uuid
+COL band.band_id uuid
+COL band.bound_at date
+COL band.created_at timestamp with time zone
+COL band.created_by character varying(128)
+COL band.customer_id uuid
+COL band.model character varying(64)
+COL band.pause_period_json jsonb
+COL band.status character varying(16)
+COL band.tenant_id uuid
+COL band.unbind_reason character varying(32)
+COL band.unbound_at date
+COL band.updated_at timestamp with time zone
+COL band.vendor character varying(64)
+COL customer.created_at timestamp with time zone
+COL customer.deleted_at timestamp with time zone
+COL customer.id uuid
+COL customer.name character varying(128)
+COL customer.owner_id uuid
+COL customer.status character varying(16)
+COL customer.tenant_id uuid
+COL customer.updated_at timestamp with time zone
+COL customer_state_transition.created_at timestamp with time zone
+COL customer_state_transition.created_by character varying(128)
+COL customer_state_transition.customer_id uuid
+COL customer_state_transition.from_state character varying(32)
+COL customer_state_transition.guard_result character varying(16)
+COL customer_state_transition.is_current boolean
+COL customer_state_transition.missing_items jsonb
+COL customer_state_transition.occurred_at timestamp with time zone
+COL customer_state_transition.operator_id uuid
+COL customer_state_transition.ref_entity character varying(64)
+COL customer_state_transition.ref_id character varying(128)
+COL customer_state_transition.tenant_id uuid
+COL customer_state_transition.to_state character varying(32)
+COL customer_state_transition.transition_id uuid
+COL customer_state_transition.trigger_event character varying(64)
+COL customer_state_transition.updated_at timestamp with time zone
+COL schema_migration.applied_at timestamp with time zone
+COL schema_migration.description character varying(256)
+COL schema_migration.version character varying(32)
+COL tenant.created_at timestamp with time zone
+COL tenant.datastore_hint character varying(32)
+COL tenant.id uuid
+COL tenant.name character varying(128)
+COL tenant.status character varying(16)
+CON audit_log audit_log_pkey PRIMARY KEY (id)
+CON band band_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES customer(id)
+CON band band_pkey PRIMARY KEY (band_id)
+CON band band_status_check CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'paused'::character varying, 'unbound'::character varying, 'retired'::character varying])::text[])))
+CON band band_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenant(id)
+CON band band_unbind_reason_check CHECK (((unbind_reason)::text = ANY ((ARRAY['主动放弃'::character varying, '换机'::character varying, '设备损坏'::character varying, '其他'::character varying])::text[])))
+CON customer customer_pkey PRIMARY KEY (id)
+CON customer customer_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenant(id)
+CON customer_state_transition ck_cst_blocked_requires_missing_items CHECK ((((guard_result)::text <> 'blocked'::text) OR (missing_items IS NOT NULL)))
+CON customer_state_transition customer_state_transition_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES customer(id)
+CON customer_state_transition customer_state_transition_from_state_check CHECK (((from_state IS NULL) OR ((from_state)::text = ANY ((ARRAY['SCREENING'::character varying, 'REJECTED'::character varying, 'PROFILED'::character varying, 'CONSENTED'::character varying, 'ASSESS_BASE'::character varying, 'PLAN_APPROVED'::character varying, 'AGREEMENT_SIGNED'::character varying, 'CONFIRMED'::character varying, 'IN_TREATMENT'::character varying, 'CYCLE_ASSESS'::character varying, 'PLAN_REVISING'::character varying, 'REFUND_REVIEW'::character varying, 'CLOSED'::character varying, 'TERMINATED'::character varying])::text[]))))
+CON customer_state_transition customer_state_transition_guard_result_check CHECK (((guard_result)::text = ANY ((ARRAY['passed'::character varying, 'blocked'::character varying])::text[])))
+CON customer_state_transition customer_state_transition_pkey PRIMARY KEY (transition_id)
+CON customer_state_transition customer_state_transition_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenant(id)
+CON customer_state_transition customer_state_transition_to_state_check CHECK (((to_state)::text = ANY ((ARRAY['SCREENING'::character varying, 'REJECTED'::character varying, 'PROFILED'::character varying, 'CONSENTED'::character varying, 'ASSESS_BASE'::character varying, 'PLAN_APPROVED'::character varying, 'AGREEMENT_SIGNED'::character varying, 'CONFIRMED'::character varying, 'IN_TREATMENT'::character varying, 'CYCLE_ASSESS'::character varying, 'PLAN_REVISING'::character varying, 'REFUND_REVIEW'::character varying, 'CLOSED'::character varying, 'TERMINATED'::character varying])::text[])))
+CON schema_migration schema_migration_pkey PRIMARY KEY (version)
+CON tenant tenant_pkey PRIMARY KEY (id)
+IDX audit_log audit_log_pkey
+IDX audit_log idx_audit_log_tenant
+IDX band band_pkey
+IDX band idx_band_bound_at
+IDX band idx_band_customer
+IDX band idx_band_status
+IDX band idx_band_unbound_at
+IDX band uq_band_active_customer
+IDX customer customer_pkey
+IDX customer idx_customer_tenant
+IDX customer_state_transition customer_state_transition_pkey
+IDX customer_state_transition idx_cst_customer_time
+IDX customer_state_transition idx_cst_from_state
+IDX customer_state_transition idx_cst_occurred_at
+IDX customer_state_transition idx_cst_tenant
+IDX customer_state_transition idx_cst_to_state
+IDX customer_state_transition uq_cst_current
+IDX schema_migration schema_migration_pkey
+IDX tenant tenant_pkey
+POL band tenant_isolation
+POL customer tenant_isolation
+POL customer_state_transition tenant_isolation
+TABLE audit_log
+TABLE band
+TABLE customer
+TABLE customer_state_transition
+TABLE schema_migration
+TABLE tenant

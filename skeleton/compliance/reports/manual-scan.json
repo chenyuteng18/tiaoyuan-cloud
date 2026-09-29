@@ -1,0 +1,53 @@
+{
+  "verdict": "PASS",
+  "generated_at": "2026-09-28T13:09:08",
+  "repo_root": "C:\\Users\\lenovo\\WorkBuddy\\2026-09-16-10-37-59\\deliverables\\product-strategy\\skeleton",
+  "manifest": "C:\\Users\\lenovo\\WorkBuddy\\2026-09-16-10-37-59\\deliverables\\product-strategy\\skeleton\\compliance\\scan-manifest.json",
+  "faces": [
+    {
+      "face": "scan1_refund",
+      "owner": "role:dev-compliance-lead",
+      "wordlist": "wordlists/scan1_refund.words",
+      "term_count": 6,
+      "roots": [
+        "client-package"
+      ],
+      "hits": 0
+    },
+    {
+      "face": "scan2_negative",
+      "owner": "role:dev-compliance-lead",
+      "wordlist": "wordlists/scan2_negative.words",
+      "term_count": 21,
+      "roots": [
+        "client-package"
+      ],
+      "hits": 0
+    },
+    {
+      "face": "scan3_derived",
+      "owner": "role:dev-compliance-lead",
+      "wordlist": "wordlists/scan3_derived.words",
+      "term_count": 28,
+      "roots": [
+        "client-package"
+      ],
+      "hits": 0
+    }
+  ],
+  "notes": [
+    "owner readiness NOT enforced: 4 of 4 subjects are still placeholders (scan1_refund, scan2_negative, scan3_derived, client-package). Pass --require-named-owners to fail the build on this; a placeholder owner is a go-live blocker, not an accountability."
+  ],
+  "violations": [],
+  "owner_readiness": {
+    "enforced": false,
+    "named": 0,
+    "total": 4,
+    "placeholder_subjects": [
+      "scan1_refund",
+      "scan2_negative",
+      "scan3_derived",
+      "client-package"
+    ]
+  }
+}

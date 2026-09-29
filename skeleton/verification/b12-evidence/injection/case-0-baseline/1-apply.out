@@ -1,0 +1,47 @@
+-- 96: applying V1 (baseline) --
+CREATE TABLE
+CREATE TABLE
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+psql:C:/Users/lenovo/AppData/Local/Temp/b12-injection.i7b0OY/V1.real.sql:57: 注意:  关系"customer"的策略"tenant_isolation"不存在，跳过
+DROP POLICY
+CREATE POLICY
+CREATE TABLE
+CREATE INDEX
+CREATE TABLE
+-- 96: applying V2 (B entities: customer_state_transition + band) --
+CREATE TABLE
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+psql:C:/Users/lenovo/AppData/Local/Temp/b12-injection.i7b0OY/V2.real.sql:127: 注意:  关系"customer_state_transition"的策略"tenant_isolation"不存在，跳过
+DROP POLICY
+CREATE POLICY
+CREATE TABLE
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+psql:C:/Users/lenovo/AppData/Local/Temp/b12-injection.i7b0OY/V2.real.sql:189: 注意:  关系"band"的策略"tenant_isolation"不存在，跳过
+DROP POLICY
+CREATE POLICY
+INSERT 0 1
+psql:C:/Users/lenovo/AppData/Local/Temp/b12-injection.i7b0OY/V2.real.sql:246: 注意:  V2: 以下表在本仓库 DDL 中不存在, FK 闭合【跳过】(不新建表, 待 F-2 定案): band_telemetry, band_sync_probe, band_daily_coverage
+DO
+GRANT
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+96_b12_apply OK: V1 + V2 applied FROM SKELETON; all public tables owner -> dy_app_b12 (non-superuser)

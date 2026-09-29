@@ -1,0 +1,28 @@
+{
+  "locale": "en",
+  "_note": "English client copy. Same compliance rules apply; the ASCII terms in the wordlists are boundary-matched here.",
+  "band": {
+    "collected_days": "{n} days collected",
+    "no_data_today": "No data for that day",
+    "not_connected": "Band not connected yet",
+    "sync_ok": "Synced (last: {date})",
+    "sync_failed": "Could not reach the band just now. This does not affect any service.",
+    "sync_retry": "Retry",
+    "sync_enable": "Turn it on",
+    "syncing": "Syncing"
+  },
+  "disclaimer": {
+    "scope": "Band data is one reference among several and is not used for any unilateral decision",
+    "sync_time": "Sync time: {date}"
+  },
+  "receipt": {
+    "accepted": "We have formally accepted this",
+    "contact_within": "We will contact you within {h} hours"
+  },
+  "common": {
+    "back": "Back",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "loading": "Loading"
+  }
+}

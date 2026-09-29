@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.diaoyuanyun</groupId>
+        <artifactId>diaoyuanyun-skeleton</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>dy-audit</artifactId>
+    <name>dy-audit</name>
+    <description>审计字段自动填充 / append-only 审计日志 + 哈希链 (ADR-09, D-3/O-1/O-3)</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.diaoyuanyun</groupId>
+            <artifactId>dy-tenancy</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-aop</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.aspectj</groupId>
+            <artifactId>aspectjweaver</artifactId>
+        </dependency>
+        <!--
+          JdbcAuditLogService 直接使用 JdbcTemplate / DataSourceUtils，故显式声明。
+          此前 spring-jdbc 只经 dy-tenancy 传递可达：靠传递依赖编译的模块会在
+          依赖图一变就悄悄编译失败，故"直接用到的就自己声明"。
+          版本由 spring-boot-starter-parent 的 BOM 管理。
+        -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jdbc</artifactId>
+        </dependency>
+        <!--
+          Jackson annotations（只 annotations，不带 databind）。
+
+          用途：ChainVerification 的【对外 JSON 形状】。契约形状是 {valid, broken_at?} ——
+          "链有效时 broken_at 字段【不出现】"。这个"不出现"是语义的一部分：
+          一个恒返回 broken_at: null 的实现，会让任何 `if (broken_at in body)` 的
+          消费方把"链有效"与"链未校验"混为一谈。
+
+          为什么显式声明而不是靠传递可达：与上面 spring-jdbc 同一条理由 ——
+          dy-audit 的服务实现直接 import 这些注解，就自己声明。版本由
+          spring-boot-starter-parent 的 BOM 管理。
+
+          为什么不用 spring-boot-starter-web / jackson-databind：dy-audit 是
+          【领域与证据模块】，它不该把 Web 栈拖进来。它只负责"把结果对象标注成
+          正确的对外形状"，真正的序列化由 dy-app（Web 层）用它的 ObjectMapper 完成。
+          简言之：形状的【声明】在领域侧，形状的【渲染】在 Web 侧。
+        -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+        </dependency>
+        <!--
+          PostgreSQL 驱动: 审计链是 PG 专属（UUID / advisory lock / CHAR(64)）。
+          runtime 而非 compile —— 生产代码不 import 任何 org.postgresql 类型
+          （连接走 javax.sql.DataSource / JDBC 标准 API），只有运行期需要驱动。
+        -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          审计链真库门禁的 Harness 部分用 psql 命令行扮演"具有 DDL/超级用户能力的攻击者"
+          （篡改 / 删行 / REVOKE），与 RLS 门禁同一套思路（见
+          dy-app/src/test/java/com/diaoyuanyun/dy/app/rls/RlsGateSupport.java）。
+          因此测试不需要额外的 JDBC 测试库; JDBC 侧只用到 spring-jdbc + PG 驱动。
+        -->
+    </dependencies>
+</project>

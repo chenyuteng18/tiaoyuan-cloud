@@ -1,0 +1,23 @@
+BEGIN
+fn:register_daily_coverage args=p_tenant_id uuid, p_coverage_id uuid, p_device_id uuid, p_customer_id uuid, p_date date, p_coverage_flag boolean, p_gap_reason text, p_is_wear integer, p_wear_minutes integer, p_effective_wear_minutes integer, p_n_at_that_time integer, p_source_sync_log_id uuid, p_created_by text
+fn:register_sync_probe args=p_tenant_id uuid, p_probe_id uuid, p_device_id uuid, p_history_type text, p_valid_dates_json jsonb, p_retention_days integer, p_probe_source text, p_probed_at timestamp with time zone, p_is_test boolean, p_created_by text
+reg:V22|band refetch primitives: register_sync_probe() + register_daily_coverage(). Two tables had no writer, so PRD 2.8.7 history-backfill had no persistence. Upsert key (device_id,date) per spec; tech is_wear cannot be not_worn.
+INSERT 0 2
+00000000-0000-0000-0000-0000000c0001
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+P1=CREATED
+P2=ALREADY_EXISTS
+P2row=7/保守假设
+P3=CREATED
+psql:_work/a3_verify.sql:25: 注意:  P4=REJECTED register_sync_probe: p_history_type = blood_sugar 不在已登记的 14 
+DO
+00000000-0000-0000-0000-0000000c0002
+INSERT 0 1
+INSERT 0 1
+P5prep=CREATED
+00000000-0000-0000-0000-0000000c0001
+psql:_work/a3_verify.sql:35: 注意:  P5=REJECTED register_sync_probe: 探针 00000000-0000-0000-0000-0000000c0033 已存在于**另一个租户
+DO
+ROLLBACK

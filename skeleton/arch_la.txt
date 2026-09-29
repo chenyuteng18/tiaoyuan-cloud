@@ -1,0 +1,25 @@
+Compiled from "Architectures.java"
+public final class com.tngtech.archunit.library.Architectures$LayeredArchitecture implements com.tngtech.archunit.lang.ArchRule {
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture withOptionalLayers(boolean);
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture$LayerDefinition layer(java.lang.String);
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture$LayerDefinition optionalLayer(java.lang.String);
+  public java.lang.String getDescription();
+  public java.lang.String toString();
+  public com.tngtech.archunit.lang.EvaluationResult evaluate(com.tngtech.archunit.core.domain.JavaClasses);
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture ensureAllClassesAreContainedInArchitecture();
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture ensureAllClassesAreContainedInArchitectureIgnoring(java.lang.String...);
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture ensureAllClassesAreContainedInArchitectureIgnoring(com.tngtech.archunit.base.DescribedPredicate<? super com.tngtech.archunit.core.domain.JavaClass>);
+  public void check(com.tngtech.archunit.core.domain.JavaClasses);
+  public com.tngtech.archunit.lang.ArchRule because(java.lang.String);
+  public com.tngtech.archunit.lang.ArchRule allowEmptyShould(boolean);
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture as(java.lang.String);
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture ignoreDependency(java.lang.Class<?>, java.lang.Class<?>);
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture ignoreDependency(java.lang.String, java.lang.String);
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture ignoreDependency(com.tngtech.archunit.base.DescribedPredicate<? super com.tngtech.archunit.core.domain.JavaClass>, com.tngtech.archunit.base.DescribedPredicate<? super com.tngtech.archunit.core.domain.JavaClass>);
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture$LayerDependencySpecification whereLayer(java.lang.String);
+  public java.lang.Object as(java.lang.String);
+  static com.tngtech.archunit.library.Architectures$LayeredArchitecture access$1100(com.tngtech.archunit.library.Architectures$LayeredArchitecture, com.tngtech.archunit.library.Architectures$LayeredArchitecture$LayerDefinition);
+  static com.tngtech.archunit.library.Architectures$LayeredArchitecture access$1200(com.tngtech.archunit.library.Architectures$LayeredArchitecture, com.tngtech.archunit.library.Architectures$LayeredArchitecture$LayerDependencySpecification);
+  static void access$1300(com.tngtech.archunit.library.Architectures$LayeredArchitecture, java.lang.String[]);
+  com.tngtech.archunit.library.Architectures$LayeredArchitecture(com.tngtech.archunit.library.Architectures$LayeredArchitecture$DependencySettings, com.tngtech.archunit.library.Architectures$1);
+}

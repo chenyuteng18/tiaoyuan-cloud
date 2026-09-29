@@ -1,0 +1,107 @@
+﻿===== STEP 1: reset =====
+DROP DATABASE
+DROP ROLE
+CREATE ROLE
+CREATE DATABASE
+01_reset OK: database recreated + non-superuser role dy_app created
+
+EXIT=0
+===== STEP 2: apply skeleton migration =====
+CREATE TABLE
+CREATE TABLE
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+CREATE TABLE
+CREATE INDEX
+CREATE TABLE
+GRANT
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+015 OK: V1 migration applied FROM SKELETON; table owners -> dy_app (non-superuser)
+
+EXIT=0
+===== STEP 3: seed as dy_app =====
+BEGIN
+SET
+INSERT 0 2
+COMMIT
+BEGIN
+SET
+INSERT 0 1
+COMMIT
+BEGIN
+SET
+INSERT 0 1
+COMMIT
+02_seed OK
+
+EXIT=0
+===== STEP 4: ASSERT as dy_app =====
+psql.exe : psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/prod
+uct-strategy/skeleton/verification/03_assert.sql:23: 娉ㄦ剰:  A0 OK: 褰撳墠鐢ㄦ埛 dy_app
+ 闈炶秴绾х敤鎴?
+所在位置 行:461 字符: 10
++ $out += (& $psql -h 127.0.0.1 -p 5432 -U dy_app -d diaoyuanyun_rls_te ...
++          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (psql:C:/Users/l...dy_app 闈炶秴绾х敤鎴? 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+DO
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strateg
+y/skeleton/verification/03_assert.sql:43: 娉ㄦ剰:  A1 OK: 绉熸埛A 鍙 1 琛? 鐪嬩笉鍒扮鎴稡
+DO
+COMMIT
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strateg
+y/skeleton/verification/03_assert.sql:61: 娉ㄦ剰:  A2 OK: 绉熸埛B 鍙 1 琛?(瀵圭О)
+DO
+COMMIT
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strateg
+y/skeleton/verification/03_assert.sql:75: 娉ㄦ剰:  A3 OK: 鏈涓婁笅鏂?-> 闆惰 (fail-clo
+sed 鐢熸晥)
+DO
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strateg
+y/skeleton/verification/03_assert.sql:92: 娉ㄦ剰:  A4 OK: 绌轰覆涓婁笅鏂?-> 闆惰 (NULLIF 褰
+掍竴鎴愬姛)
+DO
+COMMIT
+BEGIN
+SET
+DO
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strateg
+y/skeleton/verification/03_assert.sql:114: 娉ㄦ剰:  A5 OK: 璺ㄧ鎴峰啓鍏ヨ WITH CHECK 鎷掔
+粷
+ROLLBACK
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strateg
+y/skeleton/verification/03_assert.sql:134: 娉ㄦ剰:  A6 OK: FORCE RLS 鐢熸晥, owner 涔熷
+彈绛栫暐绾︽潫
+DO
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strateg
+y/skeleton/verification/03_assert.sql:155: 娉ㄦ剰:  A7 OK: 绛栫暐鍏冩暟鎹惈 USING + WITH 
+CHECK 鍙?NULLIF
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strateg
+y/skeleton/verification/03_assert.sql:155: 娉ㄦ剰:       FOR ALL=PERMISSIVE
+DO
+BEGIN
+SET
+DO
+COMMIT
+BEGIN
+SET
+DO
+COMMIT
+==========================================
+ ALL RLS ASSERTIONS PASSED (A0-A8)
+==========================================
+
+EXIT=0

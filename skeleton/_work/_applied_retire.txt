@@ -1,0 +1,76 @@
+
+DECLARE
+    v_ctx_before text;
+    v_ctx        text;
+    v_cur_status text;
+    v_rows       int := 0;
+BEGIN
+    -- (1) 入参守卫
+    IF p_tenant_id IS NULL THEN
+        RAISE EXCEPTION 'retire_device: p_tenant_id 不可为空（device.tenant_id 是 NOT NULL）';
+    END IF;
+    IF p_device_id IS NULL THEN
+        RAISE EXCEPTION 'retire_device: p_device_id 不可为空（device.device_id 是主键）';
+    END IF;
+
+    -- (2) 上下文一致性守卫（与 register_device 同款，逐字同理由）
+    v_ctx_before := current_setting('app.tenant_id', true);
+    IF v_ctx_before IS NOT NULL
+       AND btrim(v_ctx_before) <> ''
+       AND v_ctx_before <> p_tenant_id::text THEN
+        RAISE EXCEPTION
+            'retire_device: 本事务已持有租户上下文 %，与本次调用传入的租户 % 不一致 —— 拒绝执行。'
+            '同 register_device 的理由：本函数会覆盖它，从而让"后续写入去了另一个租户"静默发生。'
+            '归档尤其危险 —— 它决定"这台设备还在不在服役"，而 device_dispatch 的可追责性依赖它。',
+            v_ctx_before, p_tenant_id::text;
+    END IF;
+
+    -- (3) 建立并自证上下文
+    PERFORM set_config('app.tenant_id', p_tenant_id::text, true);
+    v_ctx := assert_tenant_context();
+    IF v_ctx <> p_tenant_id::text THEN
+        RAISE EXCEPTION
+            'retire_device 自证失败: set_config 之后读回的 app.tenant_id (%) 与传入的租户 (%) 不一致',
+            v_ctx, p_tenant_id::text;
+    END IF;
+
+    -- (4) 读当前状态（在已自证的上下文内）
+    SELECT status INTO v_cur_status
+      FROM device
+     WHERE device_id = p_device_id AND tenant_id = p_tenant_id;
+
+    IF NOT FOUND THEN
+        RETURN 'NOT_FOUND';
+    END IF;
+    IF v_cur_status = 'retired' THEN
+        RETURN 'ALREADY_RETIRED';
+    END IF;
+
+    -- (5) 状态迁移
+    --     🛑 谓词里带 `status <> 'retired'` 是为了让这条 UPDATE 在并发下**正确**：
+    --        两个并发归档都会通过第 (4) 步的读（都读到非 retired），
+    --        若 UPDATE 不带这个条件，两次都会"成功"，第二次的 updated_at 会覆盖第一次的
+    --        —— 一次静默的数据回退（"归档时间"被推后）。
+    --        带上它之后，第二次的 ROW_COUNT = 0 ⇒ 落到 ALREADY_RETIRED。
+    --        （这与 V17 的 unbind_band 是同一类教训，也与 E2 在 2026-09-26 修掉的
+    --          "看起来不覆盖、实际没覆盖"同族：保证必须由【库层条件】给出，
+    --          不能依赖一次可能过期的读。）
+    --     🛑 为什么同时写 `tenant_id = p_tenant_id`：让这条 UPDATE 的**租户维度在 SQL 里可见**，
+    --        与 RLS 策略形成两层（RLS 兜底、谓词自证意图）。少写它 RLS 仍会兜住，
+    --        但那时"这条语句跨不跨租户"就只能靠推理而不能靠阅读。
+    --        本仓把可读性当成安全属性的一部分。
+    UPDATE device
+       SET status     = 'retired',
+           updated_at = now()
+     WHERE device_id  = p_device_id
+       AND tenant_id  = p_tenant_id
+       AND status    <> 'retired';
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+    IF v_rows = 1 THEN
+        RETURN 'RETIRED';
+    END IF;
+    RETURN 'ALREADY_RETIRED';
+END;
+

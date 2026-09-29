@@ -1,0 +1,29 @@
+{
+  "locale": "zh-Hans",
+  "_note": "Client-facing mini-program copy. POSITIVE counting plus neutral wording only. Every string here is scanned by all three ADR-12 faces.",
+  "_encoding_note": "This file is written in RAW characters, not \\uXXXX escapes, on purpose. Escaped copy is scanned correctly but is invisible to a reviewer's grep, and an unreviewable channel is how a forbidden string survives review.",
+  "_w3_decision": "PRD L290 (W-3) requires the client band view to carry BOTH notices on the same screen: (1) band.w3_notice_scope -- 手环数据为参考之一，不用于单方判定, and (2) band.w3_notice_sync_time -- 数据同步时间. The PRD records that a missing sync time is an acceptance failure. Neither ruled sentence contains a wordlist term, so the ruled wording and the ADR-12 gate are not in tension; the ruled wording is what the gate expects to see.",
+  "band": {
+    "collected_days": "已采集 {n} 天",
+    "no_data_today": "该日暂无数据",
+    "not_connected": "手环未接入",
+    "sync_ok": "已同步（最近一次：{date}）",
+    "sync_failed": "暂时没连上手环，这不影响任何服务",
+    "sync_retry": "重试",
+    "sync_enable": "去开启",
+    "syncing": "同步中",
+    "w3_notice_scope": "手环数据为参考之一，不用于单方判定",
+    "w3_notice_sync_time": "数据同步时间：{date}",
+    "w3_notice_sync_time_label": "数据同步时间"
+  },
+  "receipt": {
+    "accepted": "已正式受理",
+    "contact_within": "将在 {h} 小时内联系您"
+  },
+  "common": {
+    "back": "返回",
+    "confirm": "确定",
+    "cancel": "取消",
+    "loading": "加载中"
+  }
+}

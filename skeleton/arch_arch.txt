@@ -1,0 +1,5 @@
+Compiled from "Architectures.java"
+public final class com.tngtech.archunit.library.Architectures {
+  public static com.tngtech.archunit.library.Architectures$LayeredArchitecture$DependencySettings layeredArchitecture();
+  public static com.tngtech.archunit.library.Architectures$OnionArchitecture onionArchitecture();
+}

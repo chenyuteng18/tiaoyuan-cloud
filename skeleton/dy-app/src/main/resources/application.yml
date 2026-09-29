@@ -1,0 +1,169 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: diaoyuanyun
+  profiles:
+    active: dev
+  # 数据源占位: 运行前替换为真实 PG 连接 (ADR-01 Pool 模型)
+  # RLS / UUID 为 PostgreSQL 专属语法, 本骨架迁移脚本仅适用于 PG
+  datasource:
+    url: jdbc:postgresql://localhost:5432/diaoyuanyun
+    username: ${DB_USERNAME:diaoyuanyun}
+    password: ${DB_PASSWORD:diaoyuanyun}
+    driver-class-name: org.postgresql.Driver
+  # JPA 不自动建表, 表结构由 Flyway 基线迁移负责 (ADR-02/13)
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+  # ---------------------------------------------------------------------------
+  # B-4 文件通道（I3 上传）的容器级上限 —— 2026-09-26
+  #
+  # 🛑 为什么必须显式配置（而不是"默认就够"）：
+  #   Spring Boot 默认 multipart 上限是 1MB，而契约 I3 冻结的 file_size 上限是 10 MiB
+  #   （V5 §2.27 / DocTemplateRow.MAX_FILE_SIZE）。不配置的后果并不是"大文件被业务层
+  #   按 1001 拒绝"，而是请求在进入业务层之前就被容器拒成 413/500 ——
+  #   即"契约写着的 10 MiB 事实上无法达成"，且错误码语义与契约不符。
+  #   故容器上限必须 ≥ 业务上限；本文件取 12MB（10 MiB + 表单与文件名开销余量）。
+  #
+  # 🛑 必须与此保持同步的两处（改其一即改全部）：
+  #   ① DocTemplateRow.MAX_FILE_SIZE = 10 MiB（业务上限，权威口径）
+  #   ② 本项 max-file-size / max-request-size（容器上限）
+  #   DocFileBoundaryGateTest 会机械断言「② > ①」，防有人只调业务上限而忘了容器上限
+  #   （那种情况下超限请求会退化成 413，而测试若只断言 400 就会以"环境差异"名义被放过）。
+  # ---------------------------------------------------------------------------
+  servlet:
+    multipart:
+      max-file-size: 12MB
+      max-request-size: 12MB
+  # Flyway: RLS 迁移基线 (ADR-02 第 2 层强制)
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    # 注意: V1 含 ENABLE/FORCE ROW LEVEL SECURITY 等 PG 专属语法, 仅 PostgreSQL 可迁移
+    #
+    # ---------------------------------------------------------------------------
+    # 🛑🛑 placeholder-replacement: false —— 迁移文本里的 ${...} 是【业务内容】不是变量
+    #
+    # 【为什么必须关掉（A-1 实测缺陷）】
+    #   Flyway 默认会把自己文本里形如 ${name} 的片段当作【占位符变量】解析。
+    #   V21 逐字引用了 PRD P0-27 的占位符白名单全集：
+    #       ${store.name} / ${customer.name} / ${customer.phone_masked} /
+    #       ${agreement.sign_date} / ${plan.cycle_count} / ${plan.version}
+    #   这些是**文书模板的占位符字面量**（要被写进 PRD 口径说明与 RAISE 消息里），
+    #   而 Flyway 把它们当变量 ⇒ 启动期直接抛
+    #       "No value provided for placeholder: ${store.name}"
+    #   于是**整个 Spring 应用上下文起不来**（不只是某条迁移失败）。
+    #
+    # 【为什么关掉是正确解，而不是把文本里的 ${ 改掉】
+    #   ① 本仓 V1..V20 的迁移文本**逐字零处** `${`（机械可证）⇒
+    #      关闭占位符替换【不改变任何既有迁移的语义】；
+    #   ② 改迁移文本会让 V21 的 checksum 与真库登记值失配，且若改到函数体
+    #      （第 866 行的 RAISE 消息）还会改变 prosrc ⇒ 破坏与真库的"净效果等价"对账；
+    #   ③ 被引用的那些 ${...} 是 PRD 的**业务口径原文**，替换掉它们等于篡改口径引用。
+    #   ⇒ 结论：本仓【不使用】Flyway 的占位符特性。这条开关是纪律，不是权宜。
+    #
+    # 【防回归】AgreementGateTest 判据 ⑦f 会机械断言本项在位 ——
+    #   若有人把它改回 true，那条断言会以"上下文起不来"之外的、可归因的方式报红。
+    # ---------------------------------------------------------------------------
+    placeholder-replacement: false
+
+# ---------------------------------------------------------------------------
+# JWT 校验 (ADR-02 第 1 层 / ADR-05)
+#
+# 密钥【不得】入 DB 配置表 (ADR-08 的边界): DB 表是"业务配置"的真相源,
+# 而 JWT 密钥是"机密", 必须走环境变量 / 密钥管理 (KMS)。
+# 本文件只放非机密的校验参数与【占位】密钥; 生产必须在部署层注入真实密钥。
+# dy.jwt.secret 未注入时, JwtVerifier 拒绝一切 token (fail-closed), 而不是跳过验签。
+# ---------------------------------------------------------------------------
+dy:
+  jwt:
+    # 占位密钥 (仅本地开发): 32 字节, 满足 RFC 7518 HS256 下限。
+    # 生产务必用环境变量覆盖: DY_JWT_SECRET=<64位随机串>
+    secret: ${DY_JWT_SECRET:0123456789abcdef0123456789abcdef}
+    issuer: diaoyuanyun
+    require-issuer: true
+    clock-skew-seconds: 60
+    algorithm: HS256
+
+  # ---------------------------------------------------------------------------
+  # 字段级加密 (ADR-12 §8.3 / §8.4 · B-1 收口)
+  #
+  # 【三层密钥的装配链】(自外向内)
+  #   DY_MASTER_KEY (本项)   → 包裹 租户 KEK  → tenant_kek 表
+  #   租户 KEK              → 包裹 主体 DEK  → subject_dek 表
+  #   主体 DEK (per-subject) → 加密 敏感字段  → band_telemetry.value_enc / sleep_json
+  #
+  # 【🛑 为什么主密钥放在这里而不是 dy-config 的配置表】
+  # ADR-08 划了边界: DB 表是"业务配置"的真相源, 而密钥是"机密",
+  # 必须走环境变量 / 密钥管理 (KMS)。本项与上面的 dy.jwt.secret 是同一条纪律。
+  #
+  # 【🛑 缺失时不降级】
+  # 未注入时 KeyMaterialCipher.parseMasterKey 直接抛 ⇒ 应用【启动失败】。
+  # 这是刻意的: 若退化为"明文写入", 一次环境变量配置事故就会让加密在整个环境
+  # 静默失效, 而所有测试与监控仍然是绿的 (它们不检查"库里这列到底是不是密文")。
+  # 启动失败是一个立刻可见、无法被忽略的信号。
+  #
+  # 【占位值说明】下面是 64 位十六进制 (32 字节), 仅供本地开发/测试。
+  # 生产必须覆盖: DY_MASTER_KEY=<64位随机十六进制 或 base64 的32字节>
+  # ⚠️ 更换主密钥会让【此前用旧主密钥包裹的 KEK 全部解不开】⇒ 该租户全部密文失效。
+  #    生产轮换主密钥需要配套"用旧主密钥解出 KEK, 再用新主密钥重新包裹"的迁移任务。
+  crypto:
+    master-key: ${DY_MASTER_KEY:a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90}
+    # 三个算法位都必须能被 AlgorithmRegistry 解析出"已实现"的实现。
+    # SM4-GCM 在 AlgorithmId 中登记为 PENDING_CONFIRMATION ⇒ 配它会在启动期抛错
+    # (不是悄悄换成 AES): "未确认的算法不得被使用"由代码强制, 不靠约定。
+    kek-algorithm: ${DY_KEK_ALGORITHM:AES-256-GCM}
+    field-algorithm: ${DY_FIELD_ALGORITHM:AES-256-GCM}
+    wrap-algorithm: ${DY_WRAP_ALGORITHM:AES-256-GCM}
+    actor: ${DY_CRYPTO_ACTOR:crypto-bootstrap}
+    # 首次使用时惰性开通租户 KEK。
+    # true = 加密路径首次被触达时自动为该租户建一代 KEK（KMS 的标准做法）。
+    # false = 要求由显式开通流程创建；未开通即拒绝加密（fail-closed）。
+    # 🛑 当前无租户开通流程（见 DbTenantKekProvider.currentOrProvision 的说明），
+    #    故默认 true。将来落地开通流程后可改为 false 收口。
+    auto-provision-tenant-kek: ${DY_CRYPTO_AUTO_PROVISION_KEK:true}
+
+---
+# dev 环境: 仅用脱敏/合成数据, 禁止接生产库 (ADR-13)
+spring:
+  config:
+    activate:
+      on-profile: dev
+  datasource:
+    url: jdbc:postgresql://localhost:5432/diaoyuanyun_dev
+
+---
+# prod 环境示例 (占位, 实际凭据走环境变量/密钥管理)
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/diaoyuanyun_prod}
+
+# ---------------------------------------------------------------------------
+# 🛑 B-2 收口（2026-09-27）：生产环境必须显式用 Redis 幂等后端
+#
+# 为什么必须写在这里（而不是"靠部署文档提醒"）：
+#   幂等后端的默认值是 memory（见 IdempotencyConfiguration 类注释）——
+#   那是为"单实例 / 本地 / 测试无需外部资源"服务的。但多实例生产环境里，
+#   若漏配本项，系统会以内存后端启动：内存后端只能挡住【同一实例内】的重复提交，
+#   同一幂等键打到两个副本会【双边判 FIRST】⇒ 重复下单 / 重复扣款 / 重复发放照常发生，
+#   而日志、指标、健康检查全部正常 —— 一个看不见的防线失效。
+#
+# 两道防线（缺一不可）：
+#   ① 本段显式给 prod 一个 redis 默认值（本文件）；
+#   ② IdempotencyConfiguration 的启动自检：active profile 含 prod 且结果为 memory
+#      ⇒ 抛 IllegalStateException，应用【拒绝启动】。
+#   ② 是兜底：它保证"就算有人把本段删了、或用环境变量覆盖成 memory"，
+#      错误也会在启动阶段以一条点明键名的异常暴露，而不是在第一个需要幂等的请求上。
+#
+# 取值覆盖方式：DY_IDEMPOTENCY_BACKEND=redis（环境变量优先级高于本段默认值）。
+# ---------------------------------------------------------------------------
+dy:
+  idempotency:
+    backend: ${DY_IDEMPOTENCY_BACKEND:redis}

@@ -1,0 +1,28 @@
+BEGIN
+INSERT 0 2
+00000000-0000-0000-0000-0000000d0001
+INSERT 0 2
+INSERT 0 1
+INSERT 0 1
+C1=CREATED
+C2=UPDATED
+C2row_rows=1 flag=true n=14 id_kept=true
+psql:_work/a3_verify_cov.sql:18: 注意:  C3=REJECTED register_daily_coverage: 拒绝写入 —— gap_reason = not_
+DO
+psql:_work/a3_verify_cov.sql:23: 注意:  C3b=REJECTED register_daily_coverage: 拒绝写入 —— gap_reason = not_
+DO
+C4=CREATED
+psql:_work/a3_verify_cov.sql:30: 注意:  C5=REJECTED register_daily_coverage: 拒绝写入 —— coverage_flag
+DO
+psql:_work/a3_verify_cov.sql:35: 注意:  C6=REJECTED register_daily_coverage: 手环 00000000-0000-0000-0000-0000000d
+DO
+00000000-0000-0000-0000-0000000d0002
+INSERT 0 1
+INSERT 0 1
+C7prep=CREATED
+00000000-0000-0000-0000-0000000d0001
+psql:_work/a3_verify_cov.sql:45: 注意:  C7=REJECTED register_daily_coverage: 手环 00000000-0000-0000-0000-0000000d0092 在租户 0
+DO
+psql:_work/a3_verify_cov.sql:50: 注意:  C8=REJECTED register_daily_coverage: p_gap_reason = not_cons
+DO
+ROLLBACK

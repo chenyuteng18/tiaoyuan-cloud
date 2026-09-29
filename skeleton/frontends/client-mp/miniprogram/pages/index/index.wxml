@@ -1,0 +1,25 @@
+<view class="page">
+  <view class="card">
+    <view class="title">调元云 · 客户小程序</view>
+    <view class="row">
+      <text class="label">契约版本</text>
+      <text class="value">{{contractVersion}}</text>
+    </view>
+    <view class="row">
+      <text class="label">本端角色</text>
+      <text class="value">{{tokenRoles}}</text>
+    </view>
+    <view class="row">
+      <text class="label">可用端点数</text>
+      <text class="value">{{endpointCount}}</text>
+    </view>
+    <view class="row">
+      <text class="label">运行环境</text>
+      <text class="value">{{envName}}</text>
+    </view>
+  </view>
+
+  <view class="hint" wx:if="{{!configured}}">
+    后端地址尚未配置。请在 miniprogram/env.js 的 DY_BASE_URLS 中填入各环境基址。
+  </view>
+</view>

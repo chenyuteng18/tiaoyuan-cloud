@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.diaoyuanyun</groupId>
+        <artifactId>diaoyuanyun-skeleton</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>dy-config</artifactId>
+    <name>dy-config</name>
+    <description>配置中心(数据库真相源) / fail-closed / 保存时校验 (ADR-08, H-13/H-14/X-8/X-18)</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.diaoyuanyun</groupId>
+            <artifactId>dy-tenancy</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- 配置真相源是一张 PG 表: 读路径必须走 JdbcTemplate + 事务内 SET LOCAL -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-tx</artifactId>
+        </dependency>
+        <!-- PostgreSQL 驱动: RLS / UUID 为 PG 专属语法 (ADR-01/02)。
+             runtime scope 同样在 test classpath 上, 真库集成测试需要它。 -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- ==================================================================
+                 ADR-08 门禁：「配置真相源必须有真库验证，且必须真的被执行」。
+
+                 为什么不能只把 IT 放在 src/test：
+                   surefire 默认只匹配 *Test / Test* / *Tests / *TestCase，
+                   `ConfigTruthSourceIT` 这个名字不会被匹配到 —— 于是它会
+                   【静默不执行】，构建照样 BUILD SUCCESS。配置表的 RLS 忘了
+                   FORCE、#42 被复用、缓存键漏了 tenant_id，全都不会被发现。
+
+                 做法：把两个 IT 显式 include 进来，并以 failIfNoTests=true
+                   强制"它们必须存在且必须被运行"。删掉/改名 IT = 构建失败。
+
+                 逃生阀：无库的纯编译流水线可用 -Ddy.config.gate.skip=true
+                 显式跳过（测试内 Assumptions，报告里显示为 skipped 而非静默通过）。
+                 ================================================================== -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <trimStackTrace>false</trimStackTrace>
+                </configuration>
+                <executions>
+                    <!-- ① 常规单测：排除需要真库的 IT -->
+                    <execution>
+                        <id>default-test</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <excludes>
+                                <exclude>**/it/ConfigTruthSourceIT.java</exclude>
+                                <exclude>**/it/ConfigSlotIntegrityIT.java</exclude>
+                                <!--
+                                  本类为纯静态检查（不连库），但仍归入门禁 execution：
+                                  与它守护的那两条 IT 放在一起跑，语义上才是完整的
+                                  「配置真相源门禁」。若留在 default-test，日后有人
+                                  给 default-test 加一条 `**/it/**` 的排除规则，它会
+                                  【静默停止运行】而构建照绿 —— 正是本门禁要防的失效模式。
+                                -->
+                                <exclude>**/it/ConfigReverseVerificationEvidenceTest.java</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+
+                    <!-- ② 配置真相源门禁：必须匹配到测试，否则构建失败 -->
+                    <execution>
+                        <id>config-truth-source-gate</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <includes>
+                                <include>**/it/ConfigTruthSourceIT.java</include>
+                                <include>**/it/ConfigSlotIntegrityIT.java</include>
+                                <!-- 守护反向验证证据本身（含 #42 空号 CHECK、FORCE RLS 不得复活） -->
+                                <include>**/it/ConfigReverseVerificationEvidenceTest.java</include>
+                            </includes>
+                            <failIfNoTests>true</failIfNoTests>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

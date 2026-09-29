@@ -1,0 +1,8 @@
+cov_pk:PRIMARY KEY (coverage_id)
+band_uq:band_pkey=PRIMARY KEY (band_id)
+band_uq:uq_tenant_band_band_id=UNIQUE (tenant_id, band_id)
+probe_checks:3
+cov_checks:2
+sync_log_uq:uq_tenant_band_sync_log_sync_log_id=UNIQUE (tenant_id, sync_log_id)
+band_ver:true
+cust_uq:uq_tenant_customer_id=UNIQUE (tenant_id, id)

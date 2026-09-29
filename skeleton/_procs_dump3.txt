@@ -1,0 +1,6 @@
+﻿PID=10780 PPID=40300 Created=09/23/2026 14:45:48 Name=java.exe
+CMD="C:\Program Files\Eclipse Adoptium\jdk-17.0.20.101-hotspot\\bin\java.exe"       --enable-native-access=ALL-UNNAMED    -Dfile.encoding=UTF-8      -classpath "C:\Users\lenovo\tools\apache-maven-3.9.12\boot\plexus-classworlds-2.9.0.jar"   "-Dclassworlds.conf=C:\Users\lenovo\tools\apache-maven-3.9.12\bin\m2.conf"   "-Dmaven.home=C:\Users\lenovo\tools\apache-maven-3.9.12"   "-Dlibrary.jansi.path=C:\Users\lenovo\tools\apache-maven-3.9.12\lib\jansi-native"   "-Dmaven.multiModuleProjectDirectory=C:\Users\lenovo\WorkBuddy\2026-09-16-10-37-59\deliverables\product-strategy\skeleton\dy-app"   org.codehaus.plexus.classworlds.launcher.Launcher  -B -ntp spring-boot:run -Dspring-boot.run.arguments=--server.port=18080
+---
+PID=9920 PPID=10780 Created=09/23/2026 14:45:52 Name=java.exe
+CMD="C:\Program Files\Eclipse Adoptium\jdk-17.0.20.101-hotspot\bin\java.exe" -XX:TieredStopAtLevel=1 -cp @C:\Users\lenovo\AppData\Local\Temp\spring-boot-12825293168250794082.argfile com.diaoyuanyun.dy.app.DyAppApplication --server.port=18080
+---

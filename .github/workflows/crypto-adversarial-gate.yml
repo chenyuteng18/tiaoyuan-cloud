@@ -1,0 +1,99 @@
+name: crypto-adversarial-gate
+
+# dy-crypto 字段级加密（A8 · PIPL/等保）的对抗性验证门禁。
+#
+# 为什么单独一个 workflow，而不是塞进 compliance-gate.yml
+#   这两件事的语义不同：compliance-gate 检的是"构建期词表违规"（静态扫描），
+#   本 workflow 检的是"加密实现的运行时行为对不对"。混在一起的话，
+#   一次红会分不清是词表问题还是实现问题 —— 而"分不清的红"会被一并跳过。
+#
+# 两个 step 的关系（关键）
+#   step 1 = 实现者自己的门禁用例（应恒为 23 例绿）
+#   step 2 = 验证者独立编写的对抗探针（应恒 exit 0）
+#   两者是【不同人、不同证据链】，合起来才是"实现正确"的充分证据。
+#   探针【不】放在 dy-crypto/src/test 下（否则会被算进 step 1 的 Tests run，
+#   让实现证据与验证证据混进同一个计数，等于自证）。
+#
+# 为什么不是 opt-in profile
+#   本门禁在修复完成后是【恒绿】的。用 -Pgo-live 那种 opt-in profile 装它，
+#   会让它变成"可选检查"，被人直接不启用。恒绿的检查必须是默认路径。
+#
+# 前提（已在本地实测坐实，非推断）
+#   - `mvn -pl dy-crypto -am test -o` → Tests run: 23, Failures: 0, Errors: 0, BUILD SUCCESS
+#   - `bash verification/crypto/run_crypto_adversarial.sh` → 39 PASS / 0 FAIL, exit 0
+#   - 探针的 J1 条会在内部用"旧节奏复刻替身"自证门禁有牙齿（防"探针恒绿是因为它没打中"）
+#
+# 说明（2026-09-30 更新）：仓库【已是 git 仓库】，根目录 = product-strategy/，
+# 本文件位于仓库根的 .github/workflows/（原先误放在 skeleton/.github/ 下，
+# 那种位置 GitHub Actions 根本不会加载）。仍未接远端，故尚未在 GitHub 上运行。
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  crypto-adversarial:
+    name: dy-crypto adversarial verification (A8 gate)
+    runs-on: ubuntu-latest
+    # 🛑 2026-09-30 新增：仓库根已上移到 product-strategy/，Maven 工程在 skeleton/。
+    #   本文件原在 skeleton/.github/ 下（那时 cwd 恰为 skeleton），移至仓库根后
+    #   必须显式声明工作目录；upload-artifact 的 path: 不受 defaults 影响，
+    #   仍写相对仓库根的完整路径。
+    defaults:
+      run:
+        working-directory: skeleton
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      # step 1 —— 实现者证据：模块自己的 23 例。
+      # --batch-mode 让日志里不出现进度动画，"Tests run" 行才好 grep。
+      # -Dfile.encoding 不能写在命令行（会被 Maven 误解析为生命周期阶段），
+      # 故走 MAVEN_OPTS。
+      - name: Unit / gate tests (implementer evidence, expect 23 green)
+        env:
+          MAVEN_OPTS: -Dfile.encoding=UTF-8
+        run: mvn -pl dy-crypto -am test --batch-mode
+
+      # step 2 —— 验证者证据：独立对抗探针。
+      # 退出码语义：0=全 PASS；1=存在 FAIL；2=存在 N/A；3=runner 环境问题。
+      # 2 也判红 —— "未能验证"不等于通过。
+      - name: Adversarial verification probe (independent verifier evidence)
+        run: bash verification/crypto/run_crypto_adversarial.sh
+
+      - name: Upload the adversarial report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crypto-adversarial-report
+          # 🛑 相对【仓库根】（upload-artifact 不读 defaults.working-directory）
+          path: skeleton/verification/crypto/evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+      # 把逐条结论贴进 job summary：红的时候，reviewer 不必下载产物
+      # 就能看到是哪一条、判据是什么 —— 看得懂的失败才不会被关掉。
+      - name: Publish the probe report to the job summary
+        if: always()
+        run: |
+          {
+            echo '## dy-crypto adversarial verification'
+            echo ''
+            echo '```text'
+            cat verification/crypto/evidence/adversarial-report.txt 2>/dev/null \
+              || echo '(no report produced -- the runner failed before writing one)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

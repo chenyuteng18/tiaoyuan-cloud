@@ -1,0 +1,1287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>上医智养堂 · 健康管理调优服务平台 — 产品原型</title>
+<style>
+  :root{
+    --ink:#16211D; --ink-2:#3C4A45; --mut:#77857F;
+    --bg:#F2F5F4; --card:#FFFFFF; --line:#E1E8E5; --line-2:#EDF2F0;
+    --brand:#146E5B; --brand-2:#E6F1EE; --brand-3:#0E5747;
+    --gold:#B98A16; --gold-2:#FBF4E2;
+    --ok:#2E9E6B; --ok-2:#E7F6EE;
+    --warn:#D98218; --warn-2:#FDF3E3;
+    --bad:#CF4B4B; --bad-2:#FBECEC;
+    --info:#2B6CB0; --info-2:#E8F1FA;
+    --r:12px; --r-s:8px;
+    --sh:0 1px 2px rgba(16,33,29,.04), 0 8px 24px rgba(16,33,29,.06);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--bg); color:var(--ink); font-size:14px; line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
+
+  /* ---------- sidebar ---------- */
+  .side{background:#0F1F1A;color:#D6E2DD;padding:18px 14px;position:sticky;top:0;height:100vh;overflow:auto}
+  .brand{display:flex;gap:10px;align-items:center;padding:0 6px 16px}
+  .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(140deg,#1C8A6F,#0E5747);
+    display:grid;place-items:center;font-weight:700;color:#EAF6F1;font-size:16px;flex:0 0 auto}
+  .brand b{display:block;font-size:14.5px;color:#fff;letter-spacing:.2px}
+  .brand span{display:block;font-size:11px;color:#7E958D}
+  .side h6{margin:18px 8px 8px;font-size:11px;letter-spacing:.8px;color:#5F7A71;font-weight:600}
+  .nav{display:flex;flex-direction:column;gap:2px}
+  .nav button{
+    all:unset;display:flex;gap:9px;align-items:center;cursor:pointer;
+    padding:8px 10px;border-radius:8px;color:#C2D3CD;font-size:13px;line-height:1.35;
+  }
+  .nav button:hover{background:#172C25;color:#fff}
+  .nav button.on{background:#1B3A31;color:#fff;font-weight:600}
+  .nav .num{
+    flex:0 0 20px;height:20px;border-radius:6px;background:#1C332C;color:#8FB3A7;
+    display:grid;place-items:center;font-size:11px;font-weight:700
+  }
+  .nav button.on .num{background:var(--brand);color:#fff}
+  .nav .gate{margin-left:auto;font-size:9.5px;padding:1px 5px;border-radius:4px;background:#40222A;color:#F0A9A9;font-weight:700}
+  .roles{display:flex;flex-wrap:wrap;gap:6px;padding:0 6px}
+  .roles button{all:unset;cursor:pointer;font-size:11.5px;padding:4px 9px;border-radius:20px;
+    background:#172C25;color:#9FB8B0;border:1px solid #224038}
+  .roles button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+
+  /* ---------- main ---------- */
+  main{min-width:0;display:flex;flex-direction:column}
+  .top{
+    background:var(--card);border-bottom:1px solid var(--line);
+    padding:12px 24px;display:flex;align-items:center;gap:18px;position:sticky;top:0;z-index:5
+  }
+  .top .t-title{font-size:15px;font-weight:700}
+  .top .t-sub{font-size:11.5px;color:var(--mut);margin-top:1px}
+  .ctx{margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .chip{
+    display:flex;gap:6px;align-items:center;background:var(--bg);border:1px solid var(--line);
+    border-radius:20px;padding:4px 11px;font-size:11.5px;color:var(--ink-2)
+  }
+  .chip b{color:var(--ink);font-weight:700}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+
+  .stage{padding:22px 24px 60px;max-width:1240px}
+  .crumb{font-size:12px;color:var(--mut);margin-bottom:14px}
+  .crumb b{color:var(--ink-2)}
+
+  h2.sec{font-size:16px;margin:0 0 4px}
+  p.lead{color:var(--ink-2);margin:0 0 16px;font-size:13px}
+
+  .grid{display:grid;gap:14px}
+  .g2{grid-template-columns:1fr 1fr}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g23{grid-template-columns:1.4fr 1fr}
+  @media(max-width:1080px){.g2,.g3,.g23{grid-template-columns:1fr}}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;box-shadow:var(--sh)}
+  .card h4{margin:0 0 12px;font-size:13.5px;display:flex;align-items:center;gap:8px}
+  .card h4 .tag{margin-left:auto;font-size:10.5px;font-weight:600;color:var(--mut);background:var(--bg);
+    border:1px solid var(--line);border-radius:20px;padding:2px 9px}
+
+  .kv{display:grid;grid-template-columns:96px 1fr;gap:6px 12px;font-size:12.5px}
+  .kv dt{color:var(--mut)}
+  .kv dd{margin:0;color:var(--ink)}
+
+  .rule{border:1px dashed var(--line);border-radius:var(--r-s);padding:10px 12px;background:#FAFCFB;font-size:12px;color:var(--ink-2)}
+  .rule b{color:var(--brand-3)}
+
+  ul.tick{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:9px}
+  /* ul.tick li 是 flex 行：::before 作勾选标记、内容须包在 span 内。
+     若直接把富文本（含 <b>）写进 li，每个 <b> 会各自成为**独立的 flex 项**，
+     被横向并排成多列 → 文字相互重叠错排（实测 gate / plan / agree / exec 四屏共 9 条命中）。 */
+  ul.tick li{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;color:var(--ink-2)}
+  ul.tick li > span{flex:1;min-width:0}
+  ul.tick li::before{content:"";flex:0 0 16px;height:16px;margin-top:2px;border-radius:5px;
+    background:var(--ok-2) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3.5 8.4l3 3 6-6.6' fill='none' stroke='%232E9E6B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>") center/12px no-repeat}
+  ul.tick li.no::before{background:var(--bad-2) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4.5 4.5l7 7M11.5 4.5l-7 7' fill='none' stroke='%23CF4B4B' stroke-width='2' stroke-linecap='round'/></svg>") center/11px no-repeat}
+
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;
+    padding:3px 9px;border-radius:20px;border:1px solid transparent}
+  .p-ok{background:var(--ok-2);color:#1E7A50;border-color:#CBE9DA}
+  .p-warn{background:var(--warn-2);color:#9C5C0C;border-color:#F5DFBB}
+  .p-bad{background:var(--bad-2);color:#A83434;border-color:#F3CFCF}
+  .p-info{background:var(--info-2);color:#1F568F;border-color:#CFE1F5}
+  .p-brand{background:var(--brand-2);color:var(--brand-3);border-color:#CBE4DD}
+  .p-gold{background:var(--gold-2);color:#8A660F;border-color:#F0E2BB}
+
+  /* big banner */
+  .banner{border-radius:var(--r);padding:15px 18px;display:flex;gap:13px;align-items:flex-start;border:1px solid}
+  .banner .ico{flex:0 0 34px;height:34px;border-radius:9px;display:grid;place-items:center;font-size:16px;font-weight:700;color:#fff}
+  .banner b{display:block;font-size:14px;margin-bottom:2px}
+  .banner p{margin:0;font-size:12.5px;opacity:.92}
+  .bn-ok{background:var(--ok-2);border-color:#CBE9DA;color:#155E3C}
+  .bn-ok .ico{background:var(--ok)}
+  .bn-bad{background:var(--bad-2);border-color:#F3CFCF;color:#8E2C2C}
+  .bn-bad .ico{background:var(--bad)}
+  .bn-warn{background:var(--warn-2);border-color:#F5DFBB;color:#8A540F}
+  .bn-warn .ico{background:var(--warn)}
+  .bn-info{background:var(--info-2);border-color:#CFE1F5;color:#1B5083}
+  .bn-info .ico{background:var(--info)}
+
+  /* stepper */
+  .steps{display:flex;flex-wrap:wrap;gap:8px}
+  .st{flex:1 1 150px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;position:relative;cursor:pointer}
+  .st:hover{border-color:var(--brand);box-shadow:var(--sh)}
+  .st .i{font-size:10.5px;font-weight:700;color:var(--mut);letter-spacing:.5px}
+  .st .n{font-size:12.5px;font-weight:600;margin:2px 0 4px;color:var(--ink)}
+  .st .d{font-size:11px;color:var(--mut);line-height:1.45}
+  .st.done{border-left:3px solid var(--ok)}
+  .st.now{border-left:3px solid var(--brand);background:linear-gradient(180deg,#F7FCFA,#fff)}
+  .st.block{border-left:3px solid var(--bad)}
+  .st .rk{position:absolute;top:8px;right:9px;font-size:9.5px;color:var(--mut)}
+
+  /* table */
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line-2);vertical-align:top}
+  th{font-size:11px;letter-spacing:.4px;color:var(--mut);font-weight:700;background:#FAFCFB}
+  tbody tr:hover{background:#FAFCFB}
+  td b{font-weight:600}
+
+  /* form bits */
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:11.5px;color:var(--mut);margin-bottom:5px;font-weight:600}
+  .input{width:100%;border:1px solid var(--line);border-radius:var(--r-s);padding:8px 11px;font-size:12.5px;background:#fff;color:var(--ink)}
+  .input.ph{color:#A9B6B1}
+  .checks{display:flex;flex-wrap:wrap;gap:7px}
+  .chk{display:flex;gap:7px;align-items:center;font-size:12.5px;background:#FAFCFB;border:1px solid var(--line);
+    border-radius:8px;padding:6px 11px;cursor:pointer}
+  .chk.on{background:var(--brand-2);border-color:#BBDCD3;color:var(--brand-3);font-weight:600}
+  .box{width:14px;height:14px;border-radius:4px;border:1.5px solid #C3D2CD;background:#fff;display:grid;place-items:center}
+  .chk.on .box{background:var(--brand);border-color:var(--brand);color:#fff;font-size:10px}
+
+  .btn{all:unset;cursor:pointer;font-size:12.5px;font-weight:600;padding:8px 16px;border-radius:9px;
+    background:var(--brand);color:#fff;text-align:center}
+  .btn:hover{background:var(--brand-3)}
+  .btn.ghost{background:#fff;color:var(--ink-2);border:1px solid var(--line)}
+  .btn.ghost:hover{background:var(--bg)}
+  .btn.danger{background:var(--bad)}
+  .btn.dis{background:#D8E0DD;color:#8E9A96;cursor:not-allowed;pointer-events:none}
+  .btnrow{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+
+  /* signature */
+  .sig{border:1px dashed #C3D2CD;border-radius:10px;padding:14px;background:#FCFDFD;position:relative}
+  .sig .script{font-family:"Segoe Script","Brush Script MT",cursive;font-size:26px;color:#1E3A32;transform:rotate(-3deg);display:inline-block}
+  .seal{position:absolute;right:16px;bottom:10px;width:62px;height:62px;border:2px solid #CF4B4B;border-radius:50%;
+    color:#CF4B4B;display:grid;place-items:center;font-size:10px;font-weight:700;line-height:1.2;text-align:center;
+    transform:rotate(-12deg);opacity:.82}
+
+  /* progress bar */
+  .bar{height:7px;border-radius:6px;background:#E8EEEC;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,#2E9E6B,#146E5B)}
+  .bar.thin i{background:linear-gradient(90deg,#D98218,#CF4B4B)}
+
+  .tipline{display:flex;gap:8px;font-size:11.5px;color:var(--mut);align-items:center;margin-top:8px}
+
+  .flow{display:flex;flex-direction:column;gap:0}
+  .fnode{display:flex;gap:12px;align-items:flex-start;position:relative;padding-bottom:14px}
+  .fnode:not(:last-child)::before{content:"";position:absolute;left:13px;top:26px;bottom:0;width:2px;background:var(--line)}
+  .fnode .bul{flex:0 0 27px;height:27px;border-radius:8px;background:var(--brand-2);color:var(--brand-3);
+    display:grid;place-items:center;font-size:11.5px;font-weight:700;z-index:1}
+  .fnode.g .bul{background:#FBE9E9;color:#A83434}
+  .fnode.y .bul{background:var(--warn-2);color:#9C5C0C}
+  .fnode .body{flex:1;min-width:0}
+  .fnode .body b{font-size:12.5px}
+  .fnode .body p{margin:2px 0 0;font-size:11.5px;color:var(--mut)}
+
+  .foot{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);font-size:11.5px;color:var(--mut);
+    display:flex;gap:14px;flex-wrap:wrap}
+  .note{font-size:11.5px;color:var(--mut);margin-top:10px}
+  code{background:#F1F5F3;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:11.5px;
+    font-family:ui-monospace,Consolas,monospace;color:#2C4A40}
+
+  /* ===== 健康资产损益 组件（E 组） ===== */
+  .pnlbig{font-size:13px;color:var(--ink-2);margin-bottom:2px}
+  .pnlbig b{font-size:30px;font-weight:700;color:var(--brand-3);letter-spacing:-.5px}
+  .pnlbig span{font-size:12px;color:var(--mut);margin-left:2px}
+  .pnldelta{display:inline-flex;align-items:center;gap:5px;font-size:14px;font-weight:700;
+    padding:3px 11px;border-radius:20px;margin-bottom:8px}
+  .pnldelta.up{background:var(--ok-2);color:#1E7A50;border:1px solid #CBE9DA}
+  .pnldelta.flat{background:#EDF2F0;color:#5C6B66;border:1px solid var(--line)}
+  /* 免责声明：客户端强制同屏，逐字固定，不得改写/拆分/缩短 */
+  .dname{margin-top:12px;padding:11px 13px;border-radius:var(--r-s);background:#F4FBF8;
+    border:1px solid #CBE4DD;border-left:3px solid var(--brand);font-size:12px;color:#155E3C;line-height:1.75}
+  .dname div+div{margin-top:5px}
+  /* 血氧/手环措辞警示条 */
+  .warn-strip{margin-top:10px;padding:9px 12px;border-radius:var(--r-s);background:var(--warn-2);
+    border:1px solid #F5DFBB;font-size:11.5px;color:#8A540F;line-height:1.7}
+  .warn-strip b{color:#9C5C0C}
+  /* 不可见清单 */
+  .lockbox{margin-top:12px;padding:11px 13px;border-radius:var(--r-s);background:#FBF7F7;
+    border:1px solid #F0DADA;font-size:11.5px;color:#8E2C2C;line-height:1.85}
+  .lockbox .lh{font-weight:700;font-size:12px;margin-bottom:5px;color:#A83434}
+  /* 端点轴：两轴之间保持视觉空白，不得连线/箭头（AL-6） */
+  .axisband{margin-top:6px;margin-bottom:6px}
+  .axislabel{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mut)}
+  .axisgap{height:22px}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">
+      <div class="logo">上</div>
+      <div><b>上医智养堂</b><span>连锁健康管理调优 SaaS</span></div>
+    </div>
+
+    <h6>切换角色视角</h6>
+    <div class="roles" id="roles"></div>
+
+    <h6>服务链路</h6>
+    <div class="nav" id="nav"></div>
+
+    <h6>健康资产损益</h6>
+    <div class="nav" id="nav2"></div>
+
+    <h6>原型说明</h6>
+    <div style="padding:0 8px;font-size:11px;color:#6E867E;line-height:1.7">
+      v0.4 交互原型 · 多门店 SaaS<br/>
+      A 组 = 平台层（总部/区域视角）<br/>
+      01-10 = 业务层（门店作业链路）<br/>
+      E 组 = 健康资产损益（四端可见性）<br/>
+      红色标记 = 强制门禁，旁路即违规。
+    </div>
+  </aside>
+
+  <main>
+    <div class="top">
+      <div>
+        <div class="t-title" id="pageTitle">总览</div>
+        <div class="t-sub" id="pageSub">服务全链路与门禁视图</div>
+      </div>
+      <div class="ctx">
+        <div class="chip" style="background:#0F1F1A;border-color:#0F1F1A;color:#9FB8B0">租户 <b style="color:#fff">上医智养堂</b></div>
+        <div class="chip">区域 <b>华北区</b></div>
+        <div class="chip">门店 <b>秦皇岛店</b></div>
+        <div class="chip"><span class="dot"></span>客户 <b>李某某 · C20260815-037</b></div>
+        <div class="chip">周期进度 <b>14 次</b> · 已转巩固维护期</div>
+        <div class="chip">下次评估 <b>第 21 次</b></div>
+      </div>
+    </div>
+    <div class="stage" id="stage"></div>
+  </main>
+</div>
+
+<script>
+/* ======================= 数据层 ======================= */
+/* 端形态（业务方 2026-09-16 补充裁定）：客户=小程序 ｜ 调理师/经络师=APP ｜ 管理员=Web ｜ 门店客服=不使用系统（无端） */
+const ROLES = [
+  {id:'hq',       name:'总部运营', end:'Web'},
+  {id:'area',     name:'区域督导', end:'Web'},
+  {id:'manager',  name:'门店负责人', end:'Web'},
+  {id:'shop',     name:'门店客服', end:'无端（不使用系统）'},
+  {id:'therapist',name:'调理师', end:'APP'},
+  {id:'meridian', name:'经络师', end:'APP'},
+  {id:'client',   name:'客户', end:'小程序'}
+];
+const END_OF = {}; ROLES.forEach(r => END_OF[r.id] = r.end);
+
+const SCREENS = [
+  {id:'overview', i:'00', n:'服务全链路总览', d:'9 环节闭环 + 3 大门禁', role:'all'},
+  {id:'saas',     i:'A1', n:'SaaS 租户与组织架构', d:'品牌 / 区域 / 门店三级租户模型', role:'hq'},
+  {id:'policy',   i:'A2', n:'总部管控与门店自治', d:'哪些必须集中，哪些可以放权', role:'hq', gate:'管控'},
+  {id:'crossstore',i:'A3', n:'跨店通兑与责任归属', d:'连锁特有 · 客户跨店服务', role:'all'},
+  {id:'hqboard',  i:'A4', n:'总部看板与门店健康度', d:'稽核 · 排名 · 反博弈', role:'hq', gate:'稽核'},
+  {id:'gate',     i:'01', n:'入口筛查 · 禁忌门禁', d:'硬入口，先于任何信息采集', role:'shop', gate:'门禁'},
+  {id:'consent',  i:'02', n:'建档与知情同意', d:'先建档留痕，再签授权与手环意愿', role:'therapist', gate:'前置'},
+  {id:'baseline', i:'03', n:'基线评估与诊断', d:'表现类优先 · 年龄段兜底', role:'meridian'},
+  {id:'plan',     i:'04', n:'方案出具与审核', d:'完整性 / 有效性 / 可行性', role:'meridian', gate:'门禁'},
+  {id:'device',   i:'05', n:'设备参数一键下发', d:'审核通过后自动下发', role:'meridian'},
+  {id:'agree',    i:'06', n:'协议书签署与确认', d:'含终止/退出条款（对外禁用承诺性表述）', role:'therapist', gate:'门禁'},
+  {id:'exec',     i:'07', n:'执行调理 · 生活方式闭环', d:'每日填报 + 手环采集', role:'therapist'},
+  {id:'assess',   i:'08', n:'周期评估（每 7 次）', d:'指标 + 依从性 + 设备数据', role:'meridian'},
+  {id:'verdict',  i:'09', n:'效果判定与退款门禁', d:'四条分支 · 判定即动作', role:'manager', gate:'门禁'},
+  {id:'close',    i:'10', n:'效果确认与归档结案', d:'趋势归因 · 可脱敏沉淀', role:'manager'},
+  {id:'state',    i:'11', n:'状态机与规则配置', d:'业务规则全部可配置', role:'all'},
+  {id:'detail',   i:'D1', n:'客户管理详情 · 手环反馈数据', d:'四端皆可见 · 客户端只给数据本身，不给派生结论', role:'all'},
+  {id:'pnlClient', i:'E1', n:'健康资产损益 · 客户（小程序）', d:'原始值 + 健康指数 + 变化量 + 手环过程线', role:'client'},
+  {id:'pnlTherapist', i:'E2', n:'健康资产损益 · 调理师 / 经络师（APP）', d:'模块级损益明细 · 不含结算类结论', role:'therapist', roles:['therapist','meridian']},
+  {id:'pnlAdmin', i:'E3', n:'健康资产损益 · 管理员（Web）', d:'完整内部口径 + 行级 scope', role:'manager'}
+];
+
+const $ = s => document.querySelector(s);
+let curRole = 'all';
+let cur = 'overview';
+
+/* ======================= 通用组件 ======================= */
+const chip = (cls,txt) => `<span class="pill p-${cls}">${txt}</span>`;
+const banner = (t,p,ico) => `<div class="banner bn-${t}"><div class="ico">${ico}</div><div><b>${p[0]}</b><p>${p[1]}</p></div></div>`;
+const card = (title,tag,body) => `<div class="card"><h4>${title}${tag?`<span class="tag">${tag}</span>`:''}</h4>${body}</div>`;
+const rule = t => `<div class="rule">${t}</div>`;
+const ticks = arr => `<ul class="tick">${arr.map(a=>`<li class="${a[1]==='no'?'no':''}"><span>${a[0]}</span></li>`).join('')}</ul>`;
+
+function sparkline(data,color,unit){
+  const w=100,h=30,mn=Math.min(...data),mx=Math.max(...data),sp=(mx-mn)||1;
+  const pts=data.map((v,i)=>`${(i/(data.length-1)*w).toFixed(1)},${(h-((v-mn)/sp)*(h-6)-3).toFixed(1)}`).join(' ');
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:34px;display:block">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${w}" cy="${(h-((data[data.length-1]-mn)/sp)*(h-6)-3).toFixed(1)}" r="2.2" fill="${color}"/></svg>`;
+}
+function ring(pct,color,label){
+  const r=26,c=2*Math.PI*r;
+  return `<div style="display:flex;align-items:center;gap:12px">
+    <svg width="66" height="66" viewBox="0 0 66 66">
+      <circle cx="33" cy="33" r="${r}" fill="none" stroke="#E8EEEC" stroke-width="7"></circle>
+      <circle cx="33" cy="33" r="${r}" fill="none" stroke="${color}" stroke-width="7" stroke-linecap="round"
+        stroke-dasharray="${c}" stroke-dashoffset="${c*(1-pct/100)}" transform="rotate(-90 33 33)"></circle>
+      <text x="33" y="37" text-anchor="middle" font-size="14" font-weight="700" fill="#16211D">${pct}</text>
+    </svg>
+    <div><div style="font-size:12.5px;font-weight:600">${label[0]}</div><div style="font-size:11.5px;color:#77857F">${label[1]}</div></div>
+  </div>`;
+}
+/* 手环过程线：缺段显式断开（AL-3）—— 不插值、不平滑、不跨缺段连线 */
+function processLine(series,color,unit){
+  const w=100,h=30;
+  const vals = series.filter(v=>v!==null);
+  const mn=Math.min(...vals), mx=Math.max(...vals), sp=(mx-mn)||1;
+  const y = v => (h-((v-mn)/sp)*(h-6)-3).toFixed(1);
+  const segs=[]; let run=[];
+  series.forEach((v,i)=>{
+    if(v===null){ if(run.length) segs.push(run); run=[]; return; }
+    run.push(`${(i/(series.length-1)*w).toFixed(1)},${y(v)}`);
+  });
+  if(run.length) segs.push(run);
+  const lines = segs.map(s=> s.length>1
+    ? `<polyline points="${s.join(' ')}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>`
+    : `<circle cx="${s[0].split(',')[0]}" cy="${s[0].split(',')[1]}" r="1.6" fill="${color}"/>`).join('');
+  const last=series.length-1;
+  const tail = series[last]!==null ? `<circle cx="${w}" cy="${y(series[last])}" r="2.2" fill="${color}"/>` : '';
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:34px;display:block">${lines}${tail}</svg>`;
+}
+/* 量表端点：两个端点画成标记点，不画折线（AL-2）—— 只有两点，连线会暗示中间是线性变化 */
+function endpointAxis(baseVal, curVal, max){
+  const px = t => (t/max*96+2).toFixed(1);
+  return `<svg viewBox="0 0 100 22" preserveAspectRatio="none" style="width:100%;height:22px;display:block">
+    <line x1="2" y1="11" x2="98" y2="11" stroke="#E1E8E5" stroke-width="1.5"/>
+    <circle cx="${px(baseVal)}" cy="11" r="3.4" fill="#FFFFFF" stroke="#77857F" stroke-width="1.8"/>
+    <circle cx="${px(curVal)}" cy="11" r="3.4" fill="#146E5B" stroke="#146E5B" stroke-width="1.8"/>
+  </svg>`;
+}
+/* 免责声明：逐字文案，客户端强制同屏（D-1/D-2/D-3） */
+const dnameBlock = () => `<div class="dname">
+  <div><b>本指数仅作状态记录，不构成任何服务结果的判定依据，不代表任何收益承诺</b></div>
+  <div>健康数据属于您的个人信息，此处仅作记录与展示</div>
+</div>`;
+
+/* ======================= 各页面 ======================= */
+const P = {};
+
+P.overview = () => {
+  const chain = [
+    ['01','入口筛查','禁忌症排查（硬门禁）· 独立第一屏，先于任何信息采集','shop','g'],
+    ['02','建档与签署','建档（PROFILED）→ 签知情同意书（CONSENTED）→ 基线评估 → 核心问题诊断','therapist',''],
+    ['03','方案与审核','出方案 → 审核（完整性/有效性/可行性）→ 设备参数下发','meridian','g'],
+    ['04','协议与确认','签《调理协议书》含退款/终止条款（对外不出现"无效退款"）→ 客户确认（未签不可执行）','therapist','g'],
+    ['05','调理执行','按方案服务 + 小程序每日填报 + 手环采集 + 到店核对','therapist',''],
+    ['06','周期评估','每 7 次触发：核心指标 + 依从性 + 设备/填报数据','meridian',''],
+    ['07','效果判定','稳定改善 / 依从不足 / 达标无效 / 高危新发 → 四条分支','manager','y'],
+    ['08','退款门禁','门店代录客户诉求（24h）后走双通路：履约类直退 / 效果类协商','manager','g'],
+    ['09','归档结案','出具《调理效果确认》→ 签字 → 可脱敏沉淀案例','manager','']
+  ];
+  return `
+  <h2 class="sec">把线下作业流程，变成跨门店不可绕过的系统状态机</h2>
+  <p class="lead">原流程图的本质不是"画了 9 个框"，而是<b>靠人在守 3 道门禁</b>。在<b>多门店 SaaS</b> 语境下风险会被放大 N 倍：单店可以靠"人靠谱"，连锁不能。产品化的第一性目标：<b>把人工门禁变成系统门禁 —— 人不签，系统不放行；门店想绕，总部的数据看得见。</b></p>
+
+  <div class="grid g3" style="margin-bottom:16px">
+    ${card('三份"不放行"','硬门禁',rule('<b>① 禁忌门禁</b>：有禁忌 → 流程终止，<b>只留筛查记录、不建档</b>')+rule('<b>② 审核门禁</b>：未过审 → 设备参数不可下发')+rule('<b>③ 签署门禁</b>：未签协议书 → 不可产生任何调理执行记录'))}
+    ${card('两类"必须留痕"','合规',rule('<b>个人信息授权</b>：健康史属敏感个人信息，授权范围与时间必须可追溯，且<b>租户间物理隔离</b>')+rule('<b>退款原因</b>：任何终止退款都必须填写原因并归档，不可跳过'))}
+    ${card('一个"完全自愿"','设计约束',rule('<b>手环佩戴自愿</b> → 数据必然存在缺口 → 任何强依赖手环数据的判定逻辑都会误判。判定必须<b>以核心指标为主</b>，手环与填报为辅助，缺失值显式建模'))}
+  </div>
+
+  ${card('多门店 SaaS 带来的结构性变化','平台层 ≠ 业务层',`<table>
+    <thead><tr><th>维度</th><th>单店工具的做法</th><th>多门店 SaaS 的做法</th></tr></thead><tbody>
+      <tr><td>数据边界</td><td>一份数据一份权限</td><td><b>租户 → 区域 → 门店</b> 三级隔离，跨租户零可见</td></tr>
+      <tr><td>判定阈值</td><td>谁都可以改，改了没人知道</td><td><b>总部集中配置 + 变更留痕 + 不回溯已生效判定</b>，门店只读</td></tr>
+      <tr><td>设备台账</td><td>门店自己记型号</td><td>设备型号注册在<b>门店档案</b>下，方案只声明意图参数，系统做映射</td></tr>
+      <tr><td>退款</td><td>店长说了算</td><td>判定引擎统一口径 + <b>总部稽核异常退款</b>，加盟商无法单方面驳回</td></tr>
+      <tr><td>客户归属</td><td>客户属于这家店</td><td>客户属于<b>品牌</b>，可跨店服务；次数与档案跟随，<b>责任按"谁服务谁承担"</b></td></tr>
+      <tr><td>经验沉淀</td><td>留在老员工脑子里</td><td>脱敏案例库 + 方案模板库<b>全连锁复用</b>，新店冷启动有底</td></tr>
+    </tbody></table>`)}
+  <div style="height:16px"></div>
+
+  <div class="steps" style="margin-bottom:16px">
+    ${chain.map(c=>`<div class="st ${c[4]==='g'?'block':''}" onclick="go('${['gate','consent','plan','agree','exec','assess','verdict','gate','close'][+c[0]-1]}')">
+      <div class="rk">${c[3]==='shop'?'门店客服':c[3]==='therapist'?'调理师':c[3]==='meridian'?'经络师':'门店负责人'}</div>
+      <div class="i">${c[0]}</div><div class="n">${c[1]}</div><div class="d">${c[2]}</div></div>`).join('')}
+  </div>
+
+  <div class="grid g2">
+    ${card('产品化前后的关键差异','gap 分析',`<table>
+      <thead><tr><th>环节</th><th>现状（人工）</th><th>产品化后（系统）</th></tr></thead>
+      <tbody>
+        <tr><td><b>禁忌排查</b></td><td>靠调理师记忆，位置常被后置</td><td>强制第一屏，未完成无法进入建档</td></tr>
+        <tr><td><b>方案审核</b></td><td>口头/微信确认，无留痕</td><td>结构化审核流 + 审核人签名 + 版本留档</td></tr>
+        <tr><td><b>设备参数</b></td><td>人工按型号手输</td><td>按门店设备台账（秦皇岛→杠2／其他→现有）自动映射下发</td></tr>
+        <tr><td><b>每日填报</b></td><td>微信接龙/口头</td><td>小程序选择题，1 分钟内可完成</td></tr>
+        <tr><td><b>周期评估</b></td><td>靠人记"第几次了"</td><td>每 7 次自动生成评估任务并提醒</td></tr>
+        <tr><td><b>退款判定</b></td><td>各店口径不一，易起纠纷</td><td>统一判定引擎 + 判定依据快照 + 客户可见</td></tr>
+        <tr><td><b>归档沉淀</b></td><td>纸质/散落</td><td>效果确认书 + 脱敏案例库自动沉淀</td></tr>
+      </tbody></table>`)}
+    ${card('角色职责分离（权限矩阵）','RBAC',`<table>
+      <thead><tr><th>能力</th><th>门店/客服</th><th>调理师</th><th>经络师</th><th>负责人</th></tr></thead>
+      <tbody>
+        <tr><td>禁忌筛查录入</td><td>✅</td><td>✅</td><td>—</td><td>查看</td></tr>
+        <tr><td>知情同意签署</td><td>—</td><td>✅</td><td>—</td><td>查看</td></tr>
+        <tr><td>基线评估 / 诊断</td><td>—</td><td>—</td><td>✅</td><td>查看</td></tr>
+        <tr><td>方案出具</td><td>—</td><td>—</td><td>✅</td><td>查看</td></tr>
+        <tr><td><b>方案审核</b></td><td>—</td><td>—</td><td>✅（唯一）</td><td>不参与</td></tr>
+        <tr><td>执行调理</td><td>—</td><td>✅</td><td>—</td><td>查看</td></tr>
+        <tr><td>周期评估</td><td>—</td><td>录入指标</td><td>✅ 判定</td><td>查看</td></tr>
+        <tr><td>退款受理 / 挽留</td><td>✅</td><td>—</td><td>—</td><td>✅ 审批</td></tr>
+        <tr><td>归档结案</td><td>—</td><td>—</td><td>—</td><td>✅</td></tr>
+      </tbody></table>
+      ${rule('关键设计：<b>审核权与执行权、评估权与销售权彻底隔离</b>。调理设备"一键下发"明确<b>不新增设备角色</b>——下发动作由审核通过事件自动触发，而非一个新岗位。')}`)}
+  </div>
+
+  <div class="note">点击左侧任一环节可进入该环节的详细设计稿；顶部角色切换会隐藏不属于该角色的环节。</div>`;
+};
+
+P.gate = () => `
+  <div class="crumb">服务链路 / <b>01 入口筛查 · 禁忌门禁</b> · 执行角色：门店/客服</div>
+  ${banner('bad',['⛔ 硬门禁：有禁忌 → 不进入服务流程','该节点在系统中<b>不可跳过、不可后置</b>，是<b>独立的第一屏</b>，位置在任何信息采集之前——先判断能不能做，再问是谁。有禁忌者<b>只留筛查记录、不建档</b>（业务方裁定，见裁定单）。'],'!')}
+  <div class="grid g23" style="margin-top:16px">
+    ${card('禁忌症排查表','必填 · 不可空跑',`
+      <div class="field"><label>禁忌项筛查（勾选命中项；全不勾选表示无禁忌）</label>
+        <div class="checks" id="cj">
+          ${['严重心脑血管疾病急性期','恶性肿瘤治疗期','妊娠期 / 哺乳期','皮肤破损或感染','凝血功能障碍','植入式电子医疗装置','传染性疾病活动期','严重精神疾病发作期','其他（需填写说明）']
+            .map(t=>`<div class="chk" onclick="this.classList.toggle('on')"><span class="box">✓</span>${t}</div>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label>筛查人</label><div class="input">王芳（门店/客服 · 工号 S-0217）· 系统时间戳 2026-09-16 10:42</div></div>
+      ${rule('<b>校验规则：</b>命中任意一项 → 系统落"<b>不符合服务条件</b>"结论，客户档案状态置为 <code>REJECTED</code>，后续所有环节入口置灰；同时生成一条不可删除的筛查记录（含筛查人、时间、结果快照）。')}
+      <div class="btnrow" style="margin-top:12px"><button class="btn" onclick="gateResult(false)">提交：无禁忌，可进入服务</button>
+      <button class="btn ghost" onclick="gateResult(true)">提交：存在禁忌</button></div>
+      <div id="gateOut" style="margin-top:14px"></div>`)}
+    ${card('为什么必须是"硬"门禁','合规与风控',`${ticks([
+      ['禁忌症客户一旦进入调理环节，属于<b>不可逆的风险暴露</b>，事后补签免责在合规上站不住','no'],
+      ['原流程图明确"禁忌症排查为服务入口硬门禁"，产品必须用系统能力兜住这条铁律'],
+      ['筛查结论独立成档、<b>不可删除</b>；与后续建档记录按时间链关联，形成完整证据链'],
+      ['门店/客服是第一道闸；调理师虽也可见，但系统只认"谁提交、谁签名"']
+    ])}
+    ${rule('<b>埋点事件：</b><code>screening_start</code> → <code>screening_contraindication_pass</code> / <code>screening_contraindication_block</code>')}`)}
+  </div>`;
+
+P.consent = () => `
+  <div class="crumb">服务链路 / <b>02 建档与知情同意</b> · 执行角色：调理师</div>
+  ${banner('warn',['顺序已更正：先建档留存记录，再签知情同意书','业务方明确"禁忌筛查完就得立即建档，然后签署知情同意书"。原设计的"先签后建"有一处硬伤 —— 客户拒签时，本次筛查与建档的内容连落档的地方都没有。现行顺序：禁忌筛查 → 建档（PROFILED）→ 签署（CONSENTED）。'],'签')}
+  <div class="grid g23" style="margin-top:16px">
+    ${card('客户建档（信息录入）','PROFILED · 调理师执行',`${ticks([
+      ['个人基本信息：姓名/性别/年龄/联系方式/紧急联系人'],
+      ['健康史：既往病史、手术史、过敏史、长期用药'],
+      ['主诉症状：按身体部位与不适表现结构化录入（非自由文本）'],
+      ['体征初录：身高体重、舌象/脉象等经络师后续复核字段'],
+      ['录入者与录入时间全程留痕，后续修改保留版本']
+    ])}
+    ${rule('<b>设计取舍：</b>症状尽量结构化（可选项 + 部位图），否则后续"趋势归因"和"效果确认"没有可比对的数据基础。')}
+    ${rule('<b>为什么建档在前：</b>建档先行后，客户<b>拒签</b>时系统仍留有一份完整记录（含拒签原因与时间戳）；门店既做不了任何执行动作，又拿得出"已告知、已建档"的凭证 —— 这正是中山中院 2026-04 养生预付案判词要求经营者留存的方向。')}`)}
+    ${card('《知情同意书》电子签','必签 · 一次有效',`
+      <div class="field"><label>⓪ 前置校验：客户档案已建立（只读）</label><div class="input" style="color:#1E7A50">✅ PROFILE-0916-0137 · 建档人 李文 · 2026-09-16 10:47</div></div>
+      <div class="field"><label>① 禁忌筛查结论回显（来自第一屏，只读）</label><div class="input" style="color:#1E7A50">✅ 无禁忌症 · 筛查人 王芳 · 2026-09-16 10:42</div></div>
+      <div class="field"><label>② 个人信息授权范围</label>
+        <div class="checks">${['基本身份信息','健康史与症状体征','生活方式与作息数据','手环/可穿戴设备采集数据','用于脱敏案例沉淀（可单独拒绝）'].map(t=>`<div class="chk on"><span class="box">✓</span>${t}</div>`).join('')}</div>
+      </div>
+      <div class="field"><label>③ 手环佩戴意愿（完全自愿）</label>
+        <div class="checks">${['愿意佩戴','暂不佩戴'].map((t,i)=>`<div class="chk ${i===0?'':'on'}" style="${i===1?'':'display:none'}">手环 · 自动采集睡眠 / 运动</div><div class="chk ${i===0?'on':''}" style="${i===1?'':'display:none'}">小程序每日填报 · 选择题记录</div>`).join('')}</div>
+      </div>
+      ${rule('<b>关键约束：</b>拒绝佩戴手环<b>不得成为拒绝服务的理由</b>，系统不得因此降低服务等级；仅将数据源标记为 <code>self-report</code>，并在后续依从性模型中按缺失值规则处理。')}
+      <div class="sig" style="margin-top:12px">
+        <div style="font-size:11.5px;color:#77857F;margin-bottom:6px">客户签字</div>
+        <div class="script">李某某</div>
+        <div class="seal">已电子签<br/>2026-09-16</div>
+      </div>
+      <div class="btnrow" style="margin-top:12px"><button class="btn">完成签署，进入基线评估</button><button class="btn ghost">客户拒签 · 记录原因并挂起</button></div>`)}
+  </div>
+  ${card('进度与顺序校验','系统守卫',`<div class="flow" style="margin-top:4px">
+    <div class="fnode"><div class="bul">1</div><div class="body"><b>禁忌筛查</b><p>已完成 · 无禁忌（有禁忌则终止，<b>只留筛查记录、不建档</b>）</p></div></div>
+    <div class="fnode"><div class="bul">2</div><div class="body"><b>客户建档</b><p>进行中 · 必填 12 项，已填 7 项 → <code>PROFILED</code></p></div></div>
+    <div class="fnode"><div class="bul">3</div><div class="body"><b>签署知情同意书</b><p>待办 · 含个人信息授权 + 手环佩戴意愿（拒签则停在 <code>PROFILED</code> 并记录原因）</p></div></div>
+    <div class="fnode"><div class="bul">4</div><div class="body"><b>基线评估</b><p>未解锁 · 需 <code>CONSENTED</code></p></div></div>
+  </div>
+  ${rule('顺序校验由前端步进器 + 后端状态机双重保障：<code>POST /archive</code> 只校验 <code>screening_result</code> 存在；<code>POST /consent</code> 校验 <code>profile_id</code> 已生成（<b>先建档、后签署</b>）；<code>POST /assessment/base</code> 校验 <code>consent_signed_at</code>。任一前置缺失返回 403，并明确报出缺失项名称。')}`)}`;
+
+P.baseline = () => `
+  <div class="crumb">服务链路 / <b>03 基线评估与诊断</b> · 执行角色：经络师</div>
+  ${banner('info',['评估优先级：身体不适表现类量表优先，年龄段通用量表兜底','先看"哪里不舒服"，拿不到有效主诉时才退回到年龄段量表。系统按此规则自动推荐量表，避免经络师在同一客户身上重复打分。'],'评')}
+  <div class="grid g2" style="margin-top:16px">
+    ${card('量表选择与结果','经络师',`
+      <div class="btnrow" style="margin-bottom:12px">
+        <span class="pill p-brand">推荐：身体不适表现类量表</span><span class="pill p-info">兜底：年龄段量表</span>
+      </div>
+      <table><thead><tr><th>维度</th><th>基线值</th><th>参考区间</th><th>结论行</th></tr></thead><tbody>
+        <tr><td>睡眠质量（PSQI 简版）</td><td><b>14</b></td><td>0-7 良好</td><td>${chip('bad','显著偏差')}</td></tr>
+        <tr><td>颈肩僵硬（VAS 0-10）</td><td><b>7</b></td><td>0-3</td><td>${chip('bad','中重度')}</td></tr>
+        <tr><td>疲劳程度（FSS）</td><td><b>41</b></td><td>&lt;36</td><td>${chip('warn','临界偏高')}</td></tr>
+        <tr><td>脾胃运化（问诊）</td><td><b>3</b></td><td>0-2</td><td>${chip('warn','轻度异常')}</td></tr>
+        <tr><td>日均步数（手环）</td><td><b>4,120</b></td><td>&gt;6,000</td><td>${chip('warn','偏低')}</td></tr>
+      </tbody></table>
+      <div class="note">基线快照生成后<b>锁定为只读</b>，作为全周期趋势归因的参照系。</div>`)}
+    ${card('核心健康问题诊断','经络师输出 · 结构化',`
+      <div class="field"><label>主问题（可多条，按优先级排序）</label>
+        <div class="input">P1 睡眠障碍（入睡困难型）｜P2 颈肩肌筋膜紧张｜P3 脾气虚运化不良</div></div>
+      <div class="field"><label>症状 / 体征 / 指标 三维交叉分析</label>
+        <div class="input ph">症状：入睡&gt;60min、夜醒≥2次；体征：颈肩条索状结节、舌淡胖有齿痕；指标：PSQI 14 / VAS 7 / FSS 41</div></div>
+      <div class="field"><label>已排除的风险信号</label>
+        <div class="input" style="color:#1E7A50">✅ 无红色警示症状（体重骤降 / 持续发热 / 不明出血等）</div></div>
+      ${rule('<b>产品化要点：</b>诊断结论必须是<b>结构化多选 + 优先级</b>，而不是长段自由文本。只有这样，第 08 步"周期评估"才能把"诊断是否被改善"做成可计算的指标，而不是靠经络师回忆。')}`)}
+  </div>`;
+
+P.plan = () => `
+  <div class="crumb">服务链路 / <b>04 方案出具与审核</b> · 执行角色：经络师（出具 + 审核双职责）</div>
+  ${banner('bad',['⚙ 门禁：方案未经审核通过，设备参数不可下发、不可开始执行','系统把"审核"做成一道独立的、带签名的状态跃迁，而不是同意书里的一个勾选框。'],'!')}
+  <div class="grid g23" style="margin-top:16px">
+    ${card('方案出具','三联：治疗方案 + 生活方式干预 + 设备参数',`
+      <table><thead><tr><th>模块</th><th>内容</th><th>执行方</th></tr></thead><tbody>
+        <tr><td><b>治疗方案</b></td><td>经络调理手法序列 · 频次 · 单次时长（示例：颈肩+背部，隔日 1 次，40min）</td><td>调理师</td></tr>
+        <tr><td><b>生活方式干预</b></td><td>用药建议 · 饮食建议 · 运动建议（三项必填，可写"暂无调整"）</td><td>客户自查 + 调理师核对</td></tr>
+        <tr><td><b>设备参数</b></td><td>按门店设备型号映射参数组（秦皇岛店 → 杠2 设备）</td><td>系统自动下发</td></tr>
+      </tbody></table>
+      <div class="note">原流程备注"设备：秦皇岛→杠2 / 其他→现有"意味着<b>设备型号是门店级属性</b>，方案只需声明"意图参数"，由系统做门店→设备的映射，避免经络师记型号。</div>`)}
+    ${card('方案审核','完整性 · 有效性 · 可行性',`
+      ${ticks([
+        ['<b>完整性</b>：治疗 + 生活方式三子项（用药/饮食/运动）均已填写'],
+        ['<b>有效性</b>：与核心诊断一一对应，无诊断未覆盖'],
+        ['<b>可行性</b>：频次与周期不超出门店排班与设备能力'],
+        ['<b>安全性</b>：与禁忌结论、用药史无冲突（系统自动比对）','no']
+      ])}
+      <div class="sig" style="margin-top:12px">
+        <div style="font-size:11.5px;color:#77857F;margin-bottom:6px">审核人（经络师）</div>
+        <div class="script">赵明远</div>
+      </div>
+      <div class="btnrow" style="margin-top:12px">
+        <button class="btn" onclick="go('device')">审核通过</button>
+        <button class="btn ghost">退回修改（须填原因）</button>
+      </div>
+      ${rule('审核人 <b>不能是</b> 方案出具人以外的角色；且审核动作会上链到方案版本，后续"方案调整必回炉审核"由同一状态机复用。')}`)}
+  </div>`;
+
+P.device = () => `
+  <div class="crumb">服务链路 / <b>05 设备参数一键下发</b> · 触发方式：审核通过事件</div>
+  ${banner('ok',['审核通过 → 参数自动下发，"不新增角色"','原流程特别强调这一点：下发不是新岗位的活，而是审核通过这个事件的自然结果。产品上体现为一次自动任务 + 一条可追溯的回执。'],'✓')}
+  <div class="grid g2" style="margin-top:16px">
+    ${card('门店设备台账','映射关系',`<table><thead><tr><th>门店</th><th>设备型号</th><th>参数模板</th><th>状态</th></tr></thead><tbody>
+      <tr><td>秦皇岛店</td><td><b>杠2 设备</b></td><td>TPL-G2-V3</td><td>${chip('ok','在线')}</td></tr>
+      <tr><td>其他门店（通用）</td><td>现有设备</td><td>TPL-STD-V2</td><td>${chip('ok','在线')}</td></tr>
+    </tbody></table>
+    ${rule('设备型号是<b>门店级配置</b>，门店人员无权修改；参数模板由总部维护，避免各店"手调参数"导致效果不可比。')}`)}
+    ${card('下发回执','自动任务 · 可追溯',`<div class="flow">
+      <div class="fnode"><div class="bul">1</div><div class="body"><b>方案审核通过</b><p>2026-09-16 11:05 · 审核人 赵明远</p></div></div>
+      <div class="fnode"><div class="bul">2</div><div class="body"><b>门店 → 设备型号映射</b><p>秦皇岛店 → 杠2 设备 → TPL-G2-V3</p></div></div>
+      <div class="fnode"><div class="bul">3</div><div class="body"><b>参数下发</b><p>11:05:47 · 3 组参数（强度/时长/模式）已写入设备</p></div></div>
+      <div class="fnode"><div class="bul">4</div><div class="body"><b>回执归档</b><p>下发结果与参数快照写入服务档案，作为效果归因依据</p></div></div>
+    </div>
+    ${rule('<b>失败处理：</b>下发失败不阻塞流程，转为待办提醒经络师/店长手动录入，并记录 <code>device_push_failed</code> 事件——因为"参数没下去"会直接毁掉效果判定，必须可追责。')}`)}
+  </div>`;
+
+P.agree = () => `
+  <div class="crumb">服务链路 / <b>06 协议书签署与客户确认</b> · 执行角色：调理师</div>
+  ${banner('bad',['⛔ 门禁：未签《调理协议书》，系统不产生任何执行记录','签署是<b>服务关系的生效点</b>，也是后续退款争议的唯一依据。<b>合规约束：协议对外不得出现"无效退款"等承诺性表述</b>（竹溪县市监局 2026-09-03 明文禁用；见 Non-goals #9 与裁定单 Q10），条款一律写"退款 / 终止"口径。'],'!')}
+  <div class="grid g23" style="margin-top:16px">
+    ${card('《调理协议书》要点','首次出方案后签署',`${ticks([
+      ['服务范围与疗程定义：<b>7 次为一个调优周期，两个周期（14 次）后转入「巩固维护期」</b>（业务方 2026-09-19 授权冻结）'],
+      ['效果评估节奏：每 7 次服务进行一次周期评估'],
+      ['<b>退款 / 终止条款</b>：首周期（前 7 次）结束后主动评估，连续两个周期无改善则<b>由门店主动启动退出协商</b>——按<b>未消耗次数 × 单次均价</b>结算，<b>不按"无效"结算</b>（对外禁用承诺性表述）'],
+      ['客户主动退款权利：可随时提出，门店须先做原因分析与挽留'],
+      ['数据使用授权：手环 / 小程序数据用于效果判定与退款判定'],
+      ['双方签署：客户手写电子签 + 门店授权人签章']
+    ])}
+    ${rule('<b>文案要点：</b>把"依从性不达标也会影响退款判定"提前讲清楚。这是后续争议率的关键——<b>争议往往不是来自判定规则本身，而是来自规则没有提前被看见。</b>')}`)}
+    ${card('客户确认方案','点操作确认',`
+      <div class="kv">
+        <dt>协议状态</dt><dd>${chip('ok','已签署')} 赵明远代签 · 客户 李某某 2026-09-16 11:20</dd>
+        <dt>方案版本</dt><dd>V1.0（方案调整后将自动升级为 V1.1 并要求重签）</dd>
+        <dt>客户确认</dt><dd>${chip('warn','待客户点击确认')}</dd>
+      </div>
+      ${rule('<b>状态机：</b><code>PLAN_APPROVED</code> →（签协议）→ <code>AGREEMENT_SIGNED</code> →（客户确认）→ <code>CONFIRMED</code> → 才可创建执行记录。任一前置缺失，执行入口返回 403 并给出缺失项名称（不给出模糊报错）。')}
+      <div class="btnrow" style="margin-top:12px"><button class="btn">标记客户已确认</button><button class="btn ghost">重新生成协议</button></div>`)}
+  </div>
+  <div class="grid g2" style="margin-top:14px">
+    ${card('《调理协议书》正文（模板 v3 · 已发布）','服务端渲染',`
+      <div class="kv">
+        <dt>模板版本</dt><dd>${chip('ok','模板 v3 · 已发布')} <span style="color:#77857F">历史版本可回看、不可覆盖</span></dd>
+        <dt>签署绑定</dt><dd><code>doc_template_id</code> + <code>doc_template_version</code> 随签署一并落库</dd>
+      </div>
+      <div class="note" style="margin-top:10px"><b>正文 8 章章名：</b></div>
+      <div style="margin-top:4px;font-size:12.5px;color:var(--ink-2);line-height:1.95">
+        1. 服务范围与疗程定义<br/>
+        2. 效果评估节奏<br/>
+        3. 退款与终止条款<br/>
+        4. 客户主动退款权利<br/>
+        5. 数据使用授权<br/>
+        6. 双方签署<br/>
+        7. 隐私与授权须知<br/>
+        8. 附则
+      </div>
+      ${rule('<b>签署前全文可读 + 可回看（QC-6 附条件验收项）</b>。')}
+      ${rule('<b>渲染快照：</b>签署时按白名单带入占位符生成 <code>rendered_snapshot</code> 与 <code>rendered_hash</code>（SHA-256），<b>快照存储、不可覆盖</b>——模板改版<b>不回溯</b>已签协议，事后可证明「签的就是当时那一版、且未被改过」。')}`)}
+    ${card('占位符渲染示例','白名单 6 项 · 带入后实际效果',`
+      <table><thead><tr><th>占位符</th><th>渲染示例</th></tr></thead><tbody>
+        <tr><td><code>${'$'}{store.name}</code></td><td>竹溪旗舰店</td></tr>
+        <tr><td><code>${'$'}{customer.name}</code></td><td>李**</td></tr>
+        <tr><td><code>${'$'}{customer.phone_masked}</code></td><td>138****8800</td></tr>
+        <tr><td><code>${'$'}{agreement.sign_date}</code></td><td>2026年9月23日</td></tr>
+        <tr><td><code>${'$'}{plan.cycle_count}</code></td><td>14</td></tr>
+        <tr><td><code>${'$'}{plan.version}</code></td><td>V1.0</td></tr>
+      </tbody></table>
+      ${rule('<b>渲染纪律：</b>① <b>未在白名单内的占位符 → 渲染期报错，不静默留空</b>（fail-closed）；② <b>客户手机号强制脱敏（前 3 后 4），原名不得出现在文书内</b>。')}
+      ${rule('<b>白名单即数据边界闸门：</b>占位符白名单本身就是一道数据边界闸门 —— <b>健康类数据（禁忌结论 / 健康指数 / 手环数据 / 退款结论）一律不得注册为占位符</b>，使其被无意渲染进送签文书<b>在机制上不可能发生</b>，而非依赖人工写模板时自觉。')}`)}
+  </div>
+  ${isSuperAdmin()
+    ? card('文书模板上传与在线编辑','仅超级管理员（tenant 级）可编辑 · 门店只读',`
+      <div class="note" style="margin-top:0">支持<b>双形态：上传文件 / 在线编辑</b> —— 一个版本以其中一种形态存在（<code>source_type</code> = upload / editor）。</div>
+      <div class="field" style="margin-top:12px;border:1px dashed var(--line);border-radius:var(--r-s);padding:12px;background:#FAFCFB">
+        <label>选择文件</label>
+        <input class="input" type="file" />
+        <div class="note">支持 PDF / DOCX / Markdown，≤ 10 MiB；上传后自动记 SHA-256，同文件重复上传视为同一版本（幂等返回既有版本号）。</div>
+      </div>
+      <div class="btnrow"><button class="btn ghost">或在线编辑全文</button></div>
+      ${rule('上传件只做<b>字节存储 + 哈希</b>：不得解压执行宏、不作可执行内容解析；渲染期<b>只做文本占位符替换</b>，不做 DOCX 内嵌逻辑求值。')}`)
+    : ''}
+`;
+
+P.exec = () => `
+  <div class="crumb">服务链路 / <b>07 执行调理 · 生活方式闭环</b> · 执行角色：调理师 / 客户</div>
+  ${banner('info',['三条数据流汇入一个闭环：客户填报表 + 手环自动采集 + 调理师到店核对','原流程把"生活干预"定义为手段、把"手环/小程序数据"定义为退款判定依据——同一批数据身兼两职。产品设计必须同时满足"低负担采集"和"高可信存证"。'],'↻')}
+  <div class="grid g3" style="margin-top:16px">
+    ${card('① 客户小程序每日填报','客户 · 选择题，≤60 秒',`
+      ${ticks([
+        ['昨晚入睡时间：3 个选项区间（不用填分钟）',''],
+        ['夜醒次数：0 / 1-2 / ≥3',''],
+        ['今日活动量、饮水量、情绪自评：三档选择题',''],
+        ['是否按建议服药 / 饮食 / 运动：是 / 部分 / 否',''],
+        ['补填机制：可补前 2 天，超过 2 天不可补（防止事后编造）']
+      ])}
+      <div style="margin-top:12px"><div class="tipline"><span>近 14 天填报率</span><b style="margin-left:auto;color:#16211D">12 / 14 天</b></div><div class="bar"><i style="width:86%"></i></div></div>`)}
+    ${card('② 手环自动采集','自愿 · 数据必然有缺口',`
+      ${ticks([
+        ['睡眠：入睡/醒来时间、深睡时长、夜醒次数'],
+        ['运动：步数、活动时长、静息心率'],
+        ['数据同步失败或未佩戴 → 标记为空缺，<b>不得自动补 0</b>','no'],
+        ['未佩戴期间：依从性评分按"中性"处理，不计为不依从','no']
+      ])}
+      <div class="note">设计约束：手环佩戴完全自愿，因此<b>依从性模型必须能容忍缺失</b>，否则会把"没戴表"误判成"不依从"，进而错误触发退款。</div>`)}
+    ${card('③ 调理师到店间隙核对','人工兜底 · 留痕',`
+      <div class="kv" style="margin-bottom:12px"><dt>待核对</dt><dd><b>3</b> 条（昨日填报与手环数据冲突）</dd><dt>今日已核对</dt><dd>2 条</dd></div>
+      <table><thead><tr><th>时间</th><th>冲突项</th><th>处理</th></tr></thead><tbody>
+        <tr><td>09-15</td><td>填报"睡 7h"，手环 5.2h</td><td><span class="pill p-warn">以手环为准</span></td></tr>
+        <tr><td>09-14</td><td>填报"未运动"，手环 8,400 步</td><td><span class="pill p-info">以填报为准</span></td></tr>
+        <tr><td>09-13</td><td>手环无数据，填报已填</td><td><span class="pill p-ok">采信填报</span></td></tr>
+      </tbody></table>
+      ${rule('核对动作必须显式留痕（谁在什么时候采信了哪一方），否则周期评估时无法解释判定依据。')}`)}
+  </div>`;
+
+P.assess = () => `
+  <div class="crumb">服务链路 / <b>08 周期评估（每 7 次触发）</b> · 执行角色：经络师</div>
+  ${banner('warn',['系统按服务次数自动触发评估任务，"第几次"不再靠人记','一个调优周期 = 7 次；每满 7 次触发一次评估 ⇒ 前两个周期内共 2 个评估节点，第 14 次后转入「巩固维护期」，评估按巩固期节奏继续。'],'⏱')}
+  <div class="grid g23" style="margin-top:16px">
+    ${card('评估节点与数据看板','核心指标为主 + 依从性 + 设备数据',`
+      <table><thead><tr><th>评估节点</th><th>服务次数</th><th>状态</th><th>核心指标变化</th><th>依从性</th></tr></thead><tbody>
+        <tr><td>基线</td><td>0</td><td>${chip('ok','已完成')}</td><td>PSQI 14 / VAS 7</td><td>—</td></tr>
+        <tr><td>评估 1</td><td>7</td><td>${chip('ok','已完成')}</td><td>PSQI 11 / VAS 5</td><td>78%</td></tr>
+        <tr><td>评估 2</td><td>14</td><td>${chip('brand','本次')}</td><td>PSQI 9 / VAS 4</td><td>71%</td></tr>
+        <tr><td>评估 3</td><td>21</td><td>${chip('info','待触发')}</td><td>—</td><td>—</td></tr>
+      </tbody></table>
+      <div style="margin-top:14px">${sparkline([14,11,9],'#146E5B')}<div class="note" style="margin-top:2px">PSQI 趋势（越低越好）· 基线 14 → 9，改善中</div></div>
+      <div style="margin-top:10px">${sparkline([7,5,4],'#B98A16')}<div class="note" style="margin-top:2px">颈肩 VAS 趋势 · 7 → 4，改善中</div></div>`)}
+    ${card('本次评估结论（待经络师确认）','系统预判 + 人工确认',`
+      ${ring(71,'#D98218',['依从性 71%','小程序填报 86% · 手环覆盖 62%'])}
+      <div class="grid" style="margin-top:14px;gap:8px">
+        <div class="rule"><b>核心指标</b>：2/3 项改善，1 项持平 → 判定 <b>稳定/改善</b> ${chip('ok','通过')}</div>
+        <div class="rule"><b>依从性</b>：71%，低于阈值 80% → ${chip('warn','需关注')}（建议值，需真实数据校准）</div>
+        <div class="rule"><b>设备数据</b>：杠2 下发参数执行完整，无中断</div>
+      </div>
+      ${rule('<b>缺失值规则：</b>手环覆盖 62%，缺失的 38% 按"中性"计入，<b>不计为不依从</b>；仅当客户明确表示未执行干预时才扣分。')}`)}
+  </div>`;
+
+P.verdict = () => `
+  <div class="crumb">服务链路 / <b>09 效果判定与退款门禁</b> · 执行角色：门店负责人 / 客服</div>
+  ${banner('bad',['四条分支，判定即动作 —— 不允许"先判定、后商量"','判定结果一经确认，系统直接产生对应<b>运营动作</b>（维持 / 强化干预 / 重定方案 / 全面评估），其中"重定方案"会强制回炉审核并触发客户重签。<br/><b>v1.8 合规边界：</b>判定结论是<b>对内建议 + 置信度、对外不直出</b>；"判定即动作"只管运营动作，<b>退款结论一律走协商，不许系统自动出</b>。'],'!')}
+  <div class="grid g2" style="margin-top:16px">
+    ${card('效果判定分支','判定引擎输出',`<table><thead><tr><th>条件</th><th>判定结论</th><th>系统动作</th></tr></thead><tbody>
+      <tr><td>核心指标 稳定 / 改善</td><td>${chip('ok','维持')}</td><td>维持原方案，进入下一周期</td></tr>
+      <tr><td>依从性不达标</td><td>${chip('warn','强化干预')}</td><td>强化生活方式干预与追踪（提高填报提醒频次、到店核对加密）</td></tr>
+      <tr><td>依从达标但核心指标无改善</td><td>${chip('bad','依从达标但无效')}</td><td>自动提醒经络师<b>重定全新方案</b> → 全面评估 → 出方案 → <b>回炉审核 + 客户重签</b></td></tr>
+      <tr><td>出现高危 / 新发 / 同病</td><td>${chip('bad','风险升级')}</td><td>全面评估 → 重出方案（须回炉审核 + 重签）；必要时转诊</td></tr>
+    </tbody></table>
+    ${rule('<b>"依从达标但无效"是最关键的一条</b>：它把责任从客户拉回机构，因此必须由系统自动触发、不能靠人判断"要不要重定方案"——否则门店有动机拖着不改。')}`)}
+    ${card('退款门禁与挽留','两条入口，两套规则',`
+      <div class="grid" style="gap:10px">
+        <div class="rule"><b>入口 A · 客户提出（<span style="color:#C0392B">不走系统</span>，经络师 / 门店负责人代录）</b><br/>流程：客户口头提出 → <b>代录人当日建单</b>（<code>requested_at</code> = 客户实际提出时间）→ <b>原因分析（必填）</b> → 针对性挽留 → 挽留成功继续 / 挽留失败终止</div>
+        <div class="rule"><b>入口 B · 首周期（7 次）主动评估不达标</b><br/>流程：系统主动评估效果 + 依从性 → 不达标 → <b>由门店主动启动退出协商</b>，按<b>未消耗次数 × 单次均价</b>结算（<b>不按"无效"结算、不由系统直出结论</b>）</div>
+        <div class="rule" style="border-color:#CBE4DD;background:#F4FBF8"><b>代录唯一性（关键设计 · 业务方 2026-09-16 改判）</b><br/>客户<b>不在小程序提交</b>——客户只会和调理师说。工单<b>只能由经络师 / 门店负责人代录创建</b>；代录时 <code>requested_at</code> 记客户实际提出时间，与 <code>created_at</code> 分离，落差即代录延迟证据。工单按"签约门店 = 责任主体"自动派单，服务店为协办；<b>SLA 倒计时仅内部可见</b>（经络师 / 门店负责人 / 区域督导 / 总部），<b>客户端不展示</b>，到账告知走电话或当面。<br/><span style="color:#146E5B">为什么改：</span>原设计"入口移到客户端"已被业务方推翻——客户端不出现任何退款字样与入口。原要靠客户端入口解决的"门店拦截诉求"，改由<b>代录纪律 + 强制字段 + 抽查比对</b>兜底，可观测性弱于原设计，已登记为 R4c / R13d 残余风险。</div>
+      </div>
+      <div style="margin-top:14px">
+        <div class="tipline"><span>本店本月退款率</span><b style="margin-left:auto;color:#16211D">6.2%</b></div><div class="bar thin"><i style="width:31%"></i></div>
+        <div class="tipline"><span>挽留成功率</span><b style="margin-left:auto;color:#16211D">44%</b></div><div class="bar"><i style="width:44%"></i></div>
+      </div>
+      ${rule('<b>规则对称性设计：</b>机构主动退款（入口 B）不给挽留机会，客户主动退款（入口 A）才挽留。这条不对称是刻意的，用于保护商业承诺的公信力，也应在协议书中明示。')}`)}
+  </div>
+  ${card('退款原因必须记录','合规留痕',`<table><thead><tr><th>原因分类</th><th>子项</th><th>是否触发挽留</th></tr></thead><tbody>
+    <tr><td>效果不达预期</td><td>指标无改善 / 改善缓慢</td><td>是（入口 A）</td></tr>
+    <tr><td>依从性困难</td><td>没时间 / 记不住填报 / 不愿戴手环</td><td>是</td></tr>
+    <tr><td>经济或生活变动</td><td>搬迁 / 预算受限</td><td>是</td></tr>
+    <tr><td>服务体验</td><td>人员更换 / 环境 / 排班不便</td><td>是</td></tr>
+    <tr><td>健康风险事件</td><td>新发疾病 / 医嘱冲突</td><td>否，直接终止并评估风险</td></tr>
+  </tbody></table>
+  ${rule('原因分类是<b>结构化必填</b>，不允许只填"不做了"。原因数据同时用于退款归因分析与门店质量考核。')}`)}`;
+
+P.close = () => `
+  <div class="crumb">服务链路 / <b>10 效果确认与归档结案</b> · 执行角色：门店负责人</div>
+  ${card('《调理效果确认》（档案）','趋势归因 + 客户签字 · 可脱敏沉淀',`
+    <div class="grid g2" style="gap:18px">
+      <div>
+        <div class="kv">
+          <dt>客户</dt><dd>李某某 · C20260815-037</dd>
+          <dt>服务周期</dt><dd>28 次完成 · 2 个调优周期（14 次）+ 巩固维护期 14 次</dd>
+          <dt>起始 / 结束</dt><dd>2026-08-15 → 2026-11-02</dd>
+          <dt>结案方式</dt><dd>${chip('ok','周期正常完成')}</dd>
+        </div>
+      </div>
+      <div>
+        ${sparkline([14,11,9,7,6],'#146E5B')}
+        <div class="note" style="margin-top:2px">PSQI：14 → 6（基线 → 结案），改善 57%</div>
+        ${sparkline([7,5,4,3,2],'#B98A16')}
+        <div class="note" style="margin-top:2px">颈肩 VAS：7 → 2，改善 71%</div>
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <table><thead><tr><th>归因维度</th><th>结论</th><th>证据</th></tr></thead><tbody>
+        <tr><td>治疗方案贡献</td><td>颈肩改善主要来自手法序列（前 7 次即见效）</td><td>评估 1 节点 VAS 已降至 5</td></tr>
+        <tr><td>生活方式干预贡献</td><td>睡眠改善在步数提升后加速</td><td>步数 &gt;6,000 的天次与 PSQI 下降同向</td></tr>
+        <tr><td>依从性水平</td><td>全程均值 76%，属中上</td><td>填报 88% · 手环覆盖 61%</td></tr>
+      </tbody></table>
+    </div>
+    <div class="sig" style="margin-top:16px">
+      <div style="font-size:11.5px;color:#77857F;margin-bottom:6px">客户确认签字</div>
+      <div class="script">李某某</div>
+      <div class="seal">已电子签<br/>2026-11-02</div>
+    </div>
+    <div class="btnrow" style="margin-top:14px">
+      <button class="btn">生成效果确认书（PDF）</button>
+      <button class="btn ghost">授权脱敏 · 沉淀至案例库</button>
+      <button class="btn ghost">归档结案</button>
+    </div>
+    ${rule('<b>脱敏沉淀</b>必须由客户单独授权（在知情同意书中单列一项，可拒绝）。脱敏后进入案例库，供方案模板迭代与新人培训使用——这是把"个体经验"转成"组织资产"的唯一通道。')}`)}`;
+
+P.state = () => `
+  <div class="crumb">系统设计 / <b>11 状态机与规则配置</b></div>
+  ${banner('info',['流程图里所有"数字"都必须是可配置项，而不是硬编码','每 7 次评估、调优周期 7 次 / 巩固期起点 14 次、首周期 7 次，这些是当前业务制度（业务方 2026-09-19 授权冻结），不是物理定律。制度会变，系统不该重做。'],'⚙')}
+  <div class="grid g2" style="margin-top:16px">
+    ${card('客户服务主状态机','核心 14 态 = 11 活动 + 3 终态',`<div class="flow">
+      ${[['SCREENING','禁忌筛查中','shop'],['REJECTED','不符合服务条件（终态 · 仅留筛查记录）','g'],
+         ['PROFILED','已建档 · 未签署',''],['CONSENTED','已签知情同意书',''],['ASSESS_BASE','基线评估完成',''],
+         ['PLAN_APPROVED','方案已审核通过',''],['AGREEMENT_SIGNED','协议书已签署',''],
+         ['CONFIRMED','客户已确认方案',''],['IN_TREATMENT','调理执行中',''],
+         ['CYCLE_ASSESS','周期评估中',''],['PLAN_REVISING','方案重定中（须回炉审核+重签）','y'],
+         ['REFUND_REVIEW','退款挽留中','y'],['CLOSED','归档结案（终态）',''],['TERMINATED','终止退款（终态）','g']]
+        .map(s=>`<div class="fnode ${s[2]}"><div class="bul">●</div><div class="body"><b>${s[0]}</b><p>${s[1]}</p></div></div>`).join('')}
+    </div>`)}
+    <div>
+      ${card('业务规则配置项','管理员可改 · 留变更日志',`<table><thead><tr><th>规则</th><th>当前值</th><th>影响面</th></tr></thead><tbody>
+        <tr><td>周期评估间隔</td><td><b>每 7 次</b></td><td>评估任务生成</td></tr>
+        <tr><td>调优周期 / 巩固期起点</td><td><b>7 次 / 14 次</b> <span style="color:#146E5B">· 已冻结（业务方 2026-09-19 授权；原「15~45 次」作废）</span></td><td>结案判定、巩固期转入提醒</td></tr>
+        <tr><td>首周期主动评估点</td><td><b>第 7 次</b></td><td>退款门禁 B</td></tr>
+        <tr><td>依从性达标阈值</td><td>80%（建议值）</td><td>效果判定分支</td></tr>
+        <tr><td>缺失值处理策略</td><td>中性，不计不依从</td><td>依从性计算</td></tr>
+        <tr><td>补填窗口</td><td>2 天</td><td>每日填报</td></tr>
+      </tbody></table>
+      ${rule('阈值改动必须写入变更日志（谁改、何时改、影响哪些在服务客户），并默认<b>不回溯</b>已生效判定——否则客户判定结论会被"改规则"推翻。')}`)}
+      ${card('埋点与数据资产','可度量才有得优化',`${ticks([
+        ['门禁通过率：<code>screening_contraindication_pass</code>'],
+        ['漏斗流失：评估 → 出方案 → 审核 → 签约 → 首次执行'],
+        ['填报流失：<code>daily_report_submit</code> 连续缺失天数'],
+        ['判定触发：<code>verdict_no_effect</code> / <code>refund_gate_b_triggered</code>'],
+        ['挽留结果：<code>retention_success</code> / <code>retention_failed</code>']
+      ])}`)}
+    </div>
+  </div>
+  <div data-nomask style="margin-top:16px">${card('退款可见性矩阵（业务方规则 · 端形态）','客户 / 调理师 / 客服端不显示','<p style="margin:0 0 10px"><b>端形态（业务方 2026-09-16 补充裁定）：</b>客户 = <b>小程序</b> ｜ 调理师、经络师 = <b>APP</b> ｜ 门店负责人 / 区域督导 / 总部运营 = <b>Web</b> ｜ <b>门店客服 = 不使用系统（无端）</b>。</p><table><thead><tr><th>角色</th><th>端形态</th><th>退款可见</th><th>说明</th></tr></thead><tbody>'
+    + '<tr><td>客户</td><td><b>小程序</b></td><td><b style="color:#C0392B">❌ 不可见</b></td><td>不出现"退款"字样与任何入口；<b>回执走订阅消息，文案中性化</b></td></tr>'
+    + '<tr><td>调理师</td><td><b>APP</b></td><td><b style="color:#C0392B">❌ 不可见</b></td><td>同上；仅有「记录异常 / 反馈经络师」</td></tr>'
+    + '<tr><td>门店客服</td><td><b style="color:#C0392B">无端（不使用系统）</b></td><td><b style="color:#C0392B">❌ 完全不可见</b></td><td><b>无账号、无任何退款相关能力</b>（业务方 2026-09-16 裁定 + 补充）→ 客服侧 R4c 为<b>结构性不可观测、不可缓解</b></td></tr>'
+    + '<tr><td><b>经络师</b></td><td><b>APP</b></td><td><b style="color:#1E7A50">✅ 可见可操作</b></td><td>业务方指定 · <b>代录人</b>；退款能力<b>仅在本角色下加载</b></td></tr>'
+    + '<tr><td><b>门店负责人（管理员）</b></td><td><b>Web</b></td><td><b style="color:#1E7A50">✅ 可见可操作</b></td><td>业务方指定 · <b>代录人 / 审批</b></td></tr>'
+    + '<tr><td>区域督导</td><td><b>Web</b></td><td><b style="color:#1E7A50">✅ 可见</b></td><td>可见辖区工单与异常名单，<b>不参与审批</b>（业务方 2026-09-16 裁定）</td></tr>'
+    + '<tr><td>总部运营</td><td><b>Web</b></td><td><b style="color:#1E7A50">✅ 可见 + 稽核</b></td><td>阈值与规则集中配置，门店只读</td></tr>'
+    + '</tbody></table>'
+    + rule('切换页面顶部的<b>角色</b>即可看到实际效果：切到「客户」、「调理师」或「门店客服」，全站"退款"字样会被遮蔽为 ▨▨▨，并在页面顶部出现提示条。')
+    + rule('<b>两项曾悬空的政策已裁定（2026-09-16）：</b>门店客服 <b>❌ 完全不可见</b>（不代录）｜区域督导 <b>✅ 可见</b>（不审批）。<br/><b>连带后果（已落 PRD）：</b>代录人集合收敛为 <b>经络师 + 门店负责人</b>；异常名单行级范围 = 门店看本店 / 督导看辖区 / 总部看全量；<b>超时升级第一跳 = &gt;24h 推门店负责人 + 区域督导</b>（督导可见，升至他这一跳才有效）。')
+    + rule('<b>✅ 已定的兜底动作（2026-09-16 业务方确认「可以，且必须留客户原话」）：调理师端「客户诉求 · 转经络师」</b>——全链路不出现"退款"二字（含选项文案与报错信息），<b>必填客户原话、提交后不可编辑</b>，后台生成"转交代办"落到经络师待办（<b>不生成退款工单</b>）。调理师自始至终看不到退款工单与金额。<br/><b>客服端相反，是硬边界：</b>不得含任何录入 / 转交入口 —— 因为业务方已澄清「<b>客户只会和调理师说</b>」，客户不经客服。')
+    + rule('<b>⚠️ 新记账的失效模式 R4c「调理师 → 经络师转交失真」：</b>客户提退款的第一句话往往是说给<b>正在给他做调理的人</b>，而<b>调理师端同样不显示退款字样</b> → "调理师告诉经络师"这一句在系统里<b>是一段空白</b>。原话可被软化、被延迟，且 <b>24h 代录计时从哪一刻起算仍不可知</b>。<br/>三层失效模式需分清：<b>R4a 结构性</b>（观测权归零）／<b>R4b 执行性</b>（记了但延迟，<b>仍留下记录</b>）／<b>R4c 传递性</b>（客户认为他已提出过，而系统里什么都查不到 —— 正是中山中院那类判词的对立面）。<br/><b>培训改不了动机</b>：调理师在收入链条里，"劝下来"的收益比客服更大，故 R4c 与 R4b 部分重叠，但责任主体不同（上游传递缺失 vs 代录人执行不到位）。')
+    + rule('<b>失去客户端入口后的强制兜底（必须实现）：</b>门店须在 <b>24 小时内</b>把客户口头 / 微信提出的退款诉求<b>代录进系统并回执客户</b>；"录入延迟"纳入总部可查的异常名单，超时自动升级。<br/><b>为什么：</b>客户端无入口 = 失去"客户何时提出"的自动时间戳；中山中院 2026-04 案判词明确——经营者拿不出消费记录与服务单据，法院可作<b>对经营者不利</b>的事实认定。代录纪律是唯一的替代证据。')
+    + rule('<b>注意：</b>本规则使原 CS-3「退款入口在客户端唯一」<b>作废</b>；两条通路（履约类 / 效果类）的划分不变，<b>仅发起方由客户端改为门店（经络师 / 负责人）代客发起</b>，算法仍为"未消耗次数 × 单次均价（实付）"。'))}</div>`;
+
+/* ============ 平台层（多门店 SaaS） ============ */
+P.saas = () => `
+  <div class="crumb">平台层 / <b>A1 SaaS 租户与组织架构</b></div>
+  ${banner('info',['租户 = 连锁品牌，不是门店；门店是租户内的一级组织','这条决定了整个系统的权限、数据边界与计费方式。客户属于品牌而不属于门店，是"跨店通兑"能成立的前提。'],'◎')}
+  <div class="grid g23" style="margin-top:16px">
+    ${card('三级组织模型','tenant → region → store',`<div class="flow">
+      <div class="fnode"><div class="bul">T</div><div class="body"><b>租户 Tenant · 上医智养堂（品牌方）</b><p>数据物理隔离边界。全部业务数据带 <code>tenant_id</code>；跨租户查询在存储层直接拒绝，不依赖应用层过滤。</p></div></div>
+      <div class="fnode"><div class="bul">R</div><div class="body"><b>区域 Region · 华北区 / 华东区 …</b><p>仅做汇总视图与督导授权，<b>不产生业务数据</b>。区域可下钻到门店，但不可改门店业务记录。</p></div></div>
+      <div class="fnode"><div class="bul">S</div><div class="body"><b>门店 Store · 秦皇岛店（直营）/ 唐山店（加盟）</b><p>业务发生的唯一场所。承载：员工与排班、设备台账、库存、服务记录。<b>门店经营属性（直营/加盟）与设备型号都挂在这一层。</b></p></div></div>
+      <div class="fnode"><div class="bul">C</div><div class="body"><b>客户 Customer · 归属租户</b><p>客户属于品牌：可在任意门店接受服务。<code>owner_store</code>（首次签约门店）与 <code>serving_store</code>（本次服务门店）分离。</p></div></div>
+    </div>`)}
+    ${card('角色 × 数据可见范围','权限矩阵（关键行）',`<table><thead><tr><th>能力 / 数据</th><th>总部</th><th>区域</th><th>门店</th><th>加盟商</th></tr></thead><tbody>
+      <tr><td>禁忌/诊断明细</td><td>✅</td><td>✅</td><td>本店</td><td>本店</td></tr>
+      <tr><td>判定阈值配置</td><td>✅ 唯一</td><td>只读</td><td>只读</td><td>只读</td></tr>
+      <tr><td>效果判定分支明细</td><td>✅</td><td>✅</td><td>本店</td><td><b>不可见</b></td></tr>
+      <tr><td>稽核与放水信号</td><td>✅</td><td>辖区</td><td><b>不可见</b></td><td><b>不可见</b></td></tr>
+      <tr><td>退款受理与挽留</td><td>✅</td><td>辖区</td><td>本店执行</td><td>本店执行</td></tr>
+      <tr><td>跨租户数据</td><td colspan="4" style="color:#A83434">全部禁止（存储层隔离，非应用层过滤）</td></tr>
+    </tbody></table>
+    ${rule('<b>设计原则：</b>"稽核信号对门店不可见"是刻意的——如果被稽核方能实时看到自己的放水指标，指标就会立刻被博弈掉。')}`)}
+  </div>
+  ${card('SaaS 交付形态与计费假设','供商业侧确认',`<table>
+    <thead><tr><th>形态</th><th>说明</th><th>适用</th></tr></thead><tbody>
+      <tr><td><b>自用（品牌自建）</b></td><td>先在自己连锁跑通，形成标准作业与数据资产</td><td>当前阶段：建议先自用</td></tr>
+      <tr><td><b>对外 SaaS（标准版）</b></td><td>把"禁忌门禁 + 审核流 + 周期评估 + 退款门禁"打包成行业标准能力</td><td>跑通后再商业化</td></tr>
+      <tr><td><b>计费口径候选</b></td><td>按门店数 / 按活跃客户数 / 按疗程结案数</td><td>建议<b>门店数 + 疗程量阶梯</b>，与客户价值挂钩</td></tr>
+    </tbody></table>
+    <div class="note">注：计费口径为产品建议，需商业与财务侧确认。</div>`)}`;
+
+P.policy = () => `
+  <div class="crumb">平台层 / <b>A2 总部管控与门店自治</b></div>
+  ${banner('bad',['⚙ 政策型配置必须集中：判定阈值、效果判定分支、退款门禁规则一律总部唯一持有','理由很硬：这三项直接绑定<b>对外承诺的法律效力</b>与健康服务的合规判断。任何门店级自定义，都会变成退款争议的口子，也会让门店间的效果数据不可比。'],'!')}
+  <div class="grid g2" style="margin-top:16px">
+    ${card('必须集中（总部唯一可改）','政策层',`<table><thead><tr><th>配置项</th><th>当前值</th><th>为什么不能下放</th></tr></thead><tbody>
+      <tr><td>依从性达标阈值</td><td>80%（建议值）</td><td>改了就等于改退款判定结果</td></tr>
+      <tr><td>效果判定分支规则</td><td>四分支固定</td><td>涉及健康判断，须全品牌一致</td></tr>
+      <tr><td>退款门禁规则</td><td>入口 A 挽留 / 入口 B 主动退出协商</td><td>对外是统一承诺，不可各店解释</td></tr>
+      <tr><td>禁忌症清单</td><td>总部维护</td><td>安全底线，且需随监管更新</td></tr>
+      <tr><td>周期与评估节奏</td><td>每 7 次评估 / 调优周期 7 次 / 第 14 次起「巩固维护期」</td><td>影响跨店次数累计与结案口径</td></tr>
+      <tr><td>标准方案模板库</td><td>总部维护 + 门店可复制</td><td>沉淀组织经验，避免各店从零摸索</td></tr>
+    </tbody></table>`)}
+    ${card('可以放权（区域内/门店内）','运营层',`<table><thead><tr><th>配置项</th><th>下放层级</th></tr></thead><tbody>
+      <tr><td>预约与排班规则</td><td>门店</td></tr>
+      <tr><td>提醒频次与话术</td><td>门店（模板由总部提供）</td></tr>
+      <tr><td>本地设备参数微调</td><td>门店（须记入设备台账并留痕）</td></tr>
+      <tr><td>员工考核权重</td><td>区域（须留版本审计）</td></tr>
+      <tr><td>门店与员工展示信息</td><td>门店</td></tr>
+    </tbody></table>
+    ${rule('<b>统一机制：</b>任何配置变更都要写「变更日志（谁改 / 何时 / 为什么 / 影响哪些在服务客户）」，且默认<b>不回溯</b>已生效判定 —— 否则客户的判定结论会被改规则推翻。')}`)}
+  </div>
+  ${card('总部 vs 门店的三组天然冲突','必须在产品里被明确定调',`<table>
+    <thead><tr><th>冲突</th><th>总部想要</th><th>门店想要</th><th>产品定调</th></tr></thead><tbody>
+      <tr><td>判定松紧</td><td>统一从严，宁可退也不虚</td><td>判定从宽，保住收入</td><td><b>总部定阈值 + 门店判定行为被稽核</b>（信号对门店不可见）</td></tr>
+      <tr><td>退款受理</td><td>快受理、留原因</td><td>拖一拖、劝一劝</td><td><b>受理超 48 小时自动升级至区域</b>（建议值，需真实校准）</td></tr>
+      <tr><td>客户归属</td><td>客户属于品牌，可跨店</td><td>客户是我的，别来抢</td><td><b>owner 店 + 按服务次数分润</b>，让早段服务店也分到 ECC</td></tr>
+    </tbody></table>
+    <div class="note">这三条不是"管理问题"，是<b>产品机制问题</b>：靠制度约束必然反弹，靠系统机制才能自洽。</div>`)}`;
+
+P.crossstore = () => `
+  <div class="crumb">平台层 / <b>A3 跨店通兑与责任归属</b> · 连锁特有</div>
+  ${banner('warn',['客户属于品牌，不属于门店 —— 但"谁做的效果"必须算得清','跨店是连锁相对单店的唯一真优势，也是最容易把账算乱的地方。归属规则一旦含糊，门店就会抢结案或推诿退款。'],'⇄')}
+  <div class="grid g2" style="margin-top:16px">
+    ${card('场景推演','A 店购买 → B 店服务',`<table><thead><tr><th>要素</th><th>归属规则（数析结论）</th></tr></thead><tbody>
+      <tr><td><b>客户 owner</b></td><td>首次签约门店；跨店服务记为「借调」，依从性与 NPS 汇总回 owner 店</td></tr>
+      <tr><td><b>ECC 归属</b></td><td>以<b>结案门店</b>为主计；若 ≥30% 次数在他店完成，则按<b>各店已服务次数占比拆分</b>（允许小数）</td></tr>
+      <tr><td><b>退款率</b></td><td>分母与主责归结案门店；退款损失按各店服务次数占比<b>分摊</b>为各店退款成本</td></tr>
+      <tr><td><b>转店动作</b></td><td>必须走<b>系统转店工单</b>，禁止私下转</td></tr>
+    </tbody></table>
+    ${rule('<b>为什么按次数拆分而不是全归结案店：</b>若全归结案店，门店会抢结案、中途截客；按次数拆分让早段服务店也分润，从机制上抑制截客。<br/><b>为什么退款要分摊：</b>若退款全归受理店，门店会推诿拒收；损失分摊到各店后，任何一店夸大疗效都要承担退款成本。')}`)}
+    ${card('跨店异常检测','反刷次数 / 反截客',`<table><thead><tr><th>信号</th><th>口径</th><th>阈值（建议值）</th><th>动作</th></tr></thead><tbody>
+      <tr><td>客户转店</td><td>同一客户 30 天内服务门店数</td><td>≥2 标记 / &gt;3 冻结</td><td>转店工单留痕审查</td></tr>
+      <tr><td>次数异常</td><td>单客户跨店服务次数 ÷ 总次数</td><td>&gt;30%</td><td>反刷次数审查</td></tr>
+    </tbody></table>
+    ${rule('若不做<b>强制转店工单</b>，则上面两条归属规则全部失效 —— 因为跨店刷次数根本无从审计。留痕是归属规则生效的前提。')}`)}
+  </div>
+  ${card('三个最容易搞砸的客户时刻','跨店体验（瑞思 · 用户研究员）',`<div class="grid g3" style="gap:12px">
+    <div class="rule"><b>① 到新店被当新客</b><br/><span style="color:#CF4B4B">最易搞砸：</span>B 店按"新客"重走禁忌 + 健康史，客户复述导致口径漂移，甚至漏报禁忌项 —— <b>硬门禁在跨店环节被绕过</b>。<br/><span style="color:#146E5B">产品兜住：</span>档案归属<b>客户而非门店</b>，跨店只读共享；禁忌与健康史由首诊<b>锁定</b>，后续只能"补充 + 修订留痕"，门店无权覆盖。</div>
+    <div class="rule"><b>② 次数算不清</b><br/><span style="color:#CF4B4B">最易搞砸：</span>A 店销售承诺 14 次、B 店记录不同步，客户说做了 8 次系统只有 6 次 → <b>7 次评估触发点错乱 → 退款判定失真</b>。<br/><span style="color:#146E5B">产品兜住：</span>服务次数是<b>客户维度的全局唯一账本</b>，跨店累计；每次核销须客户确认并标记服务门店；<b>评估触发只认中央计数</b>，门店本地记录只作对账。</div>
+    <div class="rule"><b>③ 想退款被踢皮球</b><br/><span style="color:#CF4B4B">最易搞砸：</span>B 店推给 A 店、A 店说"谁服务找谁"，客户被两边推 —— 而这恰好打在"<b>效果类退款</b>"这块招牌上。<br/><span style="color:#146E5B">产品兜住：退款拆两条通路</span> —— 两条都<b>由经络师 / 门店负责人代录发起，客户端无入口</b>。<b>履约类</b>（未交付 / 错交付 / 停交付）代录后<b>按规则直退</b>，金额由系统算（未消耗次数 × 单次均价），门店无权拦；<b>效果类</b>（改善不明显 / 与期待不符）转<b>门店协商工单</b>，人在环、全程留痕，<b>系统不自动出结论</b>。工单按"签约门店 = 责任主体"自动派单，服务店为协办，SLA 倒计时内部可见、客户端不展示。</div>
+  </div>
+  ${rule('<b>③ 是整套设计的枢纽，也是唯一被业务方改判过的枢纽。</b>加盟商的收益与退款天然对立，而"劝说"发生在无第三人在场的私域对话里 —— <b>不可观测</b>。制度只能约束"会被发现"的行为，所以在这个环节天然失效。<b>原解法（已作废）：</b>把退款入口从门店侧移到客户端。<b>业务方 2026-09-16 改判后：</b>客户端不出现任何退款字样与入口，工单由经络师 / 门店负责人代录 —— 代录人仍是门店侧的人，<b>原冲突并未消失，只是换了位置</b>。现行兜底是三件套：<b>代录纪律</b>（要求当日建单）、<b><code>requested_at</code> / <code>created_at</code> 分离</b>（延迟可测）、<b>抽查比对</b>（客户回访 vs 工单时间戳）。它比原设计弱，残余风险已登记为 R4c 与 R13d，<b>不可缓解、只能被观测</b>。制度退为第二道防线：退款率与续约/分成挂钩。')}`)}`;
+
+P.hqboard = () => `
+  <div class="crumb">平台层 / <b>A4 总部看板与门店健康度</b></div>
+  ${banner('info',['总部的核心工作不是"看业绩"，是"看谁在放水"','连锁里最贵的不是差门店，是<b>看起来很好但判定放水的门店</b>——它会把整个品牌的效果数据污染掉，也会带来退款争议。'],'◱')}
+  <div class="grid g23" style="margin-top:16px">
+    ${card('门店健康度 HSI（可排名）','数析模型 · 权重为建议值，需真实数据校准',`
+      <table><thead><tr><th>门店</th><th>HSI</th><th>ECC</th><th>退款率</th><th>签署合规</th><th>一次过审</th><th>分层</th></tr></thead><tbody>
+        <tr><td>秦皇岛店</td><td><b>86</b></td><td>12.4</td><td>6.2%</td><td>100%</td><td>78%</td><td>${chip('ok','绿')}</td></tr>
+        <tr><td>唐山店（加盟）</td><td><b>61</b></td><td>8.1</td><td>13.8%</td><td>94%</td><td>55%</td><td>${chip('warn','黄')}</td></tr>
+        <tr><td>石家庄店</td><td><b>54</b></td><td>6.3</td><td>17.2%</td><td>88%</td><td>49%</td><td>${chip('bad','红')}</td></tr>
+      </tbody></table>
+      ${rule('<b>HSI = Σ(权重ᵢ × 归一化指标ᵢ)</b>：ECC 25 · 退款率 20 · 退款触发率 15（履约类 / 效果类分列） · 协议签署合规率 10 · 方案一次审核通过率 10 · 小程序填报率 10 · 稽核问题数 10。绿 ≥80 / 黄 60~79 / 红 &lt;60。<br/><b>护栏：</b>当月结案疗程 &lt;20 的门店强制标注「样本不足」，不参与排名（小店基数小，容易被误判）。')}`)}
+    ${card('稽核信号（门店不可见）','放水与规避行为监测',`<table><thead><tr><th>信号</th><th>口径</th><th>阈值（建议值）</th><th>处置</th></tr></thead><tbody>
+      <tr><td>判定宽松度</td><td>某经络师"稳定/改善"占比 ÷ 全网均值</td><td>&gt;1.3</td><td>抽检近 30 天判定留痕</td></tr>
+      <tr><td>判定过快</td><td>评估提交 → 判定落库 间隔</td><td>&lt;5 分钟</td><td>强制二次复核，冻结自动判定</td></tr>
+      <tr><td>方案雷同度</td><td>方案文本/参数组合重复率</td><td>&gt;85%</td><td>模板滥用审查，回炉重出</td></tr>
+      <tr><td>退款受理延迟</td><td>申请 → 受理确认 时长</td><td>&gt;48 小时</td><td>自动升级至区域</td></tr>
+      <tr><td>原因集中</td><td>"体验类"退款原因占比</td><td>&gt;60%</td><td>原因真实性复核</td></tr>
+      <tr><td>挽留缺省</td><td>挽留发起率（发起 / 应发起）</td><td>&lt;50%</td><td>核查是否漏配挽留流程</td></tr>
+    </tbody></table>
+    ${rule('<b>这些指标对门店不可见是硬要求。</b>被稽核方能看到自己的放水指标，指标就会被立刻博弈掉。')}`)}
+  </div>
+  ${card('SaaS 商业指标','总部与商业侧',`<table><thead><tr><th>指标</th><th>定义</th><th>建议目标（建议值，需真实校准）</th></tr></thead><tbody>
+    <tr><td>活跃门店率</td><td>月内有 ≥1 结案疗程的门店 / 总门店</td><td>≥85%</td></tr>
+    <tr><td>门店续约率</td><td>续约门店 / 到期门店</td><td>≥80%</td></tr>
+    <tr><td>NRR（净收入留存）</td><td>期初客群本期收入 ÷ 期初收入</td><td>≥100%</td></tr>
+    <tr><td>单店月均活跃客户数</td><td>活跃客户 / 活跃门店</td><td>≥50</td></tr>
+    <tr><td>总部模板采纳率</td><td>采用总部标准方案数 / 总方案数</td><td>≥70%</td></tr>
+  </tbody></table>`)}`;
+
+/* ======================= D1 客户管理详情 · 手环反馈数据 =======================
+   业务方 2026-09-16 新增需求：客户端 / 调理师端 / 经络师端 / 管理端的「客户管理详情」都要能看到手环反馈数据。
+   展示边界（PRD §2.6.2）：
+     W-1 客户端可见手环数据本身，不可见由它推导出的一切 —— 一律不下发 + 后端 403 双验；
+     W-2 客户端一律「正向计数 + 中性描述」（仅「已采集 N 天」「该日暂无数据」）；
+     W-3 客户端同屏两项告知（手环数据仅为参考之一 + 同步时间精确到日）。
+   注意：本屏与「退款可见性」(config #40) 是两个独立维度，不得合并。 */
+let bandLinked = true;
+function toggleBand(){ bandLinked = !bandLinked; render(); }
+
+P.detail = () => {
+  const r = ROLES.find(x => x.id === curRole) || {};
+  const isAll    = curRole === 'all';
+  const isClient = curRole === 'client';
+  const isNoEnd  = curRole === 'shop';
+  const who = isAll ? '全部角色（对照视图）' : (r.name + ' · ' + r.end);
+
+  if (isNoEnd) {
+    return `
+    <div class="crumb">客户管理 / <b>D1 客户管理详情 · 手环反馈数据</b> · 当前角色：门店客服 · 无端（不使用系统）</div>
+    ${banner('warn',['门店客服不使用系统，本屏对其不成立','门店客服是「无端」角色——既无客户端也无员工端账号，因此<b>不存在「门店客服端的客户管理详情」</b>这一界面。其职责由到店入口筛查环节承载（见 01）。'],'—')}
+    ${card('四端适配一览','本屏适配的端形态（业务方 2026-09-16 裁定）',`
+      <table><thead><tr><th>端 / 角色</th><th>端形态</th><th>手环数据可见范围</th></tr></thead><tbody>
+        <tr><td>客户端（客户）</td><td>小程序</td><td>${chip('ok','可见 · 仅原始数据与采集状态')}</td></tr>
+        <tr><td>调理师端（调理师）</td><td>APP</td><td>${chip('ok','可见 · 含内部字段，不作不利依据')}</td></tr>
+        <tr><td>经络师端（经络师）</td><td>APP</td><td>${chip('ok','可见 · 含内部字段')}</td></tr>
+        <tr><td>管理端（门店负责人 / 区域督导 / 总部运营）</td><td>Web</td><td>${chip('ok','可见 · 按行级范围')}</td></tr>
+        <tr><td>门店客服</td><td>无端（不使用系统）</td><td>${chip('bad','不适用 · 无端')}</td></tr>
+      </tbody></table>
+      <div class="note">切换顶部角色按钮即可查看其余四端的实际呈现（端形态与角色是一对多：管理端 Web 同时承载三个管理角色）。</div>`)}`;
+  }
+
+  /* ① 原始数据 + ② 采集状态：四端同源，均可见（客户端走正向计数 + 中性描述） */
+  const raw = `
+    <div class="grid g2" style="margin-top:16px">
+      ${card('① 原始数据（近 7 天）','设备自动采集 · 客户级数据',`
+        <table><thead><tr><th>数据项</th><th>数值</th><th>单位</th><th>已采集</th></tr></thead><tbody>
+          <tr><td>睡眠时长（日均）</td><td><b>6.4</b></td><td>小时</td><td>6 / 7 天</td></tr>
+          <tr><td>深睡时长（日均）</td><td><b>1.3</b></td><td>小时</td><td>6 / 7 天</td></tr>
+          <tr><td>步数（日均）</td><td><b>6,180</b></td><td>步</td><td>6 / 7 天</td></tr>
+          <tr><td>静息心率（周均）</td><td><b>64</b></td><td>次/分</td><td>7 / 7 天</td></tr>
+          <tr><td>血氧（周均）</td><td><b>97</b></td><td>%</td><td>5 / 7 天</td></tr>
+          <tr><td>运动时长（日均）</td><td><b>42</b></td><td>分钟</td><td>6 / 7 天</td></tr>
+        </tbody></table>
+        <div class="note">手环佩戴完全自愿，数据按实际采集逐日展示。同一客户跨店服务时，本页数据<b>随客户移动</b>，不做门店锁定。</div>
+        ${rule('<b>数据来源：</b>手环 → 厂商 App → 厂商云 → <b>我方服务端（唯一权威）</b> → 本页。三端（小程序 / APP / Web）<b>都是消费方，各自从服务端取数</b> —— <b>本端不持有权威副本，也不转发给其他端</b>。')}`)}
+      ${card('② 采集状态','同步时间精确到日 · 正向计数',`
+        <div class="tipline"><span>本周已采集天数</span><b style="margin-left:auto;color:#16211D">6 / 7 天</b></div>
+        <div class="bar"><i style="width:86%"></i></div>
+        <div class="kv" style="margin-top:12px">
+          <dt>最近同步</dt><dd>2026-09-16</dd>
+          <dt>接入状态</dt><dd>${bandLinked ? chip('ok','已接入 · 手环在线') : chip('warn','手环未接入')}</dd>
+        </div>
+        <div class="note">09-10 有数据 · 09-11 有数据 · 09-12 有数据 · 09-13 有数据 · 09-14 有数据 · 09-15 有数据 · <b>09-16 该日暂无数据</b></div>`)}
+    </div>`;
+
+  /* 接入未就绪空态：展示与接入分离，不得以 0 / 空图表 / 示例数据顶替 */
+  const unlinked = `
+    ${banner('warn',['手环未接入 —— 本屏不显示任何数值','按「展示与接入分离」约束：接入未就绪时显示<b>「手环未接入」</b>，<b>不得显示 0 值、空图表或示例数据</b>——「空白」与「未采集到」必须可区分。'],'⌚')}
+    <div class="grid g2" style="margin-top:14px">
+      ${card('① 原始数据','接入未就绪',`${ticks([['手环未接入：请先完成设备绑定'],['本区域不展示 0 值、空图表与示例数据'],['接入完成后，数据按日回填展示']])}`)}
+      ${card('② 采集状态','接入未就绪',`<div class="kv"><dt>最近同步</dt><dd>—</dd><dt>接入状态</dt><dd>${chip('warn','手环未接入')}</dd></div>${rule('接入状态与展示状态分离：接入未就绪时历史数据保留，不回填为 0，也不以示例数据占位。')}`)}
+    </div>`;
+
+  /* 客户端专属边界说明（W-1 / W-2 / W-3） */
+  const clientExtra = `
+    <!--CLIENT-VIEW-START-->
+    ${card('为什么你在这一页只看到这些','客户端展示边界（W-1 / W-2 / W-3）',`
+      ${ticks([
+        ['手环数据是你日常状态的一项参考，不单独用于任何判定',''],
+        ['同步时间精确到日：2026-09-16',''],
+        ['只做正向计数与中性描述：显示「已采集 6 / 7 天」，未采集到的日期显示「该日暂无数据」',''],
+        ['本页不出现由设备数据推导出的其他内容',''],
+        ['设备尚未接入时，本页显示「手环未接入」，不显示 0 值、空图表或示例数据','']
+      ])}
+      <div class="note">本页仅展示设备采集到的原始数据；其余服务信息以门店沟通为准。</div>`)}
+    <!--CLIENT-VIEW-END-->`;
+
+  /* 内部角色专属：③ 缺口原因 + ④ 派生结果 */
+  const staffExtra = `
+    <div class="grid g2" style="margin-top:14px">
+      ${card('③ 缺口原因分类','内部字段 · gap_reason',`
+        <table><thead><tr><th>缺口情形</th><th>计入规则</th></tr></thead><tbody>
+          <tr><td>${chip('warn','未佩戴')}</td><td>按中性计入，<b>不计为不依从</b></td></tr>
+          <tr><td>${chip('warn','同步失败')}</td><td>按中性计入，不计为不依从</td></tr>
+          <tr><td>${chip('warn','设备未接入')}</td><td>整段按中性计入，不参与任何扣分</td></tr>
+          <tr><td>${chip('warn','客户未携带设备')}</td><td>按中性计入，不计为不依从</td></tr>
+        </tbody></table>
+        ${rule('<b>缺口不得作为不利依据：</b>上述四类一律按中性计入依从性，任何一类都不得单独触发降级判定或结算动作。')}`)}
+      ${card('④ 派生结果','依从性 / 判定 / 结算（内部）', bandLinked ? `
+        ${ring(71,'#D98218',['依从性 A3 = 71%','手环有效佩戴率权重 0.20 · 小程序填报 86%'])}
+        <div class="grid" style="margin-top:12px;gap:8px">
+          <div class="rule"><b>AS 综合依从性</b>：78% · 门槛 ≥ 80% ${chip('warn','未达门槛')} <span style="color:#77857F">（建议值，需真实数据校准）</span></div>
+          <div class="rule"><b>效果判定</b>：${chip('ok','稳定 / 改善')} —— 以核心指标为主判据，<b>手环只进依从性、不进效果主判据</b></div>
+          ${canSeeRefund()
+            ? `<div class="rule"><b>退款资格</b>：${chip('info','缺口不构成触发项')} —— 缺口按中性计入，不单独触发结算动作</div>`
+            : `<div class="rule">${chip('info','本角色不展示结算相关内容')} —— 按本角色可见性规则，该行仅对经络师与管理者可见</div>`}
+        </div>
+        ${rule('<b>④ 只作过程性参考，不得单独作为不利依据</b>（调理师角色同样适用）。本卡的「手环可见性」与「结算可见性」是<b>两个独立维度</b>，各自按配置执行，不得合并。')}`
+      : `
+        ${ticks([
+          ['手环未接入 → A3 手环有效佩戴率<b>按中性计入</b>，本轮不产出基于手环的派生结果','no'],
+          ['本卡不显示任何推导出的数值（不显示 0%、不显示空圆环、不显示示例值）','no'],
+          ['依从性其余构成（到店履约 / 小程序填报 / 生活方式核对）照常计算，不受影响',''],
+          ['接入完成后，A3 从接入之日起按实际采集逐日回填，不追溯补齐历史','']
+        ])}
+        ${rule('<b>接入未就绪 ≠ 数值为 0。</b>「未采集到」与「采集到了但为 0」必须可区分——因此本卡在未接入时整体不出数值，而非给出 0 值占位或空图表。')}`)}
+    </div>`;
+
+  /* 内部角色专属：四端矩阵与合规约束 */
+  const matrix = `
+    <div style="margin-top:14px">
+    ${card('四端可见性矩阵（手环数据 × 字段组）','按「角色 × 字段组」配置 · config #43 band_visibility',`
+      <table><thead><tr><th>端 / 角色</th><th>① 原始数据</th><th>② 采集状态</th><th>③ 缺口原因</th><th>④ 派生结果</th></tr></thead><tbody>
+        <tr><td>客户端（小程序）</td><td>${chip('ok','可见')}</td><td>${chip('ok','可见')}</td><td>${chip('bad','不可见')}</td><td>${chip('bad','不可见')}</td></tr>
+        <tr><td>调理师（APP）</td><td>${chip('ok','可见')}</td><td>${chip('ok','可见')}</td><td>${chip('ok','可见')}</td><td>${chip('ok','可见')} · 不作不利依据</td></tr>
+        <tr><td>经络师（APP）</td><td>${chip('ok','可见')}</td><td>${chip('ok','可见')}</td><td>${chip('ok','可见')}</td><td>${chip('ok','可见')}</td></tr>
+        <tr><td>管理端（Web · 门店负责人 / 区域督导 / 总部运营）</td><td>${chip('ok','可见')}</td><td>${chip('ok','可见')}</td><td>${chip('ok','可见')}</td><td>${chip('ok','可见')} · 按行级范围</td></tr>
+        <tr><td>门店客服</td><td colspan="4">无端（不使用系统）· 该界面不成立</td></tr>
+      </tbody></table>
+      ${rule('<b>跨店：</b>手环数据是<b>客户级</b>数据，随客户跨店移动，<b>不做门店锁定</b>（与跨店通兑口径一致）。')}
+      ${rule('<b>X-1 服务端判定：</b>可见性一律由服务端裁定并以后端 403 兜底；客户端 ③④ 是<b>不下发</b>，不是前端隐藏。')}
+      ${rule('<b>config #43「band_visibility」</b>：按「角色 × 字段组」配置（四档），fail-closed、变更留痕；客户侧 ③④ 为硬约束，不得通过配置放开。<b>与 #40「结算可见性」是两个独立配置，不得合并</b>——结算可见性是角色级二分，手环可见性是角色 × 字段组四档。')}
+      ${rule('<b>与结算可见性的关系：</b>本屏只解决「能不能看到手环数据」；「能不能看到结算相关内容」仍按既有可见性矩阵执行。两者是独立维度，不得混淆。')}`)}
+    </div>`;
+
+  return `
+  <div class="crumb">客户管理 / <b>D1 客户管理详情 · 手环反馈数据</b> · 当前角色：${who}</div>
+  ${banner('info',[ isClient ? '手环数据在客户端只给「数据本身」，不给由它推导出的结论' : '手环反馈数据四端皆可见，但可见范围按角色分档',
+    isClient ? '你看到的是设备采集到的原始数据与采集状态；其余服务信息以门店沟通为准。'
+             : '同一份数据在客户端、调理师端、经络师端与管理端的展示范围不同：客户端只看原始数据与采集状态，内部角色额外可见缺口原因与派生结果。' ],'⌚')}
+  ${bandLinked ? raw : unlinked}
+  ${isClient ? clientExtra : staffExtra}
+  ${isClient ? '' : matrix}
+  <div class="btnrow" style="margin-top:14px">
+    <button class="btn ghost" onclick="toggleBand()">状态演示：切换为「${bandLinked ? '手环未接入' : '手环已接入'}」</button>
+  </div>`;
+};
+
+/* ================= E 组 · 健康资产损益（四端可见性） =================
+   口径基准：_work/health-asset-pnl-design-2026-09-20.md（v3 定稿）
+   方向翻转 H = 112 − T（量表为症状向，0 分 = 无症状 = 最佳）
+   对齐规则 AL-1~AL-6 · 免责声明 D-1/D-2/D-3 · 血氧措辞约束三条
+   ───────────────────────────────────────────────────────────── */
+/* 同一客户 · 同一份数据的基准值（虚构演示数据） */
+const PNL = {
+  Hbase: 72, Hcur: 88, Tmax: 112,
+  base: '2026-08-15', cur: '2026-11-02',
+  admit: 0.76,          // 手环覆盖率（仅内部）
+  bandSince: '2026-08-20',
+  dims: [               // 7 维：模块级可落地的 5 个 + 2 个孤儿维（不参与效果判定）
+    {name:'睡眠质量',      b:11, c:14, mod:'M1 睡眠',      orphan:false},
+    {name:'肩颈腰背筋骨',  b:9,  c:12, mod:'M2 疼痛筋骨',  orphan:false},
+    {name:'代谢体态消化',  b:10, c:12, mod:'M3 代谢消化',  orphan:false},
+    {name:'情绪抗压',      b:10, c:12, mod:'M4 情绪压力',  orphan:false},
+    {name:'体能精力',      b:11, c:13, mod:'M5 疲劳体能',  orphan:false},
+    {name:'面部气色肤质',  b:12, c:13, mod:'（部分承载）',  orphan:true},
+    {name:'记忆专注',      b:9,  c:9,  mod:'（孤儿维 · 不纳入判定）', orphan:true}
+  ]
+};
+const dirWord = d => d>0 ? '向好' : (d===0 ? '平稳' : '与期初接近');
+const dirCls  = d => d>0 ? 'up' : 'flat';
+
+P.pnlClient = () => {
+  const dH = PNL.Hcur - PNL.Hbase;
+  return `
+  <div class="crumb">健康资产损益 / <b>E1 客户（小程序）</b> · 当前角色：客户</div>
+  ${banner('info',['这是您本人的健康记录 —— 从期初到现在的变化','系统把每次评估的读数记录成一条可对照的线。<b>这里显示的是记录本身，不是对调理效果的评价。</b>'],'📈')}
+  <div class="grid g2" style="margin-top:16px">
+    ${card('健康指数','当前值 + 变化量',`
+      <div class="pnlbig">当前 <b>${PNL.Hcur}</b><span>/ ${PNL.Tmax}</span></div>
+      <div class="pnldelta ${dirCls(dH)}">较期初 ${dH>0?'+':''}${dH} · ${dirWord(dH)}</div>
+      <div class="kv" style="margin-top:10px">
+        <dt>期初</dt><dd>${PNL.Hbase} <span style="color:#77857F">（${PNL.base}）</span></dd>
+        <dt>本次</dt><dd>${PNL.Hcur} <span style="color:#77857F">（${PNL.cur}）</span></dd>
+        <dt>量程</dt><dd>0 – ${PNL.Tmax}（越大表示症状负担越轻）</dd>
+      </div>
+      ${dnameBlock()}`)}
+    ${card('期初 → 本次（端点记录）','只有两个时点 · 不连成折线',`
+      <div class="axisband">
+        <div class="axislabel"><span>期初 ${PNL.Hbase}</span><span>本次 ${PNL.Hcur}</span></div>
+        ${endpointAxis(PNL.Hbase, PNL.Hcur, PNL.Tmax)}
+      </div>
+      ${rule('两个标记点是<b>两次评估各自的读数</b>。中间<b>没有连线</b> —— 因为期间没有做完整评估，画线会让人以为「中间是平稳变化的」，那是没有依据的。')}
+      ${rule('想看到<b>逐日的过程</b>，请看下方的「手环记录」——它每天都有读数。')}`)}
+  </div>
+  ${card('各维度分','7 维明细 · 逐维对照',`<table><thead><tr><th>维度</th><th>期初</th><th>本次</th><th>变化</th><th>方向</th></tr></thead><tbody>
+    ${PNL.dims.map(d=>{const dd=d.c-d.b;return `<tr><td>${d.name}</td><td>${d.b}</td><td>${d.c}</td><td>${dd>0?'+':''}${dd}</td><td>${chip(dd>0?'ok':'info',dirWord(dd))}</td></tr>`;}).join('')}
+  </tbody></table>
+  ${rule('<b>记忆专注</b>这一维期初与本次读数相同 —— 该维未纳入周期复评，本次沿用期初读数，<b>不代表「没有变化」</b>。')}`)}
+  ${card('手环记录 · 逐日过程线','按天记录 · 缺段如实断开',`
+    <div style="font-size:11.5px;color:#77857F;margin-bottom:6px">夜间心率（次/分）· 数据可得区间 ${PNL.bandSince} → ${PNL.cur}</div>
+    ${processLine([68,66,67,null,null,64,63,62,null,61,60,60,59],'#146E5B')}
+    <div style="font-size:11.5px;color:#77857F;margin-top:10px;margin-bottom:6px">睡眠时长（小时）</div>
+    ${processLine([6.2,6.5,6.4,6.8,7.0,null,7.1,7.3,7.2,7.4,7.5,7.4,7.6],'#B98A16')}
+    <div style="font-size:11.5px;color:#77857F;margin-top:10px;margin-bottom:6px">血氧（%）</div>
+    ${processLine([97,97,96,98,97,96,97,null,97,98,97,97,98],'#2B6CB0')}
+    ${rule('曲线上<b>断开的缺口</b>＝那几天设备没有采集到数据。<b>缺口如实断开、不补点、不连线</b> —— 我们不会用推算值把线补平。')}
+    <div class="warn-strip">
+      <div><b>① 手环数据为参考之一，不用于单方判定。</b></div>
+      <div>② <b>数据同步时间：${PNL.cur}（精确到日）</b> —— 无同步时间即验收失败。</div>
+      <div>③ 上述读数为设备采集的原始值与中性描述；本页不对其作任何健康判定。</div>
+    </div>`) }
+  <div style="margin-top:14px">
+    ${card('本页边界（如实告知）','为什么有些内容看不到',`
+      <div class="lockbox">
+        <div class="lh">以下内容不在本页展示，也不下发到本端：</div>
+        ① 佩戴率，以及任何评价性的结论<br/>
+        ② 效果判定结论，以及与判定相关的门槛数值<br/>
+        ③ 任何形式的比率（%）与倒计时<br/>
+        ④ 血压 / 体温 / 血糖 / 尿酸（设备不具备或无展示口径，本页不呈现）<br/>
+        ⑤ 静息心率——其展示口径仍在裁定中，本页暂不展示（见 U-17）
+      </div>
+      ${rule('本页只负责<b>「健康类记录」</b>。与结算、判定有关的内容属于另一套流程，<b>不在这里呈现</b>，也不由本页推导。')}`)}
+  </div>`;
+};
+
+P.pnlTherapist = () => {
+  const dH = PNL.Hcur - PNL.Hbase;
+  const who = curRole==='meridian' ? '经络师' : '调理师';
+  const full = curRole==='meridian';
+  return `
+  <div class="crumb">健康资产损益 / <b>E2 调理师 / 经络师（APP）</b> · 当前角色：${who}</div>
+  ${banner('info',[ full ? '模块级损益明细 + 判定依据链（本角色可见）' : '模块级损益明细（本角色不含判定结论）',
+    full ? '本角色可见完整口径：健康指数、模块级损益、同源状态、判定结论。' : '按角色可见性：本角色可看模块级损益明细，<b>不展示改善率、判定结论与结算相关内容</b>。' ],'🩺')}
+  <div class="grid g2" style="margin-top:16px">
+    ${card('健康指数（期初 / 期末 / 损益）','内部口径',`
+      <div class="pnlbig">期末 <b>${PNL.Hcur}</b><span>/ ${PNL.Tmax}</span></div>
+      <div class="pnldelta ${dirCls(dH)}">ΔH ${dH>0?'+':''}${dH} · ${dirWord(dH)}</div>
+      <div class="kv" style="margin-top:10px">
+        <dt>期初 H</dt><dd>${PNL.Hbase}（${PNL.base}）</dd>
+        <dt>期末 H</dt><dd>${PNL.Hcur}（${PNL.cur}）</dd>
+        <dt>同源可比</dt><dd>${chip('ok','可比')} —— 同一锁定题组、同一量程</dd>
+        <dt>手环覆盖</dt><dd>${Math.round(PNL.admit*100)}% <span style="color:#77857F">（仅内部可见）</span></dd>
+      </div>
+      ${rule('<b>ΔH 是展示量，不是判定输入。</b>判定层沿用模块级 IR + MCID，两层量纲不同，<b>不得互相替代</b>。')}`)}
+    ${card('模块级损益明细','M1–M5 · 限本期已测模块',`<table><thead><tr><th>模块</th><th>期初</th><th>期末</th><th>ΔH_m</th><th>方向</th></tr></thead><tbody>
+      ${PNL.dims.filter(d=>!d.orphan).map(d=>{const dd=d.c-d.b;return `<tr><td>${d.mod}</td><td>${d.b}</td><td>${d.c}</td><td>${dd>0?'+':''}${dd}</td><td>${chip(dd>0?'ok':'info',dirWord(dd))}</td></tr>`;}).join('')}
+    </tbody></table>
+    ${rule('记忆专注维为<b>孤儿维</b>，按 P0-13 明确<b>不参与效果判定</b>，故不在本表。面部气色肤质为<b>部分承载</b>维。')}`)}
+  </div>
+  ${card('本角色的能力边界','角色级差异化 · 服务端判定',`
+    ${ticks([
+      ['可见：健康指数、模块级损益明细、同源状态、手环覆盖与采集状态',''],
+      ['不可见：改善率（IR）、MCID 判定结论、效果判定结论','no'],
+      ['不可见：结算相关内容 —— 该行由角色级配置单独控制，与本卡不共用开关','no'],
+      ['可见性一律由服务端判定并以后端 403 兜底，端上不得仅靠前端隐藏','']
+    ])}
+    ${rule('<b>「健康类 vs 结算类」是一条清晰的分界线</b>：本视图负责健康类；结算类属于另一套角色可见性配置，两者<b>不得合并</b>。')}`)}`;
+};
+
+P.pnlAdmin = () => {
+  const dH = PNL.Hcur - PNL.Hbase;
+  const who = (ROLES.find(r=>r.id===curRole)||{}).name || '管理员';
+  return `
+  <div class="crumb">健康资产损益 / <b>E3 管理员（Web）</b> · 当前角色：${who}</div>
+  ${banner('info',['完整内部口径 + 行级范围（按既有 scope，不新建聚合指标）','管理端可见与经络师同等的完整口径，并按本角色的行级范围（本店 / 辖区 / 全量）过滤。'],'🏢')}
+  <div class="grid g23" style="margin-top:16px">
+    ${card('客户级损益明细','行级 scope · 按门店过滤',`<table><thead><tr><th>客户</th><th>门店</th><th>期初</th><th>期末</th><th>ΔH</th><th>方向</th><th>同源</th></tr></thead><tbody>
+      <tr><td>李某某</td><td>秦皇岛店</td><td>72</td><td>88</td><td>+16</td><td>${chip('ok','向好')}</td><td>${chip('ok','可比')}</td></tr>
+      <tr><td>王某</td><td>秦皇岛店</td><td>81</td><td>83</td><td>+2</td><td>${chip('info','平稳')}</td><td>${chip('ok','可比')}</td></tr>
+      <tr><td>张某</td><td>唐山店</td><td>64</td><td>60</td><td>−4</td><td>${chip('warn','回落')}</td><td>${chip('warn','跨店待复核')}</td></tr>
+      <tr><td>赵某</td><td>唐山店</td><td>75</td><td>75</td><td>0</td><td>${chip('info','平稳')}</td><td>${chip('ok','可比')}</td></tr>
+    </tbody></table>
+    ${rule('<b>方向已按正向指数翻转</b>（H = 112 − 症状总分）。若直接拿症状总分当「资产」，<b>恶化会被读成增长</b>，本看板会把效果最差的门店排到最前 —— 这是本节必须先翻转的唯一硬原因。')}
+    ${rule('本表<b>不新建「门店损益率」聚合指标</b>。按门店求均值会把「期初基线不同」的客户混在一起比，得出的是「谁的基础更差」而不是「谁的变化更大」。')}`)}
+    ${card('范围与口径','管理端可见性',`
+      <div class="kv">
+        <dt>可见口径</dt><dd>${chip('ok','完整内部口径')}</dd>
+        <dt>行级范围</dt><dd>本店 / 辖区 / 全量（按既有 scope）</dd>
+        <dt>命名</dt><dd>可用「健康资产损益」</dd>
+      </div>
+      <div class="lockbox" style="margin-top:12px">
+        <div class="lh">🛑 本视图仍不提供：</div>
+        ① 任何 % 形态的变化率（含「健康指数变化率」「改善率」）<br/>
+        ② 门槛数字（判据门槛）与「是否达标」对照<br/>
+        ③ 手环数据作为效果主判据的任何用法<br/>
+        ④ 基于损益的门店排名 / 考核指标
+      </div>
+      ${rule('「资产 / 损益」是<b>结构隐喻</b>，指「期初 / 期末 / 变动」三件套；<b>不产生任何权属或处置含义</b>，也不改变健康档案的个人信息属性。')}`)}
+  </div>`;
+};
+
+/* ======================= 交互 ======================= */
+function gateResult(hasContra){
+  const el = $('#gateOut'); if(!el) return;
+  el.innerHTML = hasContra
+    ? banner('bad',['已拦截：客户不符合服务条件','档案状态 → REJECTED。<b>不建档</b>，仅保留本条筛查记录（含结论、筛查人、时间快照）；建档、评估、出方案入口全部置灰；记录不可删除。'],'⛔')
+    : banner('ok',['已放行：无禁忌，进入客户建档','下一步进入建档（状态 <code>PROFILED</code>）。签署知情同意书在<b>建档之后</b> —— 客户拒签时档案仍在，记录可查。'],'✓');
+}
+function go(id){ if(!SCREENS.find(s=>s.id===id)) return; cur=id; render(); window.scrollTo({top:0,behavior:'smooth'}); }
+
+/* 屏可见性判定的唯一真相源：导航过滤与 setRole 兜底都必须走这里。
+   roles[] 支持「一屏覆盖同端的多个角色」（如 E2 同时服务调理师与经络师 —— 二者同为 APP 端）。
+   若各写一份过滤条件，改名/加角色时极易漂移。 */
+const visFor = (s, role) => s.role==='all' || role==='all' || s.role===role || (s.roles||[]).indexOf(role)>=0;
+
+function renderNav(){
+  const mine = s => visFor(s, curRole);
+  const btn = s => `
+    <button class="${s.id===cur?'on':''}" onclick="go('${s.id}')">
+      <span class="num">${s.i}</span><span>${s.n}</span>${s.gate?`<span class="gate">${s.gate}</span>`:''}
+    </button>`;
+  /* 分组渲染：主链路组不含 E 组，E 组单独一栏 */
+  const isPnl = s => s.id.indexOf('pnl') === 0;
+  $('#nav').innerHTML  = SCREENS.filter(s=>!isPnl(s) && mine(s)).map(btn).join('');
+  $('#nav2').innerHTML = SCREENS.filter(s=> isPnl(s) && mine(s)).map(btn).join('');
+  $('#roles').innerHTML = [{id:'all',name:'全部',end:'三端'},...ROLES].map(r=>
+    `<button class="${r.id===curRole?'on':''}" onclick="setRole('${r.id}')">${r.name}<span style="opacity:.55;font-size:11px;margin-left:6px">${r.end}</span></button>`).join('');
+}
+function setRole(id){
+  curRole = id;
+  const visible = SCREENS.filter(s => visFor(s, id));
+  if(!visible.find(s=>s.id===cur)) cur = visible[0].id;
+  render();
+}
+/* ===== 退款可见性（业务方规则：客户端 / 调理师端不显示"退款"字样） ===== */
+const REFUND_ROLES = ['meridian','manager','hq','area'];  // 经络师 + 管理员（总部运营 / 门店负责人）+ 区域督导
+function canSeeRefund(){ return curRole === 'all' || REFUND_ROLES.indexOf(curRole) >= 0; }
+/* ===== 超管可见性（文书模板上传 / 编辑 / 下载的 tenant 级权限，P0-27「门店只读」） =====
+   与 canSeeRefund() 同款写法：单一判定入口，避免在 P.agree 里内联写死角色比较。
+   06 屏 SCREENS 的 role 保持 'therapist' 不变，上传区靠本函数条件渲染。
+   'all'（对照视图）计入，使超管视野在总览模式下也可被检验。 */
+const SUPER_ADMIN_ROLES = ['hq'];
+function isSuperAdmin(){ return curRole === 'all' || SUPER_ADMIN_ROLES.indexOf(curRole) >= 0; }
+function maskRefundText(root){
+  if(canSeeRefund()) return;
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  const hits = []; let n;
+  while((n = w.nextNode())){
+    if(n.nodeValue.indexOf('退款') < 0) continue;
+    if(n.parentElement && n.parentElement.closest('[data-nomask]')) continue;
+    hits.push(n);
+  }
+  hits.forEach(t => { t.nodeValue = t.nodeValue.split('退款').join('▨▨▨'); });
+}
+function render(){
+  const s = SCREENS.find(x=>x.id===cur) || SCREENS[0];
+  $('#pageTitle').textContent = s.n;
+  $('#pageSub').textContent = s.d;
+  $('#stage').innerHTML = (P[cur] || P.overview)();
+  /* 遮蔽只作用于 #stage。页面标题（#pageTitle/#pageSub）不在遮蔽范围内，
+     故 SCREENS 的 n/d 文案本身必须「按最严角色可读」——不得写入退款字样，
+     否则调理师 / 客户角色会在页面抬头看到未遮蔽的「退款」。见 _verify_pnl.js 断言 O。 */
+  maskRefundText($('#stage'));
+  if(!canSeeRefund()){
+    const r0 = ROLES.find(r => r.id === curRole) || {};
+    const roleName = (r0.name || curRole) + (r0.end ? ' · ' + r0.end : '');
+    $('#stage').insertAdjacentHTML('afterbegin',
+      `<div class="banner bn-warn" style="margin-bottom:14px" data-nomask><div class="ico">🔒</div><div><b>本角色（${roleName}）不显示退款相关内容</b><p>按业务方规则：<b>客户端（客户）与调理师端不出现"退款"字样与入口</b>，本页相关字样已遮蔽为 ▨▨▨。仅<b>经络师</b>与<b>管理员（总部运营 / 门店负责人）</b>可见并可操作——切换顶部角色即可看到完整内容。</p><p style="margin-top:8px">跨端硬约束：① 可见性<b>一律由服务端判定</b>（后端 403），任何端都不得仅靠前端隐藏；② <b>小程序包内不得包含"退款"字样、文案资源与退款接口</b>；③ 同一 <b>APP 内角色级差异化</b>——退款能力只在经络师角色下加载。</p></div></div>`);
+  }
+  renderNav();
+}
+render();
+</script>
+</body>
+</html>

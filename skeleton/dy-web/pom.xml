@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.diaoyuanyun</groupId>
+        <artifactId>diaoyuanyun-skeleton</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>dy-web</artifactId>
+    <name>dy-web</name>
+    <description>幂等键 / 全局异常处理器 / trace_id 回填 / 可观测性接入 (ADR-10, A-7/X-7)</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.diaoyuanyun</groupId>
+            <artifactId>dy-tenancy</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!--
+          ========================= 任务 A3: 幂等存储 Redis 化 =========================
+          引入 spring-boot-starter-data-redis (含 spring-data-redis + lettuce-core)。
+
+          用途: RedisIdempotencyBackend 把「幂等键 -> 条目」放到进程外共享存储, 使
+                多实例部署下"实例 A 首次、实例 B 重放"仍判 REPLAY。
+          为什么必须: 内存 Map 只在单实例内成立。多实例 + 内存介质不是"性能可优化",
+                而是静默的正确性缺陷 —— 同键重放被负载均衡打到另一个实例会判 FIRST,
+                业务操作被执行第二次。
+
+          不用第三方客户端、不用 JDK 原生序列化: 只用 StringRedisTemplate + 本项目自己
+                定义的显式文本编码 (见 RedisIdempotencyBackend 类注释)。
+
+          作用域必须是 compile（不是 runtime）: RedisIdempotencyBackend 在编译期就要
+                import StringRedisTemplate。代价是 dy-app 也会带上 Redis 自动配置 ——
+                LettuceConnectionFactory 在 afterPropertiesSet 阶段不建连接, 故
+                "本机没装 Redis" 不会影响构建与启动; 故障只发生在真正使用的那一刻,
+                并按 fail-closed 处理 (IdempotencyStoreUnavailableException)。
+
+          ★ 已知跨模块副作用 1（已修, 见 ObservabilityDefaultsEnvironmentPostProcessor）:
+                RedisConnectionFactory 进容器后, actuator 的 RedisHealthContributorAutoConfiguration
+                会注册 Redis 健康指示器。本机/多数环境没有 Redis, /actuator/health 会从 UP 变 DOWN
+                —— 没人动 dy-app 却把它一直绿的端点改红了。已按"Redis 是不是硬依赖"分流:
+                默认 (memory 后端) 关闭该指示器; dy.idempotency.backend=redis 时才打开。
+                该分流有测试守住 (MetricsEndpointExposureTest)。
+
+          ★ 已知跨模块副作用 2（已登记, 未改）: dy-app 的应用上下文里会多出一整套
+                Redis 连接工厂 bean (惰性连接, 不主动建连)。这影响的是"dy-app 启动时
+                实际装配了什么", 不属于 dy-web 单模块可验证的范围。
+                已在交付报告"未验证部分"逐条登记, 不由本 pom 的单测声称。
+        ============================================================================= -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!--
+          ========================= 任务 A7: 可观测性接入 =========================
+
+          三支柱里的 metrics 与 logs (trace 已由 TraceIdFilter 落地)。
+
+          spring-boot-starter-actuator
+            用途: 提供 /actuator/** 端点框架, 并自动配置 MeterRegistry
+                  (MeterRegistryAutoConfiguration) 与默认 JVM/进程/Logback 指标绑定器。
+          为什么必须与 registry 一起引: 只有 actuator 而没有 registry 时, MeterRegistry
+                  是内存里的 SimpleMeterRegistry —— 指标确实在采集, 但没有任何抓取端点,
+                  "可采集"不成立。故 registry 不是可选装饰。
+
+          micrometer-registry-prometheus
+            用途: 提供 PrometheusMeterRegistry, 把 Micrometer 的 Meter 渲染成
+                  Prometheus 文本格式, 由 /actuator/prometheus 暴露。
+
+          端点暴露: 不在本 pom / 本模块硬编码。由
+                ObservabilityDefaultsEnvironmentPostProcessor 以 addLast（最低优先级）
+                提供默认值, 应用侧 application.yml 仍可覆盖 —— 这样 dy-web 这个库
+                能自证"端点可用", 又不夺走应用侧的配置主权。
+        ============================================================================= -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

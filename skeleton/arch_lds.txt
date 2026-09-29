@@ -1,0 +1,13 @@
+Compiled from "Architectures.java"
+public final class com.tngtech.archunit.library.Architectures$LayeredArchitecture$LayerDependencySpecification {
+  final com.tngtech.archunit.library.Architectures$LayeredArchitecture this$0;
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture mayNotBeAccessedByAnyLayer();
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture mayOnlyBeAccessedByLayers(java.lang.String...);
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture mayNotAccessAnyLayer();
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture mayOnlyAccessLayers(java.lang.String...);
+  public java.lang.String toString();
+  static com.tngtech.archunit.library.Architectures$LayeredArchitecture$LayerDependencyConstraint access$500(com.tngtech.archunit.library.Architectures$LayeredArchitecture$LayerDependencySpecification);
+  static java.lang.String access$600(com.tngtech.archunit.library.Architectures$LayeredArchitecture$LayerDependencySpecification);
+  static java.util.Set access$700(com.tngtech.archunit.library.Architectures$LayeredArchitecture$LayerDependencySpecification);
+  com.tngtech.archunit.library.Architectures$LayeredArchitecture$LayerDependencySpecification(com.tngtech.archunit.library.Architectures$LayeredArchitecture, java.lang.String, com.tngtech.archunit.library.Architectures$1);
+}

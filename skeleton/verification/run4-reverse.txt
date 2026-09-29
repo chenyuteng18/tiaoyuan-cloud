@@ -1,0 +1,27 @@
+﻿########## BASELINE (should PASS) ##########
+EXIT=0  (0 = PASS)
+03_assert.sql:23: 注意:  A0 OK: 当前用户 dy_app 非超级用户
+03_assert.sql:43: 注意:  A1 OK: 租户A 只见 1 行, 看不到租户B
+03_assert.sql:61: 注意:  A2 OK: 租户B 只见 1 行 (对称)
+03_assert.sql:75: 注意:  A3 OK: 未设上下文 -> 零行 (fail-closed 生效)
+03_assert.sql:92: 注意:  A4 OK: 空串上下文 -> 零行 (NULLIF 归一成功)
+03_assert.sql:114: 注意:  A5 OK: 跨租户写入被 WITH CHECK 拒绝
+03_assert.sql:134: 注意:  A6 OK: FORCE RLS 生效, owner 也受策略约束
+03_assert.sql:155: 注意:  A7 OK: 策略元数据含 USING + WITH CHECK 双 NULLIF
+ ALL RLS ASSERTIONS PASSED (A0-A8)
+
+########## BREAK-1: remove NULLIF -> COALESCE default tenant (expect FAIL) ##########
+EXIT=3  (non-zero = correctly CAUGHT)
+ACTUAL FAILURE ASSERTION: 03_assert.sql:75: 错误: A3 失败: 未设上下文时读到 1 行, 应为 0 行 (fail-closed 被破坏!)
+
+########## BREAK-2: disable FORCE RLS (measured: FAIL at A1) ##########
+EXIT=3  (non-zero = correctly CAUGHT)
+ACTUAL FAILURE ASSERTION: 03_assert.sql:43: 错误: A1 失败: 租户A 应只见 1 行, 实际 2 行
+
+########## BREAK-3: USING (true) allow-all (expect FAIL at A1/A3) ##########
+EXIT=3  (non-zero = correctly CAUGHT)
+ACTUAL FAILURE ASSERTION: 03_assert.sql:43: 错误: A1 失败: 租户A 应只见 1 行, 实际 2 行
+
+########## RESTORE (expect PASS again) ##########
+EXIT=0  (0 = restored correctly)
+ ALL RLS ASSERTIONS PASSED (A0-A8)

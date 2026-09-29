@@ -1,0 +1,111 @@
+==============================================================
+ V2 条件式 FK 闭合 —— 命中路径可达性探针   2026-09-22 19:06:19
+ psql = C:/Program Files/PostgreSQL/17/bin/psql.exe
+ db   = diaoyuanyun_rls_test_b12  (本任务专属库)
+ V2   = /c/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql
+ V2 sha256 = d9a8771655d4d7efedbac827aadcde34c66d5b78d09fbf6ef4d809fe6e23d9ae
+==============================================================
+
+── 步骤 1: 造最小 band_telemetry(仅 device_id) 模拟 'F-2 定案后该表已存在' ──
+CREATE TABLE
+psql:<stdin>:7: 注意:  关系 "band_telemetry" 的 约束"fk_band_telemetry_device_id_band" 不存在
+ALTER TABLE
+  OK: band_telemetry 已造出并复核存在(仅 3 列, 探针用途), 历史 FK 已摘净
+
+── 步骤 2: 原样重放 V2 —— 期望命中并追加 FK ──
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:104: 注意:  关系 "customer_state_transition" 已经存在, 跳过
+CREATE TABLE
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:108: 注意:  关系 "uq_cst_current" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:111: 注意:  关系 "idx_cst_tenant" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:113: 注意:  关系 "idx_cst_customer_time" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:115: 注意:  关系 "idx_cst_from_state" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:117: 注意:  关系 "idx_cst_to_state" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:119: 注意:  关系 "idx_cst_occurred_at" 已经存在, 跳过
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+DROP POLICY
+CREATE POLICY
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:170: 注意:  关系 "band" 已经存在, 跳过
+CREATE TABLE
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:174: 注意:  关系 "uq_band_active_customer" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:177: 注意:  关系 "idx_band_customer" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:179: 注意:  关系 "idx_band_status" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:181: 注意:  关系 "idx_band_bound_at" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:183: 注意:  关系 "idx_band_unbound_at" 已经存在, 跳过
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+DROP POLICY
+CREATE POLICY
+INSERT 0 0
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:246: 注意:  V2: 已为 band_telemetry 追加 FK device_id -> band(band_id)
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:246: 注意:  V2: 以下表在本仓库 DDL 中不存在, FK 闭合【跳过】(不新建表, 待 F-2 定案): band_sync_probe, band_daily_coverage
+DO
+  OK: 命中分支触发 —— V2: 已为 band_telemetry 追加 FK device_id -> band(band_id)
+
+── 步骤 3: 独立查 pg_constraint —— 期望指向 band(band_id) ──
+  实查 = fk_band_telemetry_device_id_band :: FOREIGN KEY (device_id) REFERENCES band(band_id)
+fk_band_telemetry_device_id_band :: FOREIGN KEY (device_id) REFERENCES band(band_id)
+  OK: FK 指向 band(band_id) —— 正确闭合到客户级手环台账
+
+── 步骤 4: 再重放一次 V2 —— 期望 '已存在, 跳过 (幂等)' 且无报错 ──
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:104: 注意:  关系 "customer_state_transition" 已经存在, 跳过
+CREATE TABLE
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:108: 注意:  关系 "uq_cst_current" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:111: 注意:  关系 "idx_cst_tenant" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:113: 注意:  关系 "idx_cst_customer_time" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:115: 注意:  关系 "idx_cst_from_state" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:117: 注意:  关系 "idx_cst_to_state" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:119: 注意:  关系 "idx_cst_occurred_at" 已经存在, 跳过
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+DROP POLICY
+CREATE POLICY
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:170: 注意:  关系 "band" 已经存在, 跳过
+CREATE TABLE
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:174: 注意:  关系 "uq_band_active_customer" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:177: 注意:  关系 "idx_band_customer" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:179: 注意:  关系 "idx_band_status" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:181: 注意:  关系 "idx_band_bound_at" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:183: 注意:  关系 "idx_band_unbound_at" 已经存在, 跳过
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+DROP POLICY
+CREATE POLICY
+INSERT 0 0
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:246: 注意:  V2: band_telemetry 的 FK 已存在, 跳过 (幂等)
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:246: 注意:  V2: 以下表在本仓库 DDL 中不存在, FK 闭合【跳过】(不新建表, 待 F-2 定案): band_sync_probe, band_daily_coverage
+DO
+  OK: 幂等 —— 第二次重放走跳过分支, 未重复 ADD CONSTRAINT
+
+==============================================================
+ 结论: V2 第 4 节的条件式 FK 闭合【命中分支可达且幂等】
+   · 目标表存在 -> 追加 FK device_id -> band(band_id)  (实测)
+   · 目标表不存在 -> 显式跳过 + NOTICE 报出表名        (99 的 B12 断言覆盖)
+   · 重复执行 -> 跳过, 不报错                          (实测)
+ 🛑 仍未定案的是这三张表的【宽/长表建表方式】(§2.17 F-2, 拍板人=技术负责人);
+    本探针只证明 FK 动作可达, 不对表结构做任何选择。
+==============================================================
+DROP TABLE
+  [cleanup] 探针表 band_telemetry 已 DROP (残留纪律)

@@ -1,0 +1,3 @@
+band:band_id:uuid!, tenant_id:uuid!, customer_id:uuid!, vendor:character varying!, model:character varying, bound_at:date!, unbound_at:date, unbind_reason:character varying, status:character varying!, pause_period_json:jsonb, created_at:timestamp with time zone!, updated_at:timestamp with time zone, created_by:character varying
+customer:id, tenant_id, name, status, owner_id, created_at, updated_at, deleted_at, phone, gender, age, owner_store_id, serving_store_id
+tenant:id, name, datastore_hint, status, created_at

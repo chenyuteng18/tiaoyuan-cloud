@@ -1,0 +1,43 @@
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:30: 注意:  B0 OK: 当前用户 dy_app_b12 非超级用户
+DO
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:50: 注意:  B1 OK: customer_state_transition / band 均存在且带 tenant_id
+DO
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:86: 注意:  B2 OK: 非法 to_state 被 CHECK 拒绝 (SQLSTATE 23514)
+DO
+ROLLBACK
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:115: 注意:  B2b OK: 非法 from_state 被 CHECK 拒绝 (SQLSTATE 23514)
+DO
+ROLLBACK
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:159: 注意:  B3 OK: 14 态逐项均被接受 (取值集 = 恰好 14 态, 探针行数=14)
+DO
+ROLLBACK
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:189: 注意:  B4 OK: 租户A 只见自己的行, 看不到租户B (cst=1 band=1)
+DO
+COMMIT
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:205: 注意:  B4b OK: 租户B 看不到租户A (对称)
+DO
+COMMIT
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:221: 注意:  B5 OK: 未设上下文 -> 两表零行 (fail-closed 生效)
+DO
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:237: 注意:  B5b OK: 空串上下文 -> 两表零行 (NULLIF 归一成功)
+DO
+COMMIT
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:270: 注意:  B5c OK: 两表跨租户写入均被 WITH CHECK 拒绝
+DO
+ROLLBACK
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:307: 错误:  B6 失败: customer 上出现了涉及 status 的 CHECK 约束 (1 条) —— V2 改动了 5 值口径
+CONTEXT:  在RAISE的第9行的PL/pgSQL函数inline_code_block

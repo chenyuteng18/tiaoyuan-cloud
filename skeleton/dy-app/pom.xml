@@ -1,0 +1,310 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.diaoyuanyun</groupId>
+        <artifactId>diaoyuanyun-skeleton</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>dy-app</artifactId>
+    <name>dy-app</name>
+    <description>启动模块 / Flyway 迁移基线 / 业务模块挂载 (ADR-03/13)</description>
+
+    <!-- ==================================================================
+         🛑 见下方 httpclient5 依赖处的长注释：Spring Boot BOM 把 httpcore5
+         钉到 5.2.5，而本地仓库只有 5.2.4 ⇒ 离线构建下 httpclient5 的
+         【传递依赖】解析失败（DependencyResolutionException），先把
+         httpclient5 自身降到 5.2.3 也不够 —— BOM 仍把 httpcore5 拉回 5.2.5。
+         故必须在此用 dependencyManagement 覆盖 BOM 的判定：dependencyManagement
+         在【当前 pom】层级优先于【父 pom 导入的 BOM】。纯 test 范围，不影响主代码。
+         ================================================================== -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.apache.httpcomponents.core5</groupId>
+                <artifactId>httpcore5</artifactId>
+                <version>5.2.4</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.httpcomponents.core5</groupId>
+                <artifactId>httpcore5-h2</artifactId>
+                <version>5.2.4</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.diaoyuanyun</groupId>
+            <artifactId>dy-security</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.diaoyuanyun</groupId>
+            <artifactId>dy-config</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.diaoyuanyun</groupId>
+            <artifactId>dy-audit</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.diaoyuanyun</groupId>
+            <artifactId>dy-web</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- 字段级加密 (ADR-12 §8.3/§8.4, B-1 收口)。
+             此前 dy-crypto 有完整能力但【零调用方】⇒ band_telemetry 的心率/血氧/睡眠
+             明文落库 (PIPL 敏感个人信息)。此处挂接是"加密真正生效"的前提。
+             dy-crypto 自身零第三方编译依赖, 且不依赖 common/tenancy ⇒ 引入它
+             不会改变本模块既有的分层依赖方向 (见 ArchitectureBoundaryTest R1 的 crypto 层登记)。 -->
+        <dependency>
+            <groupId>com.diaoyuanyun</groupId>
+            <artifactId>dy-crypto</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- 连接池 + DataSource 自动装配 (ADR-01/02)。
+             此前只声明 postgresql 驱动 + flyway-core, 缺 starter-jdbc ⇒ DataSourceAutoConfiguration 不生效,
+             容器里没有 DataSource bean ⇒ JdbcConfigService / JdbcAuditLogService / RlsSessionAspect 均无法装配,
+             应用启动即失败。补此依赖后 dev profile 的 datasource 配置才会被真正使用。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <!-- Flyway: RLS 迁移基线 (ADR-02/13). Spring Boot 3.x 移除 starter, 直接使用 flyway-core, 版本由 spring-boot BOM 管理 -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <!-- Flyway 10 起把各数据库方言拆成独立模块: flyway-core 只内置 h2/sqlite,
+             不再含 PostgreSQLDatabaseType (实测 flyway-core:10.10.0 内只有 internal/database/{base,h2,sqlite})。
+             缺本模块时 Flyway 启动即报 "Unsupported Database: PostgreSQL 17.x" 并【静默不建表】——
+             表现为应用表面起来了但 RLS 基线表一张都没有, V1/V2 迁移根本不执行。
+             版本由 spring-boot BOM 统一管理 (Boot 3.3.5 -> flyway 10.10.0)。 -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+        <!-- PostgreSQL 驱动: RLS/UUID 为 PG 专属; 运行应用时需要可达的 PG (ADR-01) -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 🛑 PATCH 支持：TestRestTemplate 默认用 SimpleClientHttpRequestFactory，
+             而它的 HttpURLConnection 不实现 PATCH ⇒ 报 "Invalid HTTP method: PATCH"。
+             契约域 B 的 B6 与域 E 的若干行都是 PATCH，真请求 E2E 必须能发 PATCH，
+             否则那几行只能被"绕过"或"不测" —— 而"绕过的行"正是缺口藏身处。 -->
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
+            <!-- 🛑 必须显式钉版本：Spring Boot BOM 给的 5.2.5 在本地仓库【不存在】
+                 （其传递依赖 httpcore5:5.2.5 / httpcore5-h2:5.2.5 亦缺），
+                 离线构建（-o）下会直接 DependencyResolutionException 打断 install。
+                 钉 5.2.3 是因为它的传递依赖 httpcore5:5.2.4 / httpcore5-h2:5.2.4
+                 本地【齐备】。若日后联网补下了 5.2.5，可把版本改回由 BOM 托管。 -->
+            <version>5.2.3</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- 架构边界守护: 依赖方向违规 = 构建失败 (ADR-03) -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit</artifactId>
+            <version>1.3.0</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- ==================================================================
+                 源码树日志污染源 D2：「开发期手工启动」的入口修复。
+
+                 D1 与 D2 是两个不同的生产者, 必须分开修（详见
+                 TestLogOutputIsolationTest 的类注释）：
+                   D1 = surefire 测试运行        → 由 dy-app/src/test/resources/logback-test.xml 修掉
+                   D2 = mvn spring-boot:run 启动 → 由本处 systemPropertyVariables 修掉
+
+                 为什么 D2 必须在入口修、而不是靠测试断言兜住：
+                   dy-web 的 logback.xml 默认 ${LOG_DIR:-logs}, 而 logback 的占位符
+                   只从「系统属性 / 环境变量」解析。spring-boot:run 是在【源码树内】
+                   起 JVM, 没有注入 LOG_DIR → 默认值 `logs` 生效 → 在源码树生成
+                   dy-app/logs/{dy-app.log, dy-audit.log}。实测证据: 一次手工启动
+                   留下 24756 字节的 "Starting DyAppApplication … Tomcat 60518→18080"。
+                   这类残留会【让后续每一次测试运行都变红】（测试断言的是源码树里
+                   有没有污染残留）, 门禁于是指向不到任何代码, 只能人工考古时间戳 ——
+                   正是商用门禁最不能有的「时红时绿」。
+
+                 做法: 把三个路径属性钉到 target/ 下（构建产物目录, 可随时删）。
+                 影响面: 只作用于本模块的 spring-boot:run（开发/本地验证用）;
+                 生产以 jar 方式运行, 不受影响, 且仍可用环境变量 LOG_DIR 覆盖。
+                 ================================================================== -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <LOG_DIR>${project.build.directory}/logs</LOG_DIR>
+                        <APP_LOG_FILE>${project.build.directory}/logs/dy-app.log</APP_LOG_FILE>
+                        <AUDIT_LOG_FILE>${project.build.directory}/logs/dy-audit.log</AUDIT_LOG_FILE>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+
+            <!-- ==================================================================
+                 ADR-02 第 3 层门禁：「租户隔离测试必须存在，且必须真的被执行」。
+
+                 为什么不能只靠"写了个测试类"：
+                   若只把测试放在 src/test 而不绑定执行，删掉它 / 改个名 / 被 include
+                   规则漏掉，构建都照样 BUILD SUCCESS —— 覆盖率靠人肉维护，
+                   下一个人加了带 tenant_id 的新表而不写隔离测试，缺口会静默进主干。
+
+                 做法（两个 execution 分工，避免重复执行）：
+                   ① default-test  : 跑除 RLS 门禁以外的全部测试（常规单测 + 架构边界等）
+                   ② rls-gate      : 只跑两个 RLS 门禁测试，且 failIfNoTests=true ——
+                                     一旦它们被删除/改名/被 exclude，本 execution 匹配不到任何测试
+                                     → 构建直接失败。这就是"缺该测试 = 构建失败"的机械保证。
+
+                 逃生阀：无库的纯编译流水线可用 -Ddy.rls.gate.skip=true 显式跳过
+                 （测试内 Assumptions.assumeTrue(false)，会在报告里显示为 skipped 而非静默通过）。
+                 ================================================================== -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <trimStackTrace>false</trimStackTrace>
+                </configuration>
+                <executions>
+                    <!-- ① 常规测试：排除 RLS 门禁（它们由 ② 单独执行，且需要真库） -->
+                    <execution>
+                        <id>default-test</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <excludes>
+                                <exclude>**/rls/RlsTenantIsolationTest.java</exclude>
+                                <exclude>**/rls/RlsCoverageGateTest.java</exclude>
+                                <exclude>**/rls/RlsBEntityIsolationTest.java</exclude>
+                                <exclude>**/rls/RlsScaleItemBankIsolationTest.java</exclude>
+                                <!-- V5 余量 24 表的真库隔离门禁（S1-2）。同 RlsCoverageGateTest 的
+                                     ISOLATION_TESTS 登记；漏掉本 exclude 会让它被"默认执行"一遍，
+                                     与 ② 的 rls-isolation-gate 重复跑（且并发争用同一条库）。 -->
+                                <exclude>**/rls/RlsV5EntityIsolationTest.java</exclude>
+                                <!-- V6 退款域 3 张留痕账本（refund_statement / refund_receipt /
+                                     refund_offline_notice）的真库隔离门禁（S2-1）。同 RlsCoverageGateTest
+                                     的 ISOLATION_TESTS 登记；漏掉本 exclude 会让它被"默认执行"一遍，
+                                     与 ② 的 rls-isolation-gate 重复跑（且并发争用同一条库）。 -->
+                                <exclude>**/rls/RlsV6RefundLedgerIsolationTest.java</exclude>
+                                <!-- V7 建档修订留痕账本（intake_profile_revision）的真库隔离门禁
+                                     （S2-10 契约域 B）。同 RlsCoverageGateTest 的 ISOLATION_TESTS 登记；
+                                     漏掉本 exclude 会让它被"默认执行"一遍，与 ② 的 rls-isolation-gate
+                                     重复跑（且并发争用同一条库）。 -->
+                                <exclude>**/rls/RlsV7IntakeProfileRevisionIsolationTest.java</exclude>
+                                <!-- V11 三张密钥材料表（tenant_kek / subject_dek /
+                                     subject_key_tombstone）的真库隔离门禁（B-1 收口）。
+                                     同 RlsCoverageGateTest 的 ISOLATION_TESTS 登记；
+                                     漏掉本 exclude 会让它被"默认执行"一遍，与 ② 的
+                                     rls-isolation-gate 重复跑（且并发争用同一条库）。 -->
+                                <exclude>**/rls/RlsV11CryptoKeyIsolationTest.java</exclude>
+                                <!-- V14 配置真相源两张租户表（app_config / app_config_history）
+                                     的真库隔离门禁（B-3 收口）。同 RlsCoverageGateTest 的
+                                     ISOLATION_TESTS 登记；漏掉本 exclude 会让它被"默认执行"一遍，
+                                     与 ② 的 rls-isolation-gate 重复跑（且并发争用同一条库）。 -->
+                                <exclude>**/rls/RlsV14ConfigTruthSourceIsolationTest.java</exclude>
+                                <!-- C-4 退款工单受控 UPDATE 的真库并发门禁。它与其它 Rls* 类共用
+                                     门禁库（同 provision），故必须排除出 default-test，
+                                     否则会与 ② 的 rls-isolation-gate 重复跑并争用同一条库。 -->
+                                <exclude>**/rls/RlsRefundWorkOrderConcurrencyTest.java</exclude>
+                                <!-- V16 跨租户【引用】完整性的真库门禁（2026-09-27）。
+                                     它守的是"一行引用的对象也必须同租户"—— RLS 从不回答这件事。
+                                     同 RlsRefundWorkOrderConcurrencyTest 的先例：它不新增租户表，
+                                     故【不】登记进 RlsCoverageGateTest.ISOLATION_TESTS（那是
+                                     "表→测试"的映射），但必须在这里排除出 default-test，
+                                     否则会与 ② 的 rls-isolation-gate 重复跑并争用同一条库。 -->
+                                <exclude>**/rls/RlsCrossTenantReferenceGateTest.java</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+
+                    <!-- ② RLS 门禁：必须匹配到测试，否则构建失败 -->
+                    <execution>
+                        <id>rls-isolation-gate</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <includes>
+                                <include>**/rls/RlsTenantIsolationTest.java</include>
+                                <include>**/rls/RlsCoverageGateTest.java</include>
+                                <!-- V2 新增 B 类实体（customer_state_transition / band）的真库隔离门禁。
+                                     它同时被 RlsCoverageGateTest.ISOLATION_TESTS 登记，
+                                     缺它会让覆盖门禁以 ClassNotFoundException 报红。 -->
+                                <include>**/rls/RlsBEntityIsolationTest.java</include>
+                                <!-- V4 新增题库内容资产（scale_item_bank）的真库隔离门禁（S1-4）。
+                                     它同时被 RlsCoverageGateTest.ISOLATION_TESTS 登记；
+                                     不加本 include 则该类"存在但不被执行" —— 门禁静默失效。 -->
+                                <include>**/rls/RlsScaleItemBankIsolationTest.java</include>
+                                <!-- V5 余量 24 表（S1-2）的真库隔离门禁。同样被 ISOLATION_TESTS
+                                     登记；不加本 include 则该类"存在但不执行"，24 张表的隔离
+                                     断言全部静默失效 —— 这正是"登记表变一纸空文"的形态。 -->
+                                <include>**/rls/RlsV5EntityIsolationTest.java</include>
+                                <!-- V6 退款域 3 张留痕账本（S2-1）的真库隔离门禁。同样被
+                                     ISOLATION_TESTS 登记；不加本 include 则该类"存在但不执行"，
+                                     3 张账本表的隔离断言全部静默失效 —— 这正是"登记表变
+                                     一纸空文"的形态。 -->
+                                <include>**/rls/RlsV6RefundLedgerIsolationTest.java</include>
+                                <!-- V7 建档修订留痕账本（intake_profile_revision）的真库隔离门禁
+                                     （S2-10 契约域 B）。同样被 ISOLATION_TESTS 登记；
+                                     不加本 include 则该类"存在但不执行"，该表的隔离断言
+                                     全部静默失效 —— 这正是"登记表变一纸空文"的形态。 -->
+                                <include>**/rls/RlsV7IntakeProfileRevisionIsolationTest.java</include>
+                                <!-- V11 三张密钥材料表（B-1 收口）的真库隔离门禁。同样被
+                                     ISOLATION_TESTS 登记；不加本 include 则该类"存在但不执行"，
+                                     3 张密钥表的隔离断言与"只追加/不可改"纪律断言全部静默失效
+                                     —— 这正是"登记表变一纸空文"的形态。 -->
+                                <include>**/rls/RlsV11CryptoKeyIsolationTest.java</include>
+                                <!-- V14 配置真相源两张租户表（B-3）的真库隔离门禁。同样被
+                                     ISOLATION_TESTS 登记；不加本 include 则该类"存在但不执行"，
+                                     配置表的隔离断言与"编号域/留痕纪律"断言全部静默失效
+                                     —— 这正是"登记表变一纸空文"的形态。 -->
+                                <include>**/rls/RlsV14ConfigTruthSourceIsolationTest.java</include>
+                                <!-- C-4 退款工单受控 UPDATE 的真库并发 + 改写约束门禁。
+                                     它不新增租户表（复用 refund 表），故【不】登记进
+                                     RlsCoverageGateTest.ISOLATION_TESTS（那是"表→测试"的映射，
+                                     本类守的是"同一条 UPDATE 的并发语义"，不是新表的隔离面）。
+                                     不加本 include 则该类"存在但不执行"，乐观并发断言静默失效。 -->
+                                <include>**/rls/RlsRefundWorkOrderConcurrencyTest.java</include>
+                                <!-- V16 跨租户【引用】完整性的真库门禁（2026-09-27）：
+                                     RLS 只保护「行归属」，【从不】保护「引用归属」——
+                                     实测在租户 B 的上下文里，band.customer_id 可以成功指向
+                                     租户 A 的客户（RLS 一路放行，因为本行 tenant_id 合规）。
+                                     本类把"引用必须同租户"钉成真库事实，并断言拒绝理由
+                                     必须是外键 23503 而不是 RLS 42501。
+                                     不加本 include 则该类"存在但不执行"—— V16 的修复
+                                     就再没有任何门禁看着（这正是本仓反复防的形态）。 -->
+                                <include>**/rls/RlsCrossTenantReferenceGateTest.java</include>
+                            </includes>
+                            <failIfNoTests>true</failIfNoTests>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

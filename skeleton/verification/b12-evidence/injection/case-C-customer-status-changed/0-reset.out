@@ -1,0 +1,5 @@
+DROP DATABASE
+DROP ROLE
+CREATE ROLE
+CREATE DATABASE
+95_b12_reset OK: database diaoyuanyun_rls_test_b12 recreated + non-superuser role dy_app_b12

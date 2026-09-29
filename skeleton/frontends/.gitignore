@@ -1,0 +1,13 @@
+# Build outputs and installed dependencies are not source.
+#
+# `npm install --ignore-scripts` is the supported install command here (see
+# frontends/README.md section 3): esbuild's postinstall is skipped, and the
+# platform package ships the binary, so the build still works. Either way,
+# node_modules/ must never be committed.
+node_modules/
+dist/
+.vite/
+
+# The mini-program project has no bundler output of its own; the WeChat DevTools
+# compile it. Anything it drops should not be committed either.
+miniprogram/**/*.map

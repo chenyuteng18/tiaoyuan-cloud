@@ -1,0 +1,250 @@
+name: compliance-gate
+
+# ADR-12 build-time compliance scan.
+#
+# WHERE THIS LIVES AND WHY
+#   This repository had no CI configuration at all, so this workflow is new. It
+#   is placed at .github/workflows/ per the GitHub Actions convention, because
+#   that is the only location GitHub reads. The repository itself is not yet a
+#   git repository, so this file is not active until it is committed under a
+#   .github/workflows/ path in the hosting remote.
+#
+# HOW IT IS TRIGGERED
+#   - on every push to any branch
+#   - on every pull request targeting main
+#   - manually, via workflow_dispatch
+#   The failure is a job failure, which blocks the pull request under branch
+#   protection. Note that a workflow cannot block a merge on its own: branch
+#   protection must list this job as a required check. That step is a repository
+#   setting, not something this file can assert, and it is called out in the
+#   handover notes as the remaining manual action.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  adr12-compliance-scan:
+    name: ADR-12 compliance scan (build-time gate)
+    runs-on: ubuntu-latest
+    # 🛑 2026-09-30 新增：仓库根已上移到 product-strategy/，Maven 工程在 skeleton/。
+    #   本文件原在 skeleton/.github/ 下（那时 cwd 恰为 skeleton）；移到仓库根后
+    #   必须显式声明工作目录，否则所有 `python compliance/...` 都会因路径不存在而红。
+    #   注意 upload-artifact 的 path: 是【相对 GITHUB_WORKSPACE】而非本 defaults，
+    #   故那些 path: 仍写完整相对仓库根的路径（skeleton/compliance/...），见下文。
+    defaults:
+      run:
+        working-directory: skeleton
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # S1-8 parses the OpenAPI contract with a REAL YAML parser, on purpose: two
+      # hand-rolled regex probes were measured to disagree with each other on the
+      # same file (42 vs 2 fields), and a probe that contradicts itself cannot
+      # underpin a gate. So PyYAML is a hard prerequisite here -- the gate exits 2
+      # when it is missing rather than degrading to regexes and still printing
+      # PASS. Installed explicitly so the requirement is visible in CI rather than
+      # inherited from whatever the runner image happens to ship.
+      - name: Install the gate's YAML parser
+        run: python -m pip install --disable-pip-version-check "pyyaml>=6.0"
+
+      - name: Write the scan report directory
+        run: mkdir -p compliance/reports
+
+      # The gate reads its wordlists as UTF-8 explicitly, but pinning the
+      # interpreter's own text encoding removes any dependence on the runner's
+      # locale. Without this the reported source lines can come out mangled,
+      # which makes a real failure hard to read -- and a failure nobody can read
+      # is a failure somebody disables.
+      - name: Run the ADR-12 compliance scan
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: |
+          python compliance/scan_compliance.py \
+            --repo-root "${{ github.workspace }}" \
+            --report compliance/reports/ci-scan.json
+
+      # Driven as a separate step so that the assertion failures are reported
+      # independently of the scan result. If the scan is green but its own
+      # protection has been dismantled, this is what notices.
+      - name: Verify the gate is still load-bearing
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: python compliance/tests/compliance_injection_test.py
+
+      # ---------------------------------------------------------------------
+      # S1-6 client zero-derived structural gate.
+      #
+      # A SEPARATE GATE, NOT A FOURTH SCAN FACE. ADR-12 fixes the scan faces at
+      # three and the manifest refuses to run if that list drifts, so this is
+      # deliberately a different entry point rather than an added face. The two
+      # are complementary:
+      #
+      #   ADR-12 checks VOCABULARY (did a forbidden word reach the bundle);
+      #   this checks CLAIMS (is every path the bundle says it may call actually
+      #   one the contract permits). A path can be wrong without containing a
+      #   forbidden word -- which is exactly how a client-denied endpoint sat in
+      #   the allow-list while ADR-12 reported PASS.
+      #
+      # It NEEDS TWO ROOTS. The contract lives one level ABOVE this repository
+      # root (beside the PRD), while client-package/ and compliance/ live here.
+      # The job's default cwd is the repository root, and the gate walks up for
+      # the contract automatically -- but if this workflow is ever checked out in
+      # a layout where the contract is elsewhere, pass --docs-root explicitly.
+      # It refuses to run (exit 2) rather than verifying the wrong tree.
+      # ---------------------------------------------------------------------
+      - name: S1-6 client zero-derived gate
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: |
+          python compliance/client-zero-derived-gate.py \
+            --repo-root "${{ github.workspace }}" \
+            --json-report compliance/reports/ci-zero-derived.json
+
+      # Same reasoning as the ADR-12 witness: a green gate proves nothing until
+      # something asserts the gate still fails when its protection is removed.
+      - name: Verify the S1-6 gate is still load-bearing
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: python compliance/tests/zero_derived_gate_test.py
+
+      # ---------------------------------------------------------------------
+      # S1-8 contract conformance gate.
+      #
+      # A THIRD DISTINCT QUESTION, not a wider scan face:
+      #
+      #   ADR-12 checks VOCABULARY  (did a forbidden word reach the bundle);
+      #   S1-6   checks CLAIMS      (is every path the bundle says it may call
+      #                              actually permitted by the contract);
+      #   this   checks FACTS       (is every replicated fact in the bundle TRUE
+      #                              -- the row/method each of the 13 path
+      #                              entries cites, the error codes, the enum
+      #                              values, the field names, and the field lists
+      #                              in the visibility matrix).
+      #
+      # Why it must exist separately: the first two gates' judgement criteria are
+      # themselves hand-copies of contract facts. S1-6's allow-list once cited D1
+      # on /customers/{id}/visits, where D1 is the POST that excludes the client.
+      # The ENTRY was right and the CITATION was false; S1-6 aggregates roles per
+      # PATH and so could not see it. This gate compares per row and method, and
+      # on its first run it found three real defects -- including two phantom
+      # field names in the visibility matrix, which had quietly narrowed what S1-6
+      # was guarding.
+      #
+      # Same two-root layout as S1-6; refuses to run (exit 2) on a wrong tree.
+      # ---------------------------------------------------------------------
+      - name: S1-8 contract conformance gate
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: |
+          python compliance/contract-conformance-gate.py \
+            --repo-root "${{ github.workspace }}" \
+            --json-report compliance/reports/ci-contract-conformance.json
+
+      # 17 assertions, each destroying a piece of the gate's protection -- in the
+      # allow-list, in the truth source, or in the gate's own runtime (W8 hides
+      # PyYAML and requires exit 2 rather than a regex fallback). W4 additionally
+      # RUNS the S1-6 gate to prove, by measurement rather than by assertion,
+      # that the coverage this face adds is real.
+      - name: Verify the S1-8 gate is still load-bearing
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: python compliance/tests/contract_conformance_gate_test.py
+
+      # ---------------------------------------------------------------------
+      # S1-9 SDK surface gate.
+      #
+      # A FOURTH DISTINCT QUESTION, and the one that was unguarded:
+      #
+      #   ADR-12 checks VOCABULARY  (did a forbidden word reach the bundle);
+      #   S1-6   checks CLAIMS      (is every path the allow-list cites really
+      #                              permitted, per row and method);
+      #   S1-8   checks FACTS       (are the replicated facts TRUE);
+      #   this   checks PRODUCTS    (does each GENERATED SDK -- contract/sdk/
+      #                              {client-mp,therapist-app,admin-web} --
+      #                              expose exactly what that end may call?).
+      #
+      # Until this gate existed the generated SDKs were unchecked artifacts:
+      # nothing asserted that the client bundle carries no admin path, or that
+      # the therapist bundle still covers what the contract grants it. That is
+      # the same blind spot that hid defect #45 in the hand-written allow-list
+      # for months.
+      #
+      # Two directions, on purpose:
+      #   FACE 2 (VIOLATION)   nothing generated outside the end's role scope --
+      #                        a client bundle carrying an admin path is a
+      #                        shipped capability leak, not a style question;
+      #   FACE 3 (INFORMATION) anything in scope but not generated is PRINTED,
+      #                        never silently passed -- subset rather than
+      #                        equality, for the reason recorded verbatim in
+      #                        client-zero-derived-gate.py: an equality gate
+      #                        that cries wolf on correct content gets switched
+      #                        off. An unprinted subset check is indistinguishable
+      #                        from no check at all, so the count is in the audit.
+      #
+      # FACE 4 additionally holds the DEAD-row cleanup: an `exclude-contract-rows`
+      # entry that no other check consumes and that the contract already makes
+      # unreachable is a declaration that does nothing, and it now fails.
+      # ---------------------------------------------------------------------
+      - name: S1-9 SDK surface gate
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: |
+          python compliance/sdk-surface-gate.py \
+            --repo-root "${{ github.workspace }}"
+
+      # X5 is the case that matters most: deleting one method literal makes
+      # paths and methods stop pairing 1:1, and the gate must REFUSE (exit 2)
+      # rather than zip-and-truncate and report PASS on a surface it half read.
+      - name: Verify the S1-9 gate is still load-bearing
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: python compliance/tests/sdk_surface_gate_test.py
+
+      - name: Upload the scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adr12-compliance-report
+          # 🛑 相对【仓库根】而非 defaults.working-directory（upload-artifact 不读 defaults）
+          path: skeleton/compliance/reports/
+          if-no-files-found: warn
+          retention-days: 30
+
+      # A violation report quotes the offending source line, which may be
+      # Chinese. Putting it in the job summary means the reviewer sees the exact
+      # string that has to be fixed without downloading anything.
+      - name: Publish the verdict to the job summary
+        if: always()
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: |
+          {
+            echo '## ADR-12 compliance scan'
+            echo ''
+            echo '```text'
+            python compliance/scan_compliance.py \
+              --repo-root "${{ github.workspace }}" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

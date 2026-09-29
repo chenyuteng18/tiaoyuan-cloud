@@ -1,0 +1,286 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- ADR-13: Spring Boot 3.3.5 / JDK 17 / Maven 3.9.9, 显式 UTF-8 -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.5</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.diaoyuanyun</groupId>
+    <artifactId>diaoyuanyun-skeleton</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>diaoyuanyun-skeleton</name>
+    <description>调元云 多租户 SaaS 健康管理系统 - 可运行骨架工程 (Spring Modulith)</description>
+
+    <!-- ADR-04: 7 个模块, 单向依赖 dy-app -> {dy-security,dy-config,dy-audit,dy-web} -> dy-tenancy -> dy-common -->
+    <modules>
+        <module>dy-common</module>
+        <module>dy-tenancy</module>
+        <module>dy-security</module>
+        <module>dy-web</module>
+        <module>dy-audit</module>
+        <module>dy-config</module>
+        <module>dy-app</module>
+        <!--
+          ADR-12 字段级加密 (A8)。位置独立于上面 7 个业务模块, 因为它刻意不依赖
+          dy-common / dy-tenancy: 加密层是"谁能读数据"的最后一层, 让它不被上层
+          模块的依赖图牵连, 才能在别的模块演进时保持可独立审计。
+          当前无人依赖它 (尚无模块调用加解密), 故不进入 dy-app 的依赖链。
+        -->
+        <module>dy-crypto</module>
+    </modules>
+
+    <properties>
+        <java.version>17</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <!-- ADR-12: interpreter used by the build-time compliance gate. -->
+        <compliance.python.executable>python</compliance.python.executable>
+    </properties>
+
+    <build>
+        <plugins>
+            <!--
+              ADR-12 构建期合规扫描 (合规门禁, 命中即构建失败)
+
+              绑定在 validate 阶段: 它必须早于 compile/package, 这样违规的产物
+              根本不会被编译出来, 也不会有"先产出再回滚"的窗口。
+
+              inherited=false: 该门禁在聚合根上运行一次即可。若被继承到 7 个子模块,
+              同一棵树会被扫描 7 遍, 输出噪声会让人想把它关掉。
+
+              exit code 语义 (见 compliance/scan_compliance.py):
+                0 通过 | 1 命中违规 | 2 门禁配置错误 (owner 为空 / 通道缺失 /
+                词表编码非法) | 3 扫描器内部错误 | 4 扫描面被改动
+              以上非 0 一律使构建失败 —— 包括"门禁自己坏了"这一档。门禁失效
+              必须表现为红灯, 而不是静默放行。
+            -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <inherited>false</inherited>
+                <executions>
+                    <execution>
+                        <id>adr12-compliance-scan</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${compliance.python.executable}</executable>
+                            <workingDirectory>${project.basedir}</workingDirectory>
+                            <arguments>
+                                <argument>compliance/scan_compliance.py</argument>
+                                <argument>--repo-root</argument>
+                                <argument>${project.basedir}</argument>
+                                <argument>--report</argument>
+                                <argument>${project.basedir}/compliance/reports/last-build.json</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <!--
+                      S1-6 客户端零派生结构性门禁
+
+                      与上面的 ADR-12 扫描是互补的两件事, 不是重复:
+                        ADR-12 扫的是【词汇】: 禁止字样有没有进客户端包;
+                        本门禁扫的是【主张】: 客户端包自己声称可以调的路径,
+                        是否真的被契约允许。前者看不见后者, 因为一个路径可以
+                        是错的却一个违禁词都不含 (S1-6 实况: 客户端白名单里带
+                        了一条被契约明确拒给客户端的端点, ADR-12 报 PASS)。
+
+                      真相源 (两个, 都不是手写清单):
+                        repo-root  build 根: 含 client-package/ 与 compliance/
+                        docs-root  docs 根: 含 contract/
+                      相对关系: contract/ 在 build 根的上一级 (与 PRD 同级),
+                      所以本门禁与 scan_compliance 的根不同, 需单独说明。
+                      docs-root 省略时自动向上探测, 探测失败即 exit 2 拒绝运行。
+
+                      退出码: 0 通过 / 1 违规 / 2 门禁自身配置坏 (fail-closed)
+                              / 3 内部错误
+                    -->
+                    <execution>
+                        <id>s16-zero-derived-gate</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${compliance.python.executable}</executable>
+                            <arguments>
+                                <argument>compliance/client-zero-derived-gate.py</argument>
+                                <argument>--repo-root</argument>
+                                <argument>${project.basedir}</argument>
+                                <argument>--json-report</argument>
+                                <argument>${project.basedir}/compliance/reports/last-build-zero-derived.json</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <!--
+                      S1-8 契约一致性门禁 (三端 SDK 产物 ↔ 契约逐字比对)
+
+                      与上面两个门禁是三件事, 不是重复:
+                        ADR-12 扫【词汇】: 禁止字样有没有进客户端包
+                        S1-6   扫【主张】: 客户端自报可调的路径, 契约是否真允许
+                        本门禁 扫【事实】: 客户端包里的每一条"引注"是否属实 —
+                                路径引注的行号/方法、错误码、枚举值、字段名,
+                                逐条比对契约真相源 (OpenAPI + 可见性矩阵)。
+
+                      为什么必须单独存在: 前两个门禁的判据本身是"另一处手工
+                      重述"。S1-6 的白名单里曾有一条引注漂移 (visits 引注 D1,
+                      而 D1 是 POST、不含 client) —— 路径是对的、引注是错的,
+                      S1-6 因为按"路径"聚合角色而看不见。本门禁按行号/方法比对,
+                      一次跑出 3 条真实缺陷 (含可见性矩阵 ④ 组的两个幻影字段名)。
+
+                      为什么用真 YAML 解析器 (PyYAML) 而不是正则:
+                        同一个契约文件上, 两个手工正则探针先后给出 42 与 2
+                        两个字段普查数 (YAML 块布局敏感)。自相矛盾的探针
+                        不能做门禁基础。缺 PyYAML 即 exit 2, 不降级。
+
+                      真相源: 同 S1-6, repo-root 与 docs-root 两根。
+
+                      退出码: 0 通过 / 1 违规 / 2 门禁自身配置坏 (fail-closed)
+                              / 3 内部错误
+                    -->
+                    <execution>
+                        <id>s18-contract-conformance</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${compliance.python.executable}</executable>
+                            <arguments>
+                                <argument>compliance/contract-conformance-gate.py</argument>
+                                <argument>--repo-root</argument>
+                                <argument>${project.basedir}</argument>
+                                <argument>--json-report</argument>
+                                <argument>${project.basedir}/compliance/reports/last-build-contract-conformance.json</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <!--
+                      S1-9 SDK 表面门禁 (三端【生成产物】 ↔ 契约角色作用域)
+
+                      第四件事, 不是把上面三件做得更宽:
+                        ADR-12 扫【词汇】  禁止字样有没有进客户端包
+                        S1-6   扫【主张】  客户端自报可调的路径, 契约是否真允许
+                        S1-8   扫【事实】  客户端包里复制的契约事实是否属实
+                        本门禁 扫【产物】  contract/sdk/{client-mp,therapist-app,
+                                          admin-web} 各自暴露的 (method, path)
+                                          是否恰好等于该端 token-roles 作用域。
+
+                      为什么必须存在: 在它之前, 三份生成 SDK 是【无人检查的产物】——
+                      没有任何检查断言"客户包里不能出现客户调不了的路径", 也没有
+                      任何检查断言"调理师包还覆盖着契约给它的东西"。这正是第 45 条
+                      缺陷(手写白名单漏 B5、几个月不红)在【机器产物】上的同型盲区。
+
+                      两个方向, 刻意不对称:
+                        越权 (生成了本端不能调的)   = 违规 —— 客户包里带着管理端
+                                                     路径是实打实的能力泄漏;
+                        覆盖 (该端能调却没生成的)   = 信息, 但【逐条打印且计数进
+                                                     audit】—— 沿袭 S1-6/S1-8 的
+                                                     ⊆ 取舍(对正确内容叫狼的门禁
+                                                     会被关掉), 但不打印的子集检查
+                                                     与根本没检查无从区分。
+                      FACE 4 另守护 DEAD 行清理: 没有任何检查消费、且契约本就使其
+                      不可达的 exclude 声明 = 永不生效的声明, 判违规。
+
+                      复用 S1-8 的契约读取器 (import), 不另写一份解析器: 两个读取器
+                      迟早会给出不同答案, 而异议会表现成"同一份文件, 一个门禁过、
+                      另一个不过"。
+
+                      真相源: 同 S1-6/S1-8。需 PyYAML。
+                      退出码: 0 通过 / 1 违规 / 2 门禁自身配置坏 (fail-closed)
+                              / 3 内部错误
+                    -->
+                    <execution>
+                        <id>s19-sdk-surface-gate</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${compliance.python.executable}</executable>
+                            <arguments>
+                                <argument>compliance/sdk-surface-gate.py</argument>
+                                <argument>--repo-root</argument>
+                                <argument>${project.basedir}</argument>
+                                <argument>--json-report</argument>
+                                <argument>${project.basedir}/compliance/reports/last-build-sdk-surface.json</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <!--
+      go-live 门禁 profile
+
+      触发: mvn -Pgo-live <validate 及之后任意阶段>
+      不带 -P 时本 profile 完全不生效, 日常 mvn validate / test / clean package
+      的行为与本 profile 引入前逐字节相同 (全绿)。
+
+      为什么单独放在 profile 而不是默认打开:
+        owners.csv 现在四行全是占位 (role: 前缀 + tbd@diaoyuanyun.invalid),
+        G6 明文登记为 "P0 blocker before go-live"。若把新开关
+        (require-named-owners) 接进日常 validate, 落地当天整个仓库的构建
+        全部变红, 而一个一出生就是红的门禁, 标准结局是被关掉, 连带把
+        ADR-12 三面扫描一起关掉。所以: 日常构建保持 advisory (只提示不阻断),
+        go-live 流水线用本 profile 让它真正阻断。
+
+      go-live 下变红是正确行为, 不是构建损坏: 它表示"实名 owner 还没写,
+      不许上线"。处置方式是研发侧把实名 owner 写进 compliance/owners.csv,
+      而不是给本 profile 加跳过参数。
+
+      实现手法: 同一个 exec 执行 (id=adr12-compliance-scan) 在 profile 中
+      重新声明, arguments 上标 combine.children="replace" (列表型配置默认
+      是与基础配置合并, 会变成 7 个参数, 必须显式 replace 才能精确覆盖)。
+      没有引入任何新的插件或插件依赖, 复用的就是上面那个 exec 插件。
+    -->
+    <profiles>
+        <profile>
+            <id>go-live</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.1.0</version>
+                        <inherited>false</inherited>
+                        <executions>
+                            <execution>
+                                <id>adr12-compliance-scan</id>
+                                <phase>validate</phase>
+                                <goals>
+                                    <goal>exec</goal>
+                                </goals>
+                                <configuration>
+                                    <executable>${compliance.python.executable}</executable>
+                                    <workingDirectory>${project.basedir}</workingDirectory>
+                                    <arguments combine.children="replace">
+                                        <argument>compliance/scan_compliance.py</argument>
+                                        <argument>--repo-root</argument>
+                                        <argument>${project.basedir}</argument>
+                                        <argument>--require-named-owners</argument>
+                                        <argument>--report</argument>
+                                        <argument>${project.basedir}/compliance/reports/last-golive.json</argument>
+                                    </arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

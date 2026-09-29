@@ -1,0 +1,137 @@
+
+DECLARE
+    v_ctx_before text;
+    v_ctx        text;
+    v_superseded int := 0;
+    v_affected   int := 0;
+    v_customer   int := 0;
+BEGIN
+    -- (1) 入参守卫 —— 与 V15 provision_tenant 同款：DDL 的 NOT NULL 挡不住空串，
+    --     而空串在语义上同样无意义，且会静默流进台账。
+    IF p_tenant_id IS NULL THEN
+        RAISE EXCEPTION 'bind_band: p_tenant_id 不可为空（band.tenant_id 是 NOT NULL）';
+    END IF;
+    IF p_band_id IS NULL THEN
+        RAISE EXCEPTION 'bind_band: p_band_id 不可为空（band.band_id 是主键，'
+            '且它是 band_telemetry/band_sync_log/band_sync_probe/band_daily_coverage '
+            '四表 device_id 的引用目标）';
+    END IF;
+    IF p_customer_id IS NULL THEN
+        RAISE EXCEPTION 'bind_band: p_customer_id 不可为空（band.customer_id 是 NOT NULL）';
+    END IF;
+    IF p_vendor IS NULL OR btrim(p_vendor) = '' THEN
+        -- vendor 在 DDL 里是 NOT NULL 且注释写明取值集"待厂商确认"，
+        -- 故此处【不】冻结枚举（冻结一个明确未定的集合属代拍口径），只挡空值。
+        RAISE EXCEPTION 'bind_band: p_vendor 不可为空串（band.vendor 是 NOT NULL 且有业务含义）';
+    END IF;
+
+    -- (2) 🛑 上下文一致性守卫 —— 拒绝"静默改写调用方既有上下文"
+    --     见文件头「核心机制三」。这道守卫是 fail-closed：宁可让一次调用失败，
+    --     也不要让"后面所有写入都去了另一个租户"这件事静默发生。
+    v_ctx_before := current_setting('app.tenant_id', true);
+    IF v_ctx_before IS NOT NULL
+       AND btrim(v_ctx_before) <> ''
+       AND v_ctx_before <> p_tenant_id::text THEN
+        RAISE EXCEPTION
+            'bind_band: 本事务已持有租户上下文 %，与本次调用传入的租户 % 不一致 —— 拒绝执行。'
+            '理由：set_config(app.tenant_id, ..., true) 是事务级设置且【不会】在函数入口自动重置。'
+            '若在此静默覆盖，本函数之后的全部写入都会落在 % 名下，而调用方仍以为在 % 名下。'
+            '这是跨租户写错台账的最短路径。调用方须先结束当前事务（或使用全新连接）再绑定。',
+            v_ctx_before, p_tenant_id::text, p_tenant_id::text, v_ctx_before;
+    END IF;
+
+    -- (3) 建立上下文（is_local := true ⇒ 事务结束自动失效）
+    --     🛑 与 V15 的 provision_tenant 同款：set_config 是**普通函数**，参数可绑定，
+    --        不像 SET LOCAL 那样必须把值拼进 SQL 文本（无拼接、无注入面）。
+    PERFORM set_config('app.tenant_id', p_tenant_id::text, true);
+
+    -- (3b) 自证上下文确实生效 —— 不靠"我调了 set_config 所以它当然生效"
+    v_ctx := assert_tenant_context();
+    IF v_ctx <> p_tenant_id::text THEN
+        RAISE EXCEPTION
+            'bind_band 自证失败: set_config 之后读回的 app.tenant_id (%) 与传入的租户 (%) 不一致',
+            v_ctx, p_tenant_id::text;
+    END IF;
+
+    -- (4) 🛑 客户必须**在本租户内**存在。
+    --     它在库层已经由 V16 换成复合外键
+    --         band_customer_id_fkey FOREIGN KEY (tenant_id, customer_id)
+    --                                REFERENCES customer (tenant_id, id)
+    --     故"跨租户引用客户"即使绕过本函数也会被数据库拒（23503）。
+    --     但这里仍显式查一次，理由是**归因质量**：
+    --       · 库层拒绝 ⇒ 一条 PostgreSQL 的 23503（调用方要自己解析约束名才知道原因）
+    --       · 本检查   ⇒ 一条写明"客户 X 在租户 Y 内不存在"的业务错误
+    --     两者都 fail-closed，区别只在诊断成本。本仓的判据一贯是"根因断言排在后果断言之前"，
+    --     此处同理：先给可读的原因，再让数据库兜底。
+    --     🛑 注意 SELECT 在 RLS 下的语义："查不到"可能是"不存在"，也可能是"看不见"
+    --        （未设上下文 / 上下文不对）。此处上下文已在 (3) 建立并自证，故两种可能收敛。
+    SELECT count(*) INTO v_customer
+      FROM customer
+     WHERE id = p_customer_id AND tenant_id = p_tenant_id;
+
+    IF v_customer <> 1 THEN
+        RAISE EXCEPTION
+            'bind_band: 客户 % 在租户 % 内不存在（本租户可见行数 = %），拒绝绑定。'
+            '🔴 若该客户确实存在，最常见的原因是租户上下文不对 —— '
+            'band 的 RLS 是 fail-closed 的，上下文错了 SELECT 会静默返回 0 行，'
+            '于是"不是我的客户"与"我看不见我的客户"给出同一个结论。',
+            p_customer_id, p_tenant_id, v_customer;
+    END IF;
+
+    -- (5) 换机：作废该客户既有的有效 / 暂停手环
+    --     🛑 为什么要显式写 `tenant_id = p_tenant_id AND customer_id = p_customer_id`
+    --        而不是只按 customer_id：前者让这条 UPDATE 的**租户维度在 SQL 里可见**，
+    --        与 RLS 策略形成两层（RLS 兜底、谓词自证意图）。少写 tenant_id 时
+    --        RLS 仍会使它只命中本租户 —— 但那时"这条语句跨不跨租户"就只能靠推理，
+    --        不能靠阅读。本仓一贯把可读性当成安全属性的一部分。
+    --     🛑 status IN ('active','paused')：paused 是"合规摘除期"（住院/洗浴/桑拿，
+    --        V2 L162），它仍是**有效手环**（暂停期从 A3 分母剔除，但带子还在客户身上）。
+    --        故换机必须把它一起作废，否则部分唯一索引会因为旧带子仍是 'active'
+    --        而挡住新带子 —— 那会表现为"换机失败"（返回值不是 REPLACED）。
+    IF p_rebind THEN
+        UPDATE band
+           SET status        = 'unbound',
+               unbound_at    = COALESCE(p_bound_at, CURRENT_DATE),
+               unbind_reason = COALESCE(p_unbind_reason, '换机'),
+               updated_at    = now()
+         WHERE tenant_id   = p_tenant_id
+           AND customer_id = p_customer_id
+           AND status IN ('active', 'paused');
+        GET DIAGNOSTICS v_superseded = ROW_COUNT;
+    END IF;
+
+    -- (6) 幂等写入 —— 判定与写入在同一条语句里完成（见文件头「核心机制二」）
+    --     🛑 ON CONFLICT 的推断目标必须【带 WHERE】，且谓词与被推断索引逐字一致。
+    --        写成 `ON CONFLICT (tenant_id, customer_id) DO NOTHING`（不带 WHERE）会报
+    --        「没有与 ON CONFLICT 说明匹配的唯一约束」—— 因为 PG 无法判断你想规避
+    --        uq_band_active_customer（部分索引）还是 band_pkey。
+    --        🛑 这条约束的失败形态值得记住：它**不是迁移期错误**，
+    --           而是**运行期**第一次调用 bind_band 时才炸。
+    --           本文件的自证 (b) 会把它变成迁移期可判定的事实。
+    INSERT INTO band (band_id, tenant_id, customer_id, vendor, model,
+                      bound_at, status, created_by)
+    VALUES (p_band_id, p_tenant_id, p_customer_id, p_vendor, p_model,
+            COALESCE(p_bound_at, CURRENT_DATE), 'active', 'band-binding')
+    ON CONFLICT (tenant_id, customer_id) WHERE status = 'active' DO NOTHING;
+
+    GET DIAGNOSTICS v_affected = ROW_COUNT;
+
+    -- (7) 四态判定
+    IF v_affected = 1 THEN
+        -- 本行确实由本次调用插入
+        RETURN CASE WHEN v_superseded > 0 THEN 'REPLACED' ELSE 'CREATED' END;
+    END IF;
+
+    -- 未插入：区分"重放同一支带子"与"客户已有另一支有效带子"
+    -- 🛑 这里是一次【读】，不是判据 —— 判据是上面的 ROW_COUNT（库层原子结果）。
+    --    读只是为了把"没有插入"这个事实翻译成可读的口径。
+    --    读错的后果是返回值的**措辞**不准，而不是数据被改坏：这是刻意的取舍，
+    --    因为在"判定必须原子"与"措辞必须精确"之间，前者不可让。
+    IF EXISTS (SELECT 1 FROM band
+                WHERE band_id = p_band_id AND status = 'active') THEN
+        RETURN 'ALREADY_BOUND';
+    END IF;
+
+    RETURN 'CUSTOMER_ALREADY_HAS_ACTIVE_BAND';
+END;
+

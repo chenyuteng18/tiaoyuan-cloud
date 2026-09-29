@@ -1,0 +1,45 @@
+-- 98: re-applying V2 only (idempotency probe) --
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:104: 注意:  关系 "customer_state_transition" 已经存在, 跳过
+CREATE TABLE
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:108: 注意:  关系 "uq_cst_current" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:111: 注意:  关系 "idx_cst_tenant" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:113: 注意:  关系 "idx_cst_customer_time" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:115: 注意:  关系 "idx_cst_from_state" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:117: 注意:  关系 "idx_cst_to_state" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:119: 注意:  关系 "idx_cst_occurred_at" 已经存在, 跳过
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+DROP POLICY
+CREATE POLICY
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:170: 注意:  关系 "band" 已经存在, 跳过
+CREATE TABLE
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:174: 注意:  关系 "uq_band_active_customer" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:177: 注意:  关系 "idx_band_customer" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:179: 注意:  关系 "idx_band_status" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:181: 注意:  关系 "idx_band_bound_at" 已经存在, 跳过
+CREATE INDEX
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:183: 注意:  关系 "idx_band_unbound_at" 已经存在, 跳过
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+DROP POLICY
+CREATE POLICY
+INSERT 0 0
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-app/src/main/resources/db/migration/V2__b_entities_state_machine_and_band.sql:246: 注意:  V2: 以下表在本仓库 DDL 中不存在, FK 闭合【跳过】(不新建表, 待 F-2 定案): band_telemetry, band_sync_probe, band_daily_coverage
+DO
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+98_b12_apply_v2_only OK: V2 re-applied with no error (idempotent)

@@ -1,0 +1,29 @@
+{
+  "_note": "Client-facing WeChat subscription-message templates. THIS IS THE CHANNEL THAT SILENTLY ESCAPES A UI-ONLY REVIEW -- the page copy gets changed, the push template does not, and the forbidden wording keeps reaching the customer through their phone. ADR-12 names it explicitly for exactly that reason, and scan face 1 covers it with no path allow-list.",
+  "_encoding_note": "Written in RAW characters, not \\uXXXX escapes. Escaped copy is matched correctly by the gate (escape expansion), but it is invisible to a reviewer's grep -- and a channel nobody can grep is a channel nobody reviews. Since this is the most-forgotten channel, it must be the most greppable one.",
+  "_requirements_locked": [
+    "1. The whole sentence contains no forbidden business wording.",
+    "2. The customer can understand it as 'formally accepted'.",
+    "3. It carries a time anchor ('we will contact you within XX hours').",
+    "4. It never announces an outcome and never asks the customer to take an action."
+  ],
+  "_status": "PLACEHOLDER COPY -- the final wording is issued by the content owner. The four requirements above are locked now so that swapping the wording cannot quietly drop them.",
+  "templates": {
+    "receipt_accepted": {
+      "template_id": "TPL_RECEIPT_ACCEPTED",
+      "title": "受理通知",
+      "content": "您的诉求已正式受理，将在 {hours} 小时内联系您。"
+    },
+    "receipt_contact_soon": {
+      "template_id": "TPL_RECEIPT_CONTACT_SOON",
+      "title": "进展提醒",
+      "content": "您的诉求正在处理中，工作人员将在 {hours} 小时内与您联系。"
+    },
+    "band_sync_hint": {
+      "template_id": "TPL_BAND_SYNC_HINT",
+      "title": "手环同步提醒",
+      "content": "您的手环暂时未同步，打开小程序即可重试。"
+    }
+  },
+  "_forbidden_content_reminder": "No template may state or imply an outcome, a decision, or a judgement about the customer."
+}

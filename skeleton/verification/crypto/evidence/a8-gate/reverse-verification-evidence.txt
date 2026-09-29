@@ -1,0 +1,36 @@
+[反向验证] 注入内容: 销毁主体 DEK（destroySubjectKey）
+           期望结果: 密文保留 + 解密抛 SubjectKeyDestroyedException（不可恢复）
+           实际结果: 心率密文=dy1:AES-256-GCM:1:nonce=12B:ct=18B; 解密抛=SubjectKeyDestroyedException; 睡眠解密抛=SubjectKeyDestroyedException
+
+[反向验证] 注入内容: 反向① 投递错误的租户 KEK（只换密钥、不动 kekId/AAD）
+           期望结果: 解包抛 CipherAuthenticationException（AEAD 认证失败）
+           实际结果: 抛=CipherAuthenticationException; 相同错误时的正确路径仍可用=已在前置断言
+
+[反向验证] 注入内容: 把算法实现从 AES-256-GCM 换成 ChaCha20-Poly1305（AlgorithmRegistry.of 单行装配）
+           期望结果: FieldCipher 与业务调用点零改动仍可加解密往返
+           实际结果: 替代实现 encryptCalls=2; 往返成功=是; 信封算法位=AES-256-GCM
+
+[反向验证] 注入内容: AlgorithmRegistry.resolve(SM4_GCM)（状态为 ⚠️ 待确认）
+           期望结果: 抛 PendingAlgorithmConfirmationException，不回退到 AES
+           实际结果: 抛=PendingAlgorithmConfirmationException; 消息含 H.4-1=true; AES 仍可解析=是
+
+[反向验证] 注入内容: 备份未就绪（backupReady=false）时请求创建 DEK
+           期望结果: 抛 KeyBackupUnavailableException，且不落下任何密钥材料
+           实际结果: 抛=KeyBackupUnavailableException; 拒绝后该租户下的活跃密钥数=0
+
+[反向验证] 注入内容: 反向③ 翻转密文第 0 字节（共 40 字节）
+           期望结果: 抛 CipherAuthenticationException（AEAD 认证失败），不得解出错值
+           实际结果: 抛=CipherAuthenticationException
+
+[反向验证] 注入内容: 反向③ 翻转密文第 20 字节（共 40 字节）
+           期望结果: 抛 CipherAuthenticationException（AEAD 认证失败），不得解出错值
+           实际结果: 抛=CipherAuthenticationException
+
+[反向验证] 注入内容: 反向③ 翻转密文第 39 字节（共 40 字节）
+           期望结果: 抛 CipherAuthenticationException（AEAD 认证失败），不得解出错值
+           实际结果: 抛=CipherAuthenticationException
+
+[反向验证] 注入内容: 反向② 撤掉墓碑（InMemoryShredTombstoneStore.clearForTest）+ 用备份中的 wrappedDek 还原
+           期望结果: 期望[能重新还原出 DEK —— 即『墓碑一丢，删除权就被备份恢复撤销』这一事实]
+           实际结果: restored 与原文 DEK 相同=true —— 与期望一致；故生产必须把墓碑放在不受备份回滚影响的介质里（append-only 审计日志 / WORM），默认进程内实现【不具备】抗回滚能力
+

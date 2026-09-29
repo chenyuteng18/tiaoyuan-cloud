@@ -1,0 +1,2008 @@
+openapi: 3.0.3
+
+# =============================================================================
+# 上医智养堂 · 三端接口契约（OpenAPI 3.0）—— S1-1 D3 硬闸门
+#
+# 唯一权威来源（人读版）: _work/contract-t6-api-freeze-2026-09-19.md
+# 本文件 = 该规格的【机器可读落地件】。二者冲突时以人读版规格为准，
+# 并由 ContractFreezeGateTest 的"契约正文 ↔ OpenAPI 行集互查"直接报红。
+#
+# 冻结范围（逐行清点）:
+#   §2.1~§2.7 域 A~G = 34 行（A3 / B6 / C4 / D6 / E6 / F4 / G5）
+#   §2.8 域 H（占位待冻结）  = 1 行
+#   §2.9 域 I（占位待冻结）  = 8 行
+#   合计 43 行；D5 一行含 3 个端点 ⇒ 端点总数 45。
+#
+# 🛑 三条硬约束（写进本文件的机械可校验形态）:
+#   ① 可见性由服务端裁剪 —— 无权限字段【不下发】（不是 null、不是空串）；
+#      本文件用 x-visibility 逐字段声明，并由字段组规则强制：
+#      x-field-group ∈ {gap_reason, derived_result} ⇒ client 恒 false。
+#   ② 客户端包内不得含"退款"字样 —— §2.7 全域标 x-client-forbidden: true。
+#   ③ N / s / f 一律 TBD 占位 —— 只有 E5 的 retention_window_days
+#      与 F4 的 f 相关字段可取值 TBD，其余接口不得出现 "TBD"。
+# =============================================================================
+
+info:
+  title: 上医智养堂 · 三端接口契约（调元云）
+  version: api-contract-v1.0.0
+  description: |
+    三端（客户小程序 / 调理师·经络师 APP / 管理员 Web）一次冻结的接口契约。
+
+    版本号规则（语义化，与 info.version 同值）：
+      - MAJOR（破坏级）：字段删除 / 改名 / 类型变更；可见性档位变更；枚举值语义变更；错误码语义变更；
+        涉可见性档位的 MAJOR 变更须触发「变更业务裁定」（不得按"体验优化"处理）。
+      - MINOR（兼容级）：新增可选请求字段 / 新增接口 / 新增响应字段。
+      - PATCH（文档级）：注释 / 示例 / 措辞修正，不动字段与语义。
+
+    🛑 措辞纪律：client_end=mp 可见字段不得含"退款""诊断"；同步时间精确到日。
+  contact:
+    name: 后端主程（技术单签）· 产品共签（可见性 / 措辞档位）
+  license:
+    name: Proprietary
+
+servers:
+  - url: /api/v1
+    description: Base Path（契约 §2.0 全局约定）
+
+tags:
+  - name: A-租户与权限
+    description: 登录 / 身份与可见性档位下发 / 门店列表
+  - name: B-客户与档案
+    description: 禁忌筛查 / 建档 / 同意书 / 档案详情 / 建档扩展档案
+  - name: C-评估与题库
+    description: 题库拉取 / 基线评估 / 周期评估
+  - name: D-服务与履约
+    description: 服务核销 / 每日填报 / 方案与审核 / 设备参数下发
+  - name: E-设备与手环数据
+    description: 同步批次四态 / 遥测上行 / 原始数据 / 派生结果 / 日期探测 / 同步状态卡
+  - name: F-判定与稽核
+    description: 判定结论落库 / 判定历史 / 稽核信号 / 可判定覆盖率
+  - name: G-退款与挽留
+    description: 代录诉求 / 工单详情 / 挽留 / 审批 / 回执（客户端与调理师端一律 403）
+  - name: H-文书与电子签
+    description: 厂商回调接收端点（占位 · 待厂商选定后冻结）
+  - name: I-文书模板与渲染
+    description: 模板列表 / 新建 / 上传 / 版本 / 发布 / 下载 / 签署时渲染（占位 · 字段未冻结）
+
+# =============================================================================
+# 全局约定（契约 §2.0）—— 以 x- 扩展声明，供门禁机械校验
+# =============================================================================
+x-global-conventions:
+  base-path: /api/v1
+  auth: "Authorization: Bearer <token>（token 内嵌 tenant_id / role / staff_id）"
+  tenant-context: |
+    服务端从 token 取 tenant_id；请求头 X-Tenant-Id 若存在必须与 token 一致，
+    否则 403 TENANT_MISMATCH。跨租户资源一律 403（存储层直接拒绝，
+    不返回 404 以避免存在性探测）。
+  envelope: '{ "code": 0, "message": "ok", "data": {...}, "trace_id": "..." }'
+  envelope-rule: code != 0 时 data 为空
+  pagination: "请求 ?page=<int>&page_size=<int≤100>；响应 data.{items[], total, page, page_size}"
+  visibility: 每个接口的响应字段按 x-visibility 矩阵在服务端裁剪；无权限字段不下发（不是 null、不是空串）
+  forbidden-403: 「前置门禁缺失」与「可见性档位不足」统一返回 403，message 必须给出缺失项名称 / 档位名称（不得模糊报错）
+  idempotency: 写接口接受 Idempotency-Key 请求头（UUID）；服务端在 24h 窗口内去重
+
+# =============================================================================
+# 字段组定义（契约 §3.1）—— 四组 × 五角色，与 config #43 / 原型 D1 逐格一致
+# =============================================================================
+x-field-groups:
+  raw_data:
+    name: ① 手环原始数据
+    fields: 睡眠 / 步数 / 心率 / 静息心率 / 血氧 / 运动类型
+  capture_status:
+    name: ② 采集状态
+    fields: 已采集天数 / 同步时间（synced_at，精确到日）/ 接入状态
+  gap_reason:
+    name: ③ 缺口原因分类
+    fields: gap_reason
+  derived_result:
+    name: ④ 派生结果
+    fields: 依从性维度分（含 A3）/ AS 值 / effect_verdict / 退款资格
+
+# 四档 × 五角色（权威矩阵：与原型 D1 / config #43 / PRD §2.6.1 四源一致）
+x-visibility-matrix:
+  raw_data:
+    client: true
+    therapist: true
+    meridian: true
+    admin: true
+    store_customer_service: false
+  capture_status:
+    client: true
+    therapist: true
+    meridian: true
+    admin: true
+    store_customer_service: false
+  gap_reason:
+    client: false
+    therapist: true
+    meridian: true
+    admin: true
+    store_customer_service: false
+  derived_result:
+    client: false
+    therapist: true          # ⚠️ 可见，但不得作对客户不利依据
+    meridian: true
+    admin: true
+    store_customer_service: false
+  notes:
+    - 门店客服无端（不使用系统）—— 该界面不成立，任何字段组均不成立
+    - admin 档位另按行级 scope 收窄（本店 / 辖区 / 全量）
+    - 客户侧 ③④ 为硬约束、不得通过配置放开 —— 放开属「变更业务裁定」
+
+# =============================================================================
+# 角色枚举 —— 五角色 × 六 token 角色值的映射（A1/A2 与 x-visibility 共用一套口径）
+# =============================================================================
+x-roles:
+  client:
+    token-role: client
+    end: mp
+    display: 客户（小程序）
+  therapist:
+    token-role: therapist
+    end: app
+    display: 调理师（APP）
+  meridian:
+    token-role: meridian
+    end: app
+    display: 经络师（APP）
+  admin:
+    token-role: [manager, area, hq]
+    end: web
+    display: 管理员（门店负责人 / 区域督导 / 总部运营）
+  store_customer_service:
+    token-role: null
+    end: null
+    display: 门店客服（无端，无任何接口）
+
+# =============================================================================
+# 措辞纪律（契约 §5.1 R1~R8）—— 机器可读词表，供 ADR-12 扫描与 OpenAPI lint 共用
+# =============================================================================
+x-wording-discipline:
+  client-forbidden-terms: [退款, 诊断, 未佩戴, 缺失, 达标, 不达标, 无效退款, 概不退款]
+  client-visible-naming-rules:
+    R1: 客户可见字段名 / 枚举值不得含"退款"
+    R2: 客户可见字段名 / 枚举值不得含"诊断"
+    R3: 客户可见不出现派生结论（字段整体不下发）
+    R4: 客户可见同步时间精确到日，不得到分秒
+    R5: 客户可见正向计数 + 中性描述
+    R6: 未接入态不得用 0 / 空图表 / 示例数据顶替
+    R7: 客户可见不得出现"达标/未达标"评价
+    R8: 派生结论侧禁用"不利"色 / 措辞
+  namespace-isolation: 客户可见枚举以 client_* 前缀；内部枚举以 internal_* / 原名 —— 两套不得共用类型定义
+
+# =============================================================================
+# 默认响应（错误信封）
+# =============================================================================
+x-error-codes:
+  - http: 400
+    code: 1001
+    name: VALIDATION_FAILED
+    trigger: 参数类型 / 必填 / 约束不满足
+  - http: 401
+    code: 1002
+    name: UNAUTHENTICATED
+    trigger: 无 token / token 过期 / token 非法
+  - http: 403
+    code: 2001
+    name: VISIBILITY_DENIED
+    trigger: 该角色对请求字段组无可见性档位（服务端裁剪，非前端不渲染）
+  - http: 403
+    code: 2002
+    name: GATE_MISSING
+    trigger: 前置门禁缺失（data.missing_items 给出缺失项名）
+  - http: 403
+    code: 2003
+    name: TENANT_MISMATCH
+    trigger: 跨租户访问 / 租户头与 token 不符
+  - http: 404
+    code: 3001
+    name: NOT_FOUND
+    trigger: 资源不存在（仅限本租户内确实不存在）
+  - http: 409
+    code: 4001
+    name: VERSION_CONFLICT
+    trigger: 版本不可覆盖（plan / scale_item_bank / verdict）
+  - http: 409
+    code: 4002
+    name: IDEMPOTENT_REPLAY
+    trigger: 幂等键命中已有记录（返回首次结果）
+  - http: 422
+    code: 5001
+    name: BUSINESS_RULE_VIOLATED
+    trigger: 业务规则不满足（如题组量程 ≠ 0–4）
+  - http: 429
+    code: 6001
+    name: RATE_LIMITED
+    trigger: 触发节流（如 onShow 5 分钟窗口）
+  - http: 500
+    code: 9001
+    name: INTERNAL_ERROR
+    trigger: 服务端异常
+  - http: 403
+    code: 2004
+    name: PLACEHOLDER_OUT_OF_SCOPE
+    trigger: 占位符越界（模板含未在白名单的占位符）— 域 I 新增
+
+# =============================================================================
+# 域 A · 租户与权限（3 行）
+# =============================================================================
+paths:
+  /auth/login:
+    post:
+      operationId: authLogin
+      tags: [A-租户与权限]
+      summary: A1 登录，签发 token
+      x-contract-row: A1
+      x-callable-roles: [client, therapist, meridian, admin]
+      x-client-forbidden: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [account, credential, client_end]
+              properties:
+                account:
+                  type: string
+                  description: 员工号 / 客户 openid 绑定号
+                credential:
+                  type: string
+                  description: 密码 / 短信码
+                client_end:
+                  type: string
+                  enum: [mp, app, web]
+                  x-visibility-note: client_end=mp 时可见字段须过 §5.1 R1~R8 词表校验
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/LoginData' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/TenantMismatch' }
+
+  /auth/me:
+    get:
+      operationId: authMe
+      tags: [A-租户与权限]
+      summary: A2 当前身份 + 角色 + 可见性档位解算结果（可见性档位唯一权威下发点）
+      description: |
+        ⚠️ 本接口只下发「档位布尔值」，不下发任何业务字段 —— 它是声明，不是数据。
+        三端 UI 依此声明决定渲染分支，但字段仍由服务端裁剪（X-1：声明 ≠ 授权，二者须一致）。
+      x-contract-row: A2
+      x-callable-roles: [client, therapist, meridian, admin]
+      x-client-forbidden: false
+      responses:
+        '200':
+          description: 身份与档位
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/AuthMeData' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /stores:
+    get:
+      operationId: listStores
+      tags: [A-租户与权限]
+      summary: A3 门店列表（按行级 scope 过滤）
+      x-contract-row: A3
+      x-callable-roles: [therapist, meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 门店分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/StoreListData' }
+        '403': { $ref: '#/components/responses/VisibilityDenied' }
+
+# =============================================================================
+# 域 B · 客户与档案（6 行）
+# =============================================================================
+  /screening-records:
+    post:
+      operationId: createScreeningRecord
+      tags: [B-客户与档案]
+      summary: B1 禁忌筛查提交（硬门禁①）
+      description: |
+        命中禁忌（result=不通过）→ 客户状态置 REJECTED，后续 B2/B3 入口 403 GATE_MISSING
+        （missing_items=["screening_result"]）。记录不可删除。
+      x-contract-row: B1
+      x-callable-roles: [therapist, meridian, admin]
+      x-client-forbidden: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScreeningCreateRequest' }
+      responses:
+        '200':
+          description: 筛查结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ScreeningData' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+
+  /customers:
+    post:
+      operationId: createCustomer
+      tags: [B-客户与档案]
+      summary: B2 建档（POST /archive 语义）
+      description: 需 screening_result=通过。phone 为租户内唯一（跨店识别键）。
+      x-contract-row: B2
+      x-callable-roles: [therapist, meridian, admin]
+      x-client-forbidden: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerCreateRequest' }
+      responses:
+        '200':
+          description: 建档结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CustomerCreateData' }
+        '403': { $ref: '#/components/responses/GateMissing' }
+
+  /customers/{id}/consents:
+    post:
+      operationId: signConsent
+      tags: [B-客户与档案]
+      summary: B3 签知情同意书
+      description: 需 PROFILED（门禁 G1：未建档不得签知情同意书）。
+      x-contract-row: B3
+      x-callable-roles: [therapist, meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: 签署结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '403': { $ref: '#/components/responses/GateMissing' }
+
+  /customers/{id}:
+    get:
+      operationId: getCustomer
+      tags: [B-客户与档案]
+      summary: B4 客户详情（可见性裁剪重点接口）
+      description: |
+        🔴 客户 token 请求含派生字段的 query（如 ?include=verdict）→ 403 VISIBILITY_DENIED，
+        data.denied_fields 回显被拒字段名。
+      x-contract-row: B4
+      x-callable-roles: [client, therapist, meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+        - name: include
+          in: query
+          required: false
+          schema: { type: string }
+          description: 追加字段（如 verdict）；命中客户不可见字段组时 403 VISIBILITY_DENIED
+      responses:
+        '200':
+          description: 客户详情（已按矩阵裁剪）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CustomerDetailData' }
+        '403': { $ref: '#/components/responses/VisibilityDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /customers/{id}/intake-profile:
+    get:
+      operationId: getIntakeProfile
+      tags: [B-客户与档案]
+      summary: B5 建档扩展档案
+      x-contract-row: B5
+      x-callable-roles: [client, therapist, meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: 建档扩展档案
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+    patch:
+      operationId: patchIntakeProfile
+      tags: [B-客户与档案]
+      summary: B6 补充 + 修订（append-only 留痕，不可覆盖）
+      x-contract-row: B6
+      x-callable-roles: [therapist, meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: 修订结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+
+# =============================================================================
+# 域 C · 评估与题库（4 行）
+# =============================================================================
+  /scale-item-banks:
+    get:
+      operationId: listScaleItemBanks
+      tags: [C-评估与题库]
+      summary: C1 题库拉取（按分龄组 + 维度）
+      x-contract-row: C1
+      x-callable-roles: [client, therapist, meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - name: age_group
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/AgeGroup' }
+        - name: dimension
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/Dimension' }
+        - name: version
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: 题组
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+
+  /customers/{id}/assessments/baseline:
+    post:
+      operationId: submitBaselineAssessment
+      tags: [C-评估与题库]
+      summary: C2 基线评估提交（同源题组锁定）
+      description: |
+        错误码：5001（题组量程 ≠ 0–4 / 题组非 symptom 向 / 缺分龄锁定）→ 提交阻断。
+      x-contract-row: C2
+      x-callable-roles: [therapist, meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BaselineAssessmentRequest' }
+      responses:
+        '200':
+          description: 基线评估结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/BaselineAssessmentData' }
+        '422': { $ref: '#/components/responses/BusinessRuleViolated' }
+
+  /customers/{id}/assessments/{assessment_id}:
+    get:
+      operationId: getAssessment
+      tags: [C-评估与题库]
+      summary: C3 评估详情
+      x-contract-row: C3
+      x-callable-roles: [client, therapist, meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+        - name: assessment_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: 评估详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /customers/{id}/cycle-assessments:
+    post:
+      operationId: submitCycleAssessment
+      tags: [C-评估与题库]
+      summary: C4 周期评估提交（每 7 次触发）
+      description: |
+        🛑 两阶段模型第一阶段的落点：本端点只落【评估侧依据】
+        （cycle_assessment.verdict IS NULL = 待判定），不落任何判定结论。
+        判定由 F1（POST /cycle-assessments/{id}/verdicts）在同一行上补全。
+        错误码：5001（题组量程 ≠ 0–4 / 缺分龄锁定）；4001（同一 cycle_id 重复提交）。
+      x-contract-row: C4
+      x-callable-roles: [therapist, meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCycleAssessmentRequest' }
+      responses:
+        '200':
+          description: 周期评估结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '422': { $ref: '#/components/responses/BusinessRuleViolated' }
+
+# =============================================================================
+# 域 D · 服务与履约（6 行 · 8 端点：D5 一行含 3 个端点）
+# =============================================================================
+  /customers/{id}/visits:
+    post:
+      operationId: createVisit
+      tags: [D-服务与履约]
+      summary: D1 服务核销（四道闸门）
+      x-contract-row: D1
+      x-callable-roles: [therapist, meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: 核销结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/VisitData' }
+        '403': { $ref: '#/components/responses/GateMissing' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+    get:
+      operationId: listVisits
+      tags: [D-服务与履约]
+      summary: D2 服务记录（客户维度全局账本）
+      x-contract-row: D2
+      x-callable-roles: [client, therapist, meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 服务记录分页
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+
+  /customers/{id}/daily-reports:
+    post:
+      operationId: submitDailyReport
+      tags: [D-服务与履约]
+      summary: D3 每日填报提交
+      x-contract-row: D3
+      x-callable-roles: [client, therapist, meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DailyReportRequest' }
+      responses:
+        '200':
+          description: 填报结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/DailyReportData' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+    get:
+      operationId: listDailyReports
+      tags: [D-服务与履约]
+      summary: D4 填报记录
+      x-contract-row: D4
+      x-callable-roles: [client, therapist, meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: 填报记录
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+
+  /plans:
+    post:
+      operationId: createPlan
+      tags: [D-服务与履约]
+      summary: D5-a 方案出具（回炉审核）
+      x-contract-row: D5
+      x-callable-roles: [therapist, meridian, admin]
+      x-client-forbidden: false
+      responses:
+        '200':
+          description: 方案结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+
+  /plans/{id}:
+    get:
+      operationId: getPlan
+      tags: [D-服务与履约]
+      summary: D5-b 方案查阅
+      x-contract-row: D5
+      x-callable-roles: [client, therapist, meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: 方案详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /plans/{id}/reviews:
+    post:
+      operationId: reviewPlan
+      tags: [D-服务与履约]
+      summary: D5-c 方案审核（退回必填 reason）
+      x-contract-row: D5
+      x-callable-roles: [meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: 审核结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+
+  /device-dispatches:
+    post:
+      operationId: createDeviceDispatch
+      tags: [D-服务与履约]
+      summary: D6 设备参数下发（需方案已审核）
+      description: |
+        🛑 本接口操作的是【门店级调理设备 device】（下行、可追责），
+        与【客户级手环 band】是两本台账、不得合并。
+      x-contract-row: D6
+      x-callable-roles: [therapist, meridian, admin]
+      x-client-forbidden: false
+      responses:
+        '200':
+          description: 下发结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '403': { $ref: '#/components/responses/GateMissing' }
+
+# =============================================================================
+# 域 E · 设备与手环数据（6 行 · 详见契约 §4 专章）
+# =============================================================================
+  /band/sync-batches:
+    post:
+      operationId: reportBandSyncBatch
+      tags: [E-设备与手环数据]
+      summary: E1 客户端上报同步批次（四态）
+      x-contract-row: E1
+      x-callable-roles: [client]
+      x-client-forbidden: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BandSyncBatchRequest' }
+      responses:
+        '200':
+          description: 批次受理结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '409': { $ref: '#/components/responses/IdempotentReplay' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /band/telemetry:
+    post:
+      operationId: upsertBandTelemetry
+      tags: [E-设备与手环数据]
+      summary: E2 客户端上行逐日采集数据（幂等 upsert · 双分支）
+      description: |
+        幂等键【双分支】（契约 §4.3）：
+          · 按日型 × 12 → (device_id, metric, date, hour, minute)，日聚合接口退化为 (device_id, metric, date)
+          · 游标型 × 1  → (device_id, 'sport', current_sport_id)
+        🔴 运动数据不得复用按日型幂等键。
+      x-contract-row: E2
+      x-callable-roles: [client]
+      x-client-forbidden: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BandTelemetryRequest' }
+      responses:
+        '200':
+          description: upsert 结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+        '422': { $ref: '#/components/responses/BusinessRuleViolated' }
+
+  /customers/{id}/band/telemetry:
+    get:
+      operationId: getBandTelemetry
+      tags: [E-设备与手环数据]
+      summary: E3 手环原始数据 + 采集状态（四端按档裁剪）
+      x-contract-row: E3
+      x-callable-roles: [client, therapist, meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: 手环数据（已按矩阵裁剪）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/BandTelemetryData' }
+        '403': { $ref: '#/components/responses/VisibilityDenied' }
+
+  /customers/{id}/band/derived:
+    get:
+      operationId: getBandDerived
+      tags: [E-设备与手环数据]
+      summary: E4 派生结果（A3 / AS / effect_verdict / 退款资格）—— 仅 staff
+      description: |
+        🔴 客户 token 调本接口 → 403 VISIBILITY_DENIED，data.denied_fields 回显被拒字段名。
+        A3 applicable=False（无有效同步数据）时不返回 a3_value ——
+        避免"0 值"被误读为"戴了 0 天"。
+      x-contract-row: E4
+      x-callable-roles: [therapist, meridian, admin]
+      x-client-forbidden: false
+      x-client-explicitly-denied: true
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: 派生结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/BandDerivedData' }
+        '403': { $ref: '#/components/responses/VisibilityDenied' }
+
+  /band/available-dates:
+    post:
+      operationId: reportBandAvailableDates
+      tags: [E-设备与手环数据]
+      summary: E5 设备可用日期探测结果上报（N 运行时探测 · 禁硬编码）
+      description: |
+        🛑 N 取运行时探测值，禁止硬编码：
+          · 服务端不得内置 N = 7 / N = 14 等任何常量；
+          · retention_window_days 一律取自本接口 valid_history_dates 的计算结果；
+          · 未探测到 → 返回 TBD，UI 与文案不得给出具体天数，不得按"数据齐全"预设布局。
+        服务端计算：pull_start_date = max(last_synced_date + 1, today − retention_window_days)，
+        上界 = today（含当日）。
+      x-contract-row: E5
+      x-callable-roles: [client]
+      x-client-forbidden: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BandAvailableDatesRequest' }
+      responses:
+        '200':
+          description: 探测结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/BandAvailableDatesData' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '422': { $ref: '#/components/responses/BusinessRuleViolated' }
+
+  /customers/{id}/band/sync-status:
+    get:
+      operationId: getBandSyncStatus
+      tags: [E-设备与手环数据]
+      summary: E6 客户端同步状态卡（四态）
+      x-contract-row: E6
+      x-callable-roles: [client]
+      x-client-forbidden: false
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: 同步状态卡
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/BandSyncStatusData' }
+
+# =============================================================================
+# 域 F · 判定与稽核（4 行）
+# =============================================================================
+  /cycle-assessments/{id}/verdicts:
+    post:
+      operationId: createVerdict
+      tags: [F-判定与稽核]
+      summary: F1 判定结论落库（含依据快照 + 阈值版本）
+      description: |
+        🛑 A-2 起本端点的 requestBody 已捕获冻结（此前为已登记的契约缺口，客户端无法据契约生成请求）。
+        入参 = 判定所需的【原始事实】；判定分支（branch）由服务端按
+        effect_verdict × adherence_state × risk_flag 组合算出，**不得**由调用方传入
+        （PRD P0-12：判定出口不得混入单一 enum）。
+        threshold_version 是【断言位】而非取值位：可空（= 服务端填）；
+        非空时必须逐字等于服务端算出的内容寻址指纹，否则拒写 4001。
+      x-contract-row: F1
+      x-callable-roles: [meridian, admin]
+      x-client-forbidden: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateVerdictRequest' }
+      responses:
+        '200':
+          description: 判定结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/VerdictData' }
+        '403': { $ref: '#/components/responses/VisibilityDenied' }
+
+  /customers/{id}/verdicts:
+    get:
+      operationId: listVerdicts
+      tags: [F-判定与稽核]
+      summary: F2 判定历史
+      description: 🔴 客户与调理师端一律 403 VISIBILITY_DENIED。
+      x-contract-row: F2
+      x-callable-roles: [meridian, admin]
+      x-client-forbidden: false
+      x-client-explicitly-denied: true
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: 判定历史
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '403': { $ref: '#/components/responses/VisibilityDenied' }
+
+  /audit/signals:
+    get:
+      operationId: listAuditSignals
+      tags: [F-判定与稽核]
+      summary: F3 稽核信号（总部 / 区域；门店与加盟商不可见）
+      x-contract-row: F3
+      x-callable-roles: [admin]
+      x-client-forbidden: false
+      x-client-explicitly-denied: true
+      x-row-scope: 门店负责人仅本店、区域督导仅辖区、总部全量；门店与加盟商完全不可见
+      responses:
+        '200':
+          description: 稽核信号
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '403': { $ref: '#/components/responses/VisibilityDenied' }
+
+  /audit/coverage:
+    get:
+      operationId: getAuditCoverage
+      tags: [F-判定与稽核]
+      summary: F4 可判定覆盖率（三数同显，Phase 2 P1-08）
+      description: |
+        三数同显 = ECC 数 / 分母（结案疗程数）/ 可判定覆盖率，禁止只报 ECC 一个数。
+        ⚠️ f 相关字段（a3_observability）本版预留、不返回值（TBD）。
+      x-contract-row: F4
+      x-callable-roles: [admin]
+      x-client-forbidden: false
+      x-client-explicitly-denied: true
+      x-row-scope: 卡片可给门店（仅本店、三数同显）；告警动作归 P1-04、对门店不可见
+      responses:
+        '200':
+          description: 覆盖率
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/AuditCoverageData' }
+        '403': { $ref: '#/components/responses/VisibilityDenied' }
+
+# =============================================================================
+# 域 G · 退款与挽留（5 行）
+# 🔴 本域全部接口：客户端与调理师端一律 403 VISIBILITY_DENIED。
+# X-2 落地（build-time）：小程序代码包内不得包含本域任何接口路径、字段名、"退款"字样。
+# =============================================================================
+  /refunds:
+    post:
+      operationId: createRefund
+      tags: [G-退款与挽留]
+      summary: G1 代录客户退款诉求（发起方 = 经络师 / 门店负责人）
+      x-contract-row: G1
+      x-callable-roles: [meridian, admin]
+      x-client-forbidden: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefundCreateRequest' }
+      responses:
+        '200':
+          description: 工单结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/RefundData' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/VisibilityDenied' }
+
+  /refunds/{id}:
+    get:
+      operationId: getRefund
+      tags: [G-退款与挽留]
+      summary: G2 退款工单详情
+      x-contract-row: G2
+      x-callable-roles: [meridian, admin]
+      x-client-forbidden: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: 工单详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '403': { $ref: '#/components/responses/VisibilityDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /refunds/{id}/retentions:
+    post:
+      operationId: createRetention
+      tags: [G-退款与挽留]
+      summary: G3 挽留记录（挽留记录必填；入口 B 不经挽留）
+      x-contract-row: G3
+      x-callable-roles: [meridian, admin]
+      x-client-forbidden: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: 挽留结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '403': { $ref: '#/components/responses/VisibilityDenied' }
+
+  /refunds/{id}/approvals:
+    post:
+      operationId: approveRefund
+      tags: [G-退款与挽留]
+      summary: G4 审批（出口集中；代录者不可审批）
+      x-contract-row: G4
+      # ⚠️ 登记待裁定：上游 §2.7 只写「审批（出口集中）」并给出「区域督导 ✅（可见不审批）」，
+      #    未逐一列出审批角色的白名单。下列取值系依据「可见 ≠ 可审批」这一上游明示语义
+      #    推断（故不含 area / meridian），属【推断项】，已在
+      #    ContractFreezeGateTest.KNOWN_DIFFERENCES 登记，待契约 owner + 产品共签确认。
+      x-callable-roles: [admin]
+      x-ruling-pending: "审批角色白名单未由上游逐项明示；当前取值系「可见≠可审批」推断，待裁定"
+      x-client-forbidden: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: 审批结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '403': { $ref: '#/components/responses/VisibilityDenied' }
+
+  /refunds/{id}/receipts:
+    post:
+      operationId: createRefundReceipt
+      tags: [G-退款与挽留]
+      summary: G5 回执（三态留痕）
+      x-contract-row: G5
+      x-callable-roles: [meridian, admin]
+      x-client-forbidden: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: 回执结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResultEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/RefundReceiptData' }
+        '403': { $ref: '#/components/responses/VisibilityDenied' }
+
+# =============================================================================
+# 域 H · 文书与电子签（1 行 · 🆕 占位待冻结）
+# 🛑 本节只冻结形态（事件枚举 / 幂等键 / 失败处置 / 数据边界），
+#    不冻结任何字段名、载荷结构、签名算法。厂商选定之前，三端不得据本节编码。
+# =============================================================================
+  /esign/callbacks/{provider}:
+    post:
+      operationId: receiveEsignCallback
+      tags: [H-文书与电子签]
+      summary: H1 厂商回调接收端点（占位 · 待厂商选定后冻结）
+      description: |
+        服务端对服务端，无客户端可见面。
+
+        已冻结的形态（三条）：
+          ① 事件枚举 event_type ∈ {signed, rejected, expired}；
+             signed 推进文书状态 → 放行 06 屏门禁（PLAN_APPROVED → AGREEMENT_SIGNED）；
+             rejected / expired 保持未签、不推进门禁，仅登记事实。
+          ② 幂等键 = sign_request_id + event_type（重复投递必须幂等，返回首次处理结果）。
+          ③ 🛑 数据边界（硬约束）：回调载荷不得承载任何健康数据 / 禁忌结论 ——
+             载荷允许承载范围白名单仅「签署事件 + 文书标识 + 租户标识 + 时间戳」。
+
+        ⚠️ 未冻结（不得写成结论）：字段名 / 载荷结构 / 厂商签名算法 / {provider} 取值域 /
+           投递语义（是否 at-least-once、重试策略、是否支持主动查询补数）/
+           多租户反解所依赖的厂商透传字段名。
+      x-contract-row: H1
+      x-callable-roles: []
+      x-client-forbidden: true
+      x-frontier: 占位待冻结
+      x-frozen-form-only:
+        - event_type 三值枚举
+        - 幂等键 sign_request_id + event_type
+        - 载荷白名单（不得承载健康数据 / 禁忌结论）
+      x-not-frozen:
+        - 字段名 / 载荷结构
+        - 厂商签名算法
+        - "provider 路径参数的取值域"
+        - 投递语义（at-least-once / 重试 / 主动查询补数）
+        - 多租户反解的厂商透传字段名
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string }
+          description: 取值域（如 e签宝 / 腾讯电子签 / 法大大）与厂商选定同步冻结
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: 载荷结构待厂商选定后冻结（本节只登记形态）
+      responses:
+        '200':
+          description: 受理结果（幂等键命中时返回首次处理结果）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '409': { $ref: '#/components/responses/IdempotentReplay' }
+
+# =============================================================================
+# 域 I · 文书模板与渲染（8 行 · 🆕 占位待冻结）
+# 🛑 本节只冻结形态（方法与路径 / 上传与渲染关键约定 / 错误码 / 数据边界），
+#    不冻结任何字段名、载荷结构、请求体细节。
+#    I2~I7 = super_admin（tenant 级，不跨租户）；I1 对门店负责人 / 区域督导只读。
+# =============================================================================
+  /doc-templates:
+    get:
+      operationId: listDocTemplates
+      tags: [I-文书模板与渲染]
+      summary: I1 模板列表（按 doc_type 过滤）
+      description: 门店负责人 / 区域督导只读（仅 is_active=true，仅 title + version，不含 content / file_ref）。
+      x-contract-row: I1
+      x-callable-roles: [admin]
+      x-client-forbidden: false
+      x-frontier: 占位待冻结
+      parameters:
+        - name: doc_type
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/DocType' }
+        - name: is_active
+          in: query
+          required: false
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: 模板列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+    post:
+      operationId: createDocTemplate
+      tags: [I-文书模板与渲染]
+      summary: I2 新建（source_type=editor，JSON 正文）
+      x-contract-row: I2
+      x-callable-roles: [admin]
+      x-client-forbidden: false
+      x-frontier: 占位待冻结
+      responses:
+        '200':
+          description: 新建结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+
+  /doc-templates/uploads:
+    post:
+      operationId: uploadDocTemplate
+      tags: [I-文书模板与渲染]
+      summary: I3 上传（multipart/form-data → source_type=upload）
+      description: |
+        上传约束：mime_type 仅允许三值（application/pdf /
+        application/vnd.openxmlformats-officedocument.wordprocessingml.document / text/markdown）；
+        file_size ≤ 10 MiB；落盘前先算 file_hash（SHA-256 hex），
+        同 <tenant, doc_type> 下同 hash 重复上传 → 返回已有版本号（幂等返回 4002）。
+
+        🛑 反病毒 / 反脚本：上传文件不得作为可执行内容被服务端解析执行；
+           DOCX 不得解压执行宏（只做字节存储 + 哈希，不做宏解析）。
+      x-contract-row: I3
+      x-callable-roles: [admin]
+      x-client-forbidden: false
+      x-frontier: 占位待冻结
+      x-idempotency-key: "(tenant_id, doc_type, file_hash)"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: 上传结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '403': { $ref: '#/components/responses/TenantMismatch' }
+        '409': { $ref: '#/components/responses/IdempotentReplay' }
+
+  /doc-templates/{id}/versions:
+    post:
+      operationId: createDocTemplateVersion
+      tags: [I-文书模板与渲染]
+      summary: I4 新版本（editor / upload 均可；不可覆盖）
+      x-contract-row: I4
+      x-callable-roles: [admin]
+      x-client-forbidden: false
+      x-frontier: 占位待冻结
+      parameters:
+        - $ref: '#/components/parameters/DocTemplateId'
+      responses:
+        '200':
+          description: 新版本结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '403': { $ref: '#/components/responses/VisibilityDenied' }
+    get:
+      operationId: listDocTemplateVersions
+      tags: [I-文书模板与渲染]
+      summary: I5 版本列表（含 source_type / file_hash / change_reason，不含正文）
+      x-contract-row: I5
+      x-callable-roles: [admin]
+      x-client-forbidden: false
+      x-frontier: 占位待冻结
+      parameters:
+        - $ref: '#/components/parameters/DocTemplateId'
+      responses:
+        '200':
+          description: 版本列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+
+  /doc-templates/{id}/versions/{version}/publish:
+    post:
+      operationId: publishDocTemplateVersion
+      tags: [I-文书模板与渲染]
+      summary: I6 发布（置 is_active=true，同 doc_type 其他版本置 false）
+      x-contract-row: I6
+      x-callable-roles: [admin]
+      x-client-forbidden: false
+      x-frontier: 占位待冻结
+      parameters:
+        - $ref: '#/components/parameters/DocTemplateId'
+        - name: version
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 发布结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+
+  /doc-templates/{id}/download:
+    get:
+      operationId: downloadDocTemplate
+      tags: [I-文书模板与渲染]
+      summary: I7 下载原件（上传形态用）—— 仅超管
+      x-contract-row: I7
+      x-callable-roles: [admin]
+      x-client-forbidden: false
+      x-frontier: 占位待冻结
+      x-super-admin-only: true
+      parameters:
+        - $ref: '#/components/parameters/DocTemplateId'
+        - name: version
+          in: query
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 原件字节流
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '403': { $ref: '#/components/responses/VisibilityDenied' }
+
+  /agreements/{id}/render:
+    post:
+      operationId: renderAgreement
+      tags: [I-文书模板与渲染]
+      summary: I8 签署时渲染（服务端 → 电子签厂商，无客户端可见面）
+      description: |
+        渲染规则（四条）：
+          ① 占位符只从白名单取值，未声明 placeholder_schema 时只允许零占位符（fail-closed）；
+          ② 未在白名单的占位符 → 报错 2004，不静默留空；
+          ③ customer.phone 强制脱敏（前 3 后 4，原名不得出现在文书内）；
+          ④ 渲染结果必须落快照 + hash（否则事后无法证明签的是哪一版）。
+        🛑 渲染期只做文本占位符替换，不做 DOCX 内嵌逻辑求值。
+        🛑 QC-6 不变量：模板正文一律不得作为客户端包资产下发。
+      x-contract-row: I8
+      x-callable-roles: []
+      x-client-forbidden: true
+      x-frontier: 占位待冻结
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: 渲染结果（rendered_snapshot + rendered_hash）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultEnvelope' }
+        '403': { $ref: '#/components/responses/PlaceholderOutOfScope' }
+
+# =============================================================================
+# 组件
+# =============================================================================
+components:
+
+  parameters:
+    CustomerId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+      description: 客户 ID（服务端从 token 校验租户归属）
+    DocTemplateId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    Page:
+      name: page
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      required: false
+      schema: { type: integer, maximum: 100 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, format: uuid }
+      description: 服务端在 24h 窗口内去重
+
+  responses:
+    ValidationFailed:
+      description: 400 VALIDATION_FAILED（参数类型/必填/约束不满足）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ResultEnvelope' }
+    Unauthenticated:
+      description: 401 UNAUTHENTICATED（无 token / token 过期）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ResultEnvelope' }
+    VisibilityDenied:
+      description: 403 VISIBILITY_DENIED（该角色对请求字段组无可见性档位；data.denied_fields 回显被拒字段名）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ResultEnvelope' }
+    GateMissing:
+      description: 403 GATE_MISSING（前置门禁缺失；data.missing_items[] 给出缺失项名称，不得模糊报错）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ResultEnvelope' }
+    TenantMismatch:
+      description: 403 TENANT_MISMATCH（跨租户访问 / 租户头与 token 不符）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ResultEnvelope' }
+    PlaceholderOutOfScope:
+      description: 403/2004 PLACEHOLDER_OUT_OF_SCOPE（模板含未在白名单的占位符）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ResultEnvelope' }
+    NotFound:
+      description: 404 NOT_FOUND（仅限本租户内确实不存在）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ResultEnvelope' }
+    VersionConflict:
+      description: 409 VERSION_CONFLICT（版本不可覆盖）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ResultEnvelope' }
+    IdempotentReplay:
+      description: 409 IDEMPOTENT_REPLAY（幂等键命中已有记录，返回首次结果）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ResultEnvelope' }
+    BusinessRuleViolated:
+      description: 422 BUSINESS_RULE_VIOLATED（业务规则不满足，如题组量程 ≠ 0–4）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ResultEnvelope' }
+    RateLimited:
+      description: 429 RATE_LIMITED（触发节流，如 onShow 5 分钟窗口）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ResultEnvelope' }
+    InternalError:
+      description: 500 INTERNAL_ERROR
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ResultEnvelope' }
+
+  schemas:
+
+    # ---------------------------------------------------------------
+    # 统一信封（契约 §2.0）：{ code, message, data, trace_id }
+    # code != 0 时 data 为空
+    # ---------------------------------------------------------------
+    ResultEnvelope:
+      type: object
+      required: [code, message, trace_id]
+      properties:
+        code:
+          type: integer
+          description: 0 = 成功；非 0 见 x-error-codes
+        message:
+          type: string
+          description: 面向开发者，不得直接渲染给客户（客户端有自己的 code → copy 映射）
+        data:
+          type: object
+          nullable: true
+          description: code != 0 时为空
+        trace_id:
+          type: string
+          x-visible-to: [client, therapist, meridian, admin]
+      x-visibility-note: 信封字段对全部角色可见
+
+    LoginData:
+      type: object
+      properties:
+        token: { type: string, x-visible-to: [client, therapist, meridian, admin] }
+        expires_in: { type: integer, x-visible-to: [client, therapist, meridian, admin] }
+        role:
+          type: string
+          enum: [client, therapist, meridian, manager, area, hq]
+          x-visible-to: [client, therapist, meridian, admin]
+          description: 客户=client / 调理师=therapist / 经络师=meridian / 门店负责人=manager / 区域督导=area / 总部运营=hq
+        client_end: { type: string, enum: [mp, app, web], x-visible-to: [client, therapist, meridian, admin] }
+        tenant_id: { type: string, x-visible-to: [client, therapist, meridian, admin] }
+        staff_id:
+          type: string
+          x-visible-to: [therapist, meridian, admin]
+          description: 客户无 staff_id（差异项）
+
+    AuthMeData:
+      type: object
+      properties:
+        role: { type: string, x-visible-to: [client, therapist, meridian, admin] }
+        band_visibility:
+          type: object
+          description: 字段组档位布尔值（声明，不是数据）
+          properties:
+            field_group_1_raw: { type: boolean, x-visible-to: [client, therapist, meridian, admin] }
+            field_group_2_status: { type: boolean, x-visible-to: [client, therapist, meridian, admin] }
+            field_group_3_gap_reason: { type: boolean, x-visible-to: [client, therapist, meridian, admin] }
+            field_group_4_derived: { type: boolean, x-visible-to: [client, therapist, meridian, admin] }
+        refund_visibility:
+          type: boolean
+          x-visible-to: [meridian, admin]
+          description: 调理师 false（config #40）；客户恒 false
+        store_scope:
+          type: object
+          x-visible-to: [therapist, meridian, admin]
+          properties:
+            row_level: { type: string, enum: [own_store, region, all] }
+            store_ids: { type: array, items: { type: string } }
+
+    StoreListData:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Store' } }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+
+    Store:
+      type: object
+      properties:
+        store_id: { type: string }
+        name: { type: string }
+        franchise_type: { type: string, enum: [直营, 加盟] }
+
+    ScreeningCreateRequest:
+      type: object
+      required: [customer_id, items_json, operator_id]
+      properties:
+        customer_id: { type: string }
+        items_json:
+          type: object
+          description: 含 pregnancy / acute / risk_history / nonmedical_disclosed
+        operator_id: { type: string, description: 服务端从 token 覆写 }
+        customer_sign: { type: string }
+        operator_sign: { type: string }
+
+    ScreeningData:
+      type: object
+      properties:
+        screening_id: { type: string, x-visible-to: [client, therapist, meridian, admin] }
+        result:
+          type: string
+          enum: [通过, 不通过]
+          x-visible-to: [client, therapist, meridian, admin]
+        submitted_at: { type: string, format: date-time, x-visible-to: [client, therapist, meridian, admin] }
+
+    CustomerCreateRequest:
+      type: object
+      required: [name, gender, age, phone, screening_id]
+      properties:
+        name: { type: string }
+        gender: { type: string, enum: [男, 女] }
+        age: { type: integer, minimum: 1, maximum: 119 }
+        phone: { type: string, description: 租户内唯一（跨店识别键）}
+        screening_id: { type: string, description: 服务端校验其 result=通过 }
+
+    CustomerCreateData:
+      type: object
+      properties:
+        customer_id: { type: string, x-visible-to: [client, therapist, meridian, admin] }
+        status:
+          type: string
+          enum: [CREATED, PROFILED, CONSENTED, REJECTED, ARCHIVED]
+          x-visible-to: [client, therapist, meridian, admin]
+          description: 5 值粗粒度派生聚合态，不是服务主状态机（14 态见 customer_state_transition）
+        owner_store_id:
+          type: string
+          x-visible-to: [therapist, meridian, admin]
+          description: 客户不下发
+        serving_store_id:
+          type: string
+          x-visible-to: [therapist, meridian, admin]
+          description: 客户不下发
+
+    CustomerDetailData:
+      type: object
+      properties:
+        customer_id: { type: string, x-visible-to: [client, therapist, meridian, admin] }
+        name: { type: string, x-visible-to: [client, therapist, meridian, admin] }
+        gender: { type: string, x-visible-to: [client, therapist, meridian, admin] }
+        age: { type: integer, x-visible-to: [client, therapist, meridian, admin] }
+        intake_profile: { type: object, x-visible-to: [client, therapist, meridian, admin] }
+        screening_result: { type: string, x-visible-to: [client, therapist, meridian, admin] }
+        band_willingness:
+          type: string
+          enum: [自愿佩戴, 暂不佩戴]
+          x-visible-to: [client, therapist, meridian, admin]
+        owner_store_id: { type: string, x-visible-to: [therapist, meridian, admin] }
+        serving_store_id: { type: string, x-visible-to: [therapist, meridian, admin] }
+        effect_verdict:
+          type: string
+          x-field-group: derived_result
+          x-visible-to: [therapist, meridian, admin]
+          description: 派生字段；客户 token 请求 include=verdict → 403 VISIBILITY_DENIED
+        as_value:
+          type: number
+          x-field-group: derived_result
+          x-visible-to: [therapist, meridian, admin]
+          description: 派生字段；客户恒不下发
+
+    AgeGroup:
+      type: string
+      enum: [男16-32, 男33-40, 男41-48, 男49以上, 女14-28, 女29-35, 女36-42, 女43-49以上]
+
+    Dimension:
+      type: string
+      enum: [体能精力, 面部气色肤质, 肩颈腰背筋骨, 睡眠质量, 记忆专注, 代谢体态消化, 情绪抗压与抵抗力]
+
+    BaselineAssessmentRequest:
+      type: object
+      required: [scale_id, item_group_id, age_group_locked, dimension_scores, total_score, measure_operator]
+      properties:
+        scale_id: { type: string }
+        item_group_id: { type: string, description: 同源题组锁定 }
+        age_group_locked: { $ref: '#/components/schemas/AgeGroup' }
+        dimension_scores:
+          type: array
+          minItems: 7
+          maxItems: 7
+          items: { type: integer, minimum: 0, maximum: 16 }
+        total_score: { type: integer, minimum: 0, maximum: 112 }
+        measure_operator: { type: string }
+
+    BaselineAssessmentData:
+      type: object
+      properties:
+        assessment_id: { type: string, x-visible-to: [client, therapist, meridian, admin] }
+        assessed_at: { type: string, format: date-time, x-visible-to: [client, therapist, meridian, admin] }
+        baseline_conclusion:
+          type: object
+          x-visible-to: [client, therapist, meridian, admin]
+          properties:
+            haozhuan: { type: string, enum: [好转, 稳定, 下降] }
+        migratable:
+          type: boolean
+          x-visible-to: [therapist, meridian, admin]
+          description: 客户不下发
+        dimension_scores:
+          type: array
+          items: { type: integer }
+          x-visible-to: [client, therapist, meridian, admin]
+          description: 客户仅见本人填答维度
+
+    DailyReportRequest:
+      type: object
+      required: [date, answers_json, source]
+      properties:
+        date: { type: string, format: date, description: 补填窗口 ≤2 天（可配置）}
+        answers_json: { type: object, description: 全点选，无开放输入 }
+        source: { type: string, enum: [客户, 代核], description: 代录须标 代核 }
+
+    DailyReportData:
+      type: object
+      properties:
+        report_id: { type: string, x-visible-to: [client, therapist, meridian, admin] }
+        date: { type: string, format: date, x-visible-to: [client, therapist, meridian, admin] }
+        weekly_count: { type: integer, x-visible-to: [client, therapist, meridian, admin], description: 本周 X/7 天（正向计数）}
+        last_week_compare: { type: object, x-visible-to: [client, therapist, meridian, admin] }
+        suggestion: { type: string, x-visible-to: [client, therapist, meridian, admin] }
+        source: { type: string, x-visible-to: [client, therapist, meridian, admin] }
+
+    VisitData:
+      type: object
+      properties:
+        visit_id: { type: string, x-visible-to: [client, therapist, meridian, admin] }
+        visit_no: { type: integer, x-visible-to: [client, therapist, meridian, admin] }
+        executed_at: { type: string, format: date-time, x-visible-to: [client, therapist, meridian, admin] }
+        serving_store_id: { type: string, x-visible-to: [client, therapist, meridian, admin], description: 客户端可见（标记服务门店）}
+        gate_check_json:
+          type: object
+          x-visible-to: [therapist, meridian, admin]
+          description: 客户不下发
+        customer_confirmed: { type: boolean, x-visible-to: [client, therapist, meridian, admin] }
+        abnormal_note:
+          type: string
+          x-visible-to: [therapist, meridian, admin]
+          description: 客户不下发
+
+    BandSyncBatchRequest:
+      type: object
+      required: [device_id, customer_id, batch_no, trigger, state, synced_at]
+      properties:
+        device_id: { type: string, description: 客户级穿戴设备 ID（非门店调理设备）}
+        customer_id: { type: string, description: 服务端从 token 校验归属 }
+        batch_no: { type: string, format: uuid, description: 幂等键（Idempotency-Key 同值）}
+        trigger:
+          type: string
+          enum: [on_show_cold, on_show_hot, checkin, daily_report, manual]
+        state:
+          type: string
+          enum: [syncing, synced, sync_failed, no_data_today]
+          description: 四态；客户端可见的 client_sync_state（不含"未佩戴"取值）
+        synced_at: { type: string, format: date-time, description: 精确记录；客户端展示精确到日 }
+        last_success_date: { type: string, format: date, description: state=synced 时必填 }
+        fail_reason_class:
+          type: string
+          enum: [bt_off, unauthorized, connect_timeout, device_low_battery, occupied_by_vendor_app, platform_suspended, probe_out_of_window]
+          x-visible-to: [client, therapist, meridian, admin]
+          description: state=sync_failed 时必填；技术类，取值域内不得出现"未佩戴"语义
+        next_action:
+          type: string
+          enum: [open_bluetooth, grant_permission, retry, none]
+          x-visible-to: [client, therapist, meridian, admin]
+          description: state=sync_failed 时必填（可执行下一步）；不得只给一句"同步失败"
+
+    BandTelemetryRequest:
+      type: object
+      required: [device_id, metric]
+      properties:
+        device_id: { type: string }
+        metric:
+          type: string
+          enum: [sleep, steps, hr, resting_hr, spo2, workout, bp, temp, pressure, met, mai, respiration, exercise]
+        date: { type: string, format: date, description: 业务日（设备本地时区）}
+        hour: { type: integer, nullable: true, description: 日聚合型退化为 NULL }
+        minute: { type: integer, nullable: true }
+        value: { description: 按 metric 的 Schema }
+        interval: { type: integer, description: 采样间隔 }
+        is_wear:
+          type: integer
+          nullable: true
+          description: getHealthDetail.isWear；1=佩戴 / 0=脱腕 / (-1,255)=技术性缺失（服务端强制覆写、不判行为性）
+        raw_source: { type: string }
+        current_sport_id: { type: string, description: 游标型 sport 分支 }
+        sport_payload: { type: object }
+        sport_length: { type: integer, description: 循环判据（sportLength > 1）}
+
+    BandTelemetryData:
+      type: object
+      properties:
+        data_source:
+          type: string
+          enum: [手环, 未接入]
+          x-visible-to: [client, therapist, meridian, admin]
+          description: 未接入时数值字段不下发，不得显示 0 / 空图表 / 示例数据
+        collected_days:
+          type: integer
+          x-field-group: capture_status
+          x-visible-to: [client, therapist, meridian, admin]
+          description: 已采集天数（正向计数）
+        synced_date:
+          type: string
+          format: date
+          x-field-group: capture_status
+          x-visible-to: [client, therapist, meridian, admin]
+          description: 客户可见同步时间精确到日（不得到分秒）
+        metrics: { type: array, items: { type: object }, x-field-group: raw_data, x-visible-to: [client, therapist, meridian, admin] }
+        gap_reason:
+          type: string
+          enum: [no_open, sync_failed, not_worn, compliant_removal, involuntary_technical, beyond_retention_window, unknown]
+          x-field-group: gap_reason
+          x-visible-to: [therapist, meridian, admin]
+          description: 🔴 客户恒 403 / 不下发（硬约束，配置不得放开）
+
+    BandDerivedData:
+      type: object
+      properties:
+        a3_applicable:
+          type: boolean
+          x-field-group: derived_result
+          x-visible-to: [therapist, meridian, admin]
+          description: 为 false 时不返回 a3_value（避免 0 值被误读为"戴了 0 天"）
+        a3_value:
+          type: number
+          x-field-group: derived_result
+          x-visible-to: [therapist, meridian, admin]
+        as_value:
+          type: number
+          x-field-group: derived_result
+          x-visible-to: [therapist, meridian, admin]
+        effect_verdict:
+          type: string
+          enum: [E1显著改善, E2部分改善, E3稳定, E4无明显改善, E5加重]
+          x-field-group: derived_result
+          x-visible-to: [therapist, meridian, admin]
+        refund_eligibility:
+          type: boolean
+          x-field-group: derived_result
+          x-visible-to: [therapist, meridian, admin]
+
+    BandAvailableDatesRequest:
+      type: object
+      required: [device_id, history_type, valid_history_dates, probed_at]
+      properties:
+        device_id: { type: string }
+        history_type:
+          type: string
+          description: 与厂商枚举对齐（13 条逐日接口对应的 HistoryType；12 按日 + 1 游标）
+        valid_history_dates:
+          type: array
+          items: { type: string, format: date }
+          description: getValidHistoryDates 原样返回（设备端实际存在的日期）
+        probed_at: { type: string, format: date-time }
+
+    BandAvailableDatesData:
+      type: object
+      properties:
+        probe_id: { type: string, x-visible-to: [client] }
+        retention_window_days:
+          oneOf:
+            - type: integer
+            - type: string
+              enum: [TBD]
+          x-visible-to: [client]
+          x-tbd-allowed: true
+          description: 🛑 运行时探测值（= 探测到的可用日期跨度）；未探测到 → 返回 TBD，不得回落为硬编码值
+        pull_start_date:
+          type: string
+          format: date
+          x-visible-to: [client]
+          description: 服务端计算 start = max(last_synced_date + 1, today − retention_window_days)；上界 = today（含当日）
+        earliest_available: { type: string, format: date, x-visible-to: [client] }
+        latest_available: { type: string, format: date, x-visible-to: [client] }
+
+    BandSyncStatusData:
+      type: object
+      properties:
+        state:
+          type: string
+          enum: [syncing, synced, sync_failed, no_data_today]
+          x-visible-to: [client]
+        synced_date: { type: string, format: date, x-visible-to: [client], description: 精确到日 }
+        next_action: { type: string, x-visible-to: [client] }
+        fail_reason_class: { type: string, x-visible-to: [client], description: 仅技术类，无未佩戴 }
+
+    VerdictData:
+      type: object
+      properties:
+        verdict_id: { type: string }
+        branch:
+          type: string
+          enum: [稳定, 依从不足, 达标无效, 全面评估, 人工复核]
+          x-visible-to: [meridian, admin]
+        confidence: { type: number, x-visible-to: [meridian, admin] }
+        evidence_snapshot: { type: object, x-visible-to: [meridian, admin] }
+        threshold_version: { type: string, x-visible-to: [meridian, admin] }
+        decided_at: { type: string, format: date-time, x-visible-to: [meridian, admin] }
+
+    # 🛑 A-2 新增：F1 的 requestBody（此前为已登记的契约缺口 —— 客户端无法据契约生成请求）。
+    #    入参 = 判定所需的【原始事实】。branch / effect_verdict / disposition 一律不在此 ——
+    #    它们由服务端按 effect_verdict × adherence_state × risk_flag 组合算出（PRD P0-12）。
+    CreateVerdictRequest:
+      type: object
+      required: [customer_id, sequence_no, same_origin, adherence, risk_flag,
+                 core_metric_improved, confidence, module_scores]
+      x-request-body-captured: "A-2 (2026-09-26)"
+      properties:
+        customer_id: { type: string, description: 客户（用于历史查询与越权判定）}
+        sequence_no: { type: integer, minimum: 1, description: 第 N 次评估 }
+        base_total: { type: integer, description: 基线模块总分；缺失 ⇒ 挂起（D5）}
+        current_total: { type: integer, description: 复评模块总分；缺失 ⇒ 挂起（D5）}
+        same_origin:
+          type: object
+          description: 同源断言（三项；任一项缺省 = 不成立 = 不可比 ⇒ 挂起）
+          properties:
+            same_item_group: { type: boolean }
+            range_matches: { type: boolean }
+            same_measurer: { type: boolean }
+        adherence:
+          type: object
+          description: 依从四维（键为 A1/A3/A4；🛑 A2 永不参与 AS）
+          properties:
+            expected_days: { type: integer, minimum: 0 }
+            dimensions:
+              type: object
+              additionalProperties:
+                type: object
+                properties:
+                  applicable: { type: boolean }
+                  value: { type: number }
+                  structural_missing: { type: boolean }
+        risk_flag:
+          type: string
+          enum: [无, 高危, 新发, 同病]
+          description: 🛑 缺失 ⇒ 未定（不得默认「无」—— 那会让 D4 该触发而不触发）
+        core_metric_improved: { type: boolean, description: 经络师结构化录入；缺失 ⇒ 挂起 }
+        confidence:
+          type: object
+          description: 置信度四项因子
+          properties:
+            same_origin_status: { type: string }
+            answered_count: { type: integer, minimum: 0 }
+            expected_days: { type: integer, minimum: 0 }
+            mcid_delta: { type: integer }
+        module_scores:
+          type: object
+          description: 模块分 M1–M5（各 0–16）
+          additionalProperties: { type: integer, minimum: 0, maximum: 16 }
+        band_trend_note: { type: string, description: 手环趋势说明（U-15 四条备注语义的载体）}
+        threshold_version:
+          type: string
+          description: |
+            🛑【断言位，不是取值位】可空（空 = 服务端按当前口径填）；
+            非空时必须逐字等于服务端算出的内容寻址指纹，否则拒写 4001。
+
+    # 🛑 C4 的 requestBody。它只承载【评估侧事实】——
+    #    branch / effect_verdict / improvement_rate 属判定侧产物，由 F1 产出。
+    CreateCycleAssessmentRequest:
+      type: object
+      required: [cycle_id, sequence_no, adherence, module_scores]
+      x-request-body-captured: "本批（与 F1 同批冻结）"
+      properties:
+        cycle_id:
+          type: string
+          description: 周期评估主键（必填 —— 使 F1 能在同一行上补判定）
+        sequence_no: { type: integer, minimum: 1, description: 第 N 次评估（每 7 次触发）}
+        adherence:
+          type: object
+          description: 依从四维（与 F1 同一形状 —— 两侧对同一事实不得有两套字段名）
+          properties:
+            expected_days: { type: integer, minimum: 0 }
+            dimensions:
+              type: object
+              additionalProperties:
+                type: object
+                properties:
+                  applicable: { type: boolean }
+                  value: { type: number }
+                  structural_missing: { type: boolean }
+        expected_days: { type: integer, minimum: 0, description: 应填天数（样本护栏）}
+        module_scores:
+          type: object
+          description: 模块分 M1–M5（各 0–16）
+          additionalProperties: { type: integer, minimum: 0, maximum: 16 }
+        band_trend_note: { type: string }
+        threshold_version:
+          type: string
+          description: 断言位（可空 = 服务端填；非空须逐字等于服务端指纹）
+
+    AuditCoverageData:
+      type: object
+      properties:
+        ecc_count: { type: integer, description: ECC 数 }
+        denominator_closed_courses: { type: integer, description: 分母（结案疗程数）}
+        decidable_coverage_rate: { type: number, description: 可判定覆盖率 }
+        a3_observability:
+          type: string
+          x-tbd-allowed: true
+          description: 预留，本版不返回值（TBD）；上限 = s
+
+    RefundCreateRequest:
+      type: object
+      required: [customer_id, entry, refund_route, reason_code, requested_at]
+      properties:
+        customer_id: { type: string }
+        entry: { type: string, enum: [A门店代录, B首周期] }
+        refund_route: { type: string, enum: [履约类, 效果类] }
+        reason_code:
+          type: string
+          enum: [效果未达预期, 症状加重或出现新不适, 服务体验或沟通问题, 时间·经济·家庭原因, 配合度不足导致无明显变化, 信任或价格异议]
+          description: 必填；未记录原因不可结案
+        requested_at: { type: string, format: date-time, description: 最早且可核实 }
+        requested_at_claimed: { type: string, format: date-time, description: 客户主张，仅留存不计时 }
+        customer_statement: { type: string, description: append-only 原话 }
+
+    RefundData:
+      type: object
+      properties:
+        refund_id: { type: string }
+        liable_store_id: { type: string }
+        sla_due_at: { type: string, format: date-time }
+        recording_delay_h: { type: number }
+        outcome: { type: string, enum: [继续, 终止, 归档] }
+
+    RefundReceiptData:
+      type: object
+      properties:
+        receipt_state:
+          type: string
+          enum: [已推送, 未授权（转线下）, 推送失败]
+          description: 三态留痕
+
+    DocType:
+      type: string
+      enum: [知情同意书, 调理协议书, 手环数据说明, 隐私与授权须知, 到店须知, 其他]

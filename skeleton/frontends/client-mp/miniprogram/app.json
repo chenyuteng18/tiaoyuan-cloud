@@ -1,0 +1,13 @@
+{
+  "pages": [
+    "pages/index/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "调元云",
+    "navigationBarBackgroundColor": "#2D5A4A",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#FAF8F4"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.diaoyuanyun</groupId>
+        <artifactId>diaoyuanyun-skeleton</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>dy-crypto</artifactId>
+    <name>dy-crypto</name>
+    <description>
+        PIPL / 等保 2.0 三级 字段级加密：每主体 DEK + 租户级 KEK 信封包裹 + crypto-shredding
+        （ADR-12 第十二节 / 架构规格书 §8.3 §8.4 / 竞析 E.3 E.6 H.2-8 H.2-9）
+    </description>
+
+    <!--
+      依赖纪律：本模块【零】编译期第三方依赖。
+
+      理由不是洁癖，而是本模块的命题本身要求它可被独立审计：
+        - 全部密码学来自 JDK 自带的 javax.crypto（AES-GCM 由 provider 提供），
+          因此"用了什么算法"这件事只在 algorithm/ 包内可见，不藏在某个框架的封装里；
+        - 不依赖 dy-common / dy-tenancy，意味着加密层不能被上层模块的改动带偏，
+          也不会在别处的构建里被牵连（本任务与另外三个任务在同一仓库并行构建）。
+
+      ⚠️ 关于 PostgreSQL 驱动（2026-09-22 更正）：本 pom 曾声明 postgresql 为 test scope，
+      注释称"只有真库 crypto-shredding 门禁用它"。该陈述【不实】——
+      本模块 src/test 下零 JDBC 代码：唯二出现在测试里的类是
+      CryptoTestHarness（纯进程内栈）与两个门禁 Test（DeletionDagGateTest /
+      FieldCryptoGateTest），都不 import java.sql。[1]
+      故该依赖已删除（未被使用的依赖会随构建下载并进入依赖图，属于"声明的能力比实际多"）。
+      backlog：真库 crypto-shredding 门禁应落在 dy-app 的集成测试（那里本来就有
+      RLS 真库门禁的既有支撑），而不是在本模块里挂一个用不上的驱动。
+    -->
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

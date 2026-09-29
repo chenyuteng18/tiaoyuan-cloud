@@ -1,0 +1,104 @@
+# =============================================================================
+# ADR-12 SCAN FACE 3  --  DERIVED FIELDS AND DERIVED VERDICT WORDING
+# =============================================================================
+# Authority : ADR-12 (arch-decisions-lead-2026-09-19.md section 12)
+#             architecture-saas-2026-09-19.md section 12 扫描面表
+#               (X-2 build-time ; 扫描面 3 · 派生字段)
+#             contract-t6-api-freeze-2026-09-19.md
+#               - section 2.8 domain H 措辞纪律自查 (client-visible fields must
+#                 pass section 5.1 R1~R8)
+#               - section 4.4 三类失败在契约中的区分与表达
+#               - the client-visible error-code table
+#             integration-metric-spec-2026-09-16.md sections 3.2 / 4.3
+# Owner     : see ../owners.csv  ->  subject = scan3_derived
+# Encoding  : UTF-8 (readers MUST decode as UTF-8, never as platform ANSI/GBK)
+#
+# CITATION RULE: semantic anchors only (section / rule id / item title / config
+# number / function name), never line numbers -- see wordlists/scan1_refund.words.
+#
+# Rationale: derived fields and derived verdicts are computed server-side and
+# are NOT downloadable to the client. The internal gap-reason enum and the
+# client sync-state enum are two independent enum namespaces and MUST NOT share
+# a type definition (contract section 4.2 / 4.3, 契约级隔离). A client build that
+# merely *names* one of
+# these identifiers has already leaked the concept.
+#
+# FORMAT
+#   one term per line; '#' starts a comment.
+#   ASCII identifier-like terms are matched with word boundaries and
+#   case-insensitively; all other terms are matched as substrings.
+# =============================================================================
+
+## group: derived field / identifier names
+gap_reason
+effect_verdict
+AS_refund
+a3_value
+a3_applicable
+is_compliant
+achievement_rate
+adherence_state
+risk_flag
+coverage_flag
+
+## group: derived field names that were MISSING until 2026-09-24
+#   TRIGGER (S1-6, 2026-09-24)
+#     The client package carried the path `/api/v1/band/derived` in its own
+#     allow-list -- an endpoint the contract denies to the client (row E4,
+#     x-client-explicitly-denied: true). The gate reported PASS.
+#     Two independent reasons, and BOTH had to be fixed:
+#       (a) the concept word `derived` was simply not a term, so no face could
+#           fire on it;
+#       (b) several derived FIELD names ruled client-invisible by the contract
+#           visibility matrix were also absent from this file.
+#
+#   WHY THIS IS NOT "JUST ADD THE WORD"
+#     Adding `derived` alone would have been a word-scan patch on a defect whose
+#     real shape is a DRIFT problem: this wordlist and the contract's visibility
+#     matrix are two hand-maintained lists of the same fact, and nothing kept
+#     them in step. So the term is added here AND a companion gate
+#     (`client-zero-derived-gate.py`, S1-6) now derives the forbidden field-name
+#     set mechanically from `contract/visibility/band-visibility-matrix.json`
+#     (every field of every group whose `client` value is false), so the next
+#     field added to ③/④ is caught even if nobody remembers this file.
+#
+#   CURATION: all terms here are full field names, never a bare fragment, for
+#   the same reason the note below rejects the bare "temp" -- ASCII terms are
+#   matched at the SEGMENT level, so a short term fires on innocent identifiers
+#   and a gate nobody can explain gets switched off. `adherence_state` stays even
+#   though it is a ③-adjacent name, because a client build that merely NAMES it
+#   has already leaked the concept.
+derived
+adherence_dimension_score
+a3
+refund_eligibility
+improvement_rate
+
+## group: derived verdict wording
+派生
+判定结论
+疗效判定
+退款资格
+改善率
+佩戴率
+依从性维度分
+判定门槛
+风险等级
+
+## group: forbidden health-metric field names
+#   GTL1 band SDK exposes blood sugar / uric acid / blood pressure / body
+#   temperature. Those are CAPABILITY SPILLOVER, not product requirements
+#   (gtl1-integration-brief-2026-09-18.md section 8.4 "能力溢出不得变成需求（防误用）",
+#   and its core-conclusion card: "「SDK 里有的字段」不等于「我们该收的字段」"). They
+#   must never reach the
+#   client mini-program bundle.
+#
+#   CURATION DECISION ON RECORD: the bare term "temp" is REJECTED. ASCII terms
+#   here are matched against identifier segments, so a bare "temp" would fire
+#   on the harmless "template" / "temporary" / "tempDir" and produce permanent
+#   false positives -- the same failure mode the scan2 curation note records for
+#   the bare CJK term. The full field names below are required.
+blood_sugar
+uric_acid
+blood_pressure
+body_temp

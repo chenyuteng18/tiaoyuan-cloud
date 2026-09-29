@@ -1,0 +1,18 @@
+{
+  "description": "端 C · 客户微信小程序工程（契约驱动骨架）",
+  "appid": "touristappid",
+  "projectname": "dy-client-mp",
+  "miniprogramRoot": "miniprogram/",
+  "compileType": "miniprogram",
+  "libVersion": "3.5.0",
+  "setting": {
+    "urlCheck": true,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "packNpmManually": false,
+    "packNpmRelationList": []
+  },
+  "condition": {}
+}

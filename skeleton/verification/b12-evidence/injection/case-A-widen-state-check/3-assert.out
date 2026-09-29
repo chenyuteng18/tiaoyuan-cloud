@@ -1,0 +1,8 @@
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:30: 注意:  B0 OK: 当前用户 dy_app_b12 非超级用户
+DO
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:50: 注意:  B1 OK: customer_state_transition / band 均存在且带 tenant_id
+DO
+BEGIN
+SET
+psql:C:/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/94_b12_assert.sql:86: 错误:  B2 失败: 非法 to_state 'NOT_A_REAL_STATE' 被接受了 —— 14 态 CHECK 未生效!
+CONTEXT:  在RAISE的第17行的PL/pgSQL函数inline_code_block

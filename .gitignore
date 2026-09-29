@@ -1,0 +1,79 @@
+# ============================================================================
+# 🛑 本仓库的【仓库根 = product-strategy】，不是 skeleton/。
+#
+# 这不是风格选择，而是一条被测代码硬编码的事实 —— 7 个门禁测试类
+#   ContractConsistencyTest / ContractFreezeGateTest / EndpointCoverageLedgerTest /
+#   UpstreamGapRegistryTest / RefundDomainCrossSourceGateTest /
+#   RefundWritePathMatrixE2ETest / DocTestCountAnchorGateTest
+# 都把"仓库根"定义为「同时含 _work/contract-t6-api-freeze-*.md 与
+# _work/data-dict-entities-ddl-*.md 的那一层」，并从 user.dir 逐级向上查找。
+# 它们还引用本层的 contract/openapi-v1.0.0.yaml、prototype/index.html、
+# prd-health-mgmt-saas-*.md。
+#
+# 实测证据（2026-09-30）：仓库建在 skeleton/ 时，把仓库 clone 到任意目录后
+# ContractConsistencyTest 会 5 例中 4 例失败、BUILD FAILURE —— 因为向上 4 层
+# 都找不到 _work/ 与 PRD。CI 每次都是全新 checkout，故 CI 会【永远无法变绿】。
+# 见根 README「第 49 条系统性缺陷」。
+#
+# 若日后要改成别的层级：必须同时改用 -Ddy.docs.root=<abs> 传入根路径，
+# 且 7 个测试类与 verification/*.py 的根解析一并改账，不得只改一处。
+# ============================================================================
+
+# ---- skeleton 的构建/运行产物（沿用 skeleton/.gitignore 的语义）----
+target/
+*.class
+logs/
+**/logs/
+*.log
+*.log.*
+
+# ---- IDE / OS ----
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+*.iws
+.settings/
+.project
+.classpath
+ehthumbs.db
+Desktop.ini
+
+# ---- 本地环境覆盖（可能含凭据，绝不提交）----
+application-local.yml
+application-local.properties
+.env
+
+# ---- compliance 构建产物（证据 .md 保留；见 skeleton/.gitignore 说明）----
+compliance/reports/last-build*.json
+
+# ---- frontends 依赖与产物（另有 frontends/.gitignore，此处兜底）----
+node_modules/
+dist/
+frontends/*/node_modules/
+frontends/*/dist/
+
+# ============================================================================
+# 以下为"仓库根上移"时的刻意取舍（2026-09-30），逐条说明理由，勿随手删。
+# ============================================================================
+
+# 🛑 _work/quotes_incident_backup/ 与 _work/backup_quotes/
+#    是**一次历史事故的取证备份**（报价单事故），共约 8.2 MB，含整份源码树副本。
+#    它们是"某个时点的快照"，不是活代码；提交进版本库只会：
+#      ① 让每次全仓搜索都命中同一份代码的两份副本（会误导"某文件有几处定义"的判断）；
+#      ② 让 clone 体积无谓增大。
+#    故【忽略】，但在 skeleton/README 与该事故的记录里保留说明。
+_work/quotes_incident_backup/
+_work/backup_quotes/
+_work_backups/
+
+# 🛑 反向验证的临时工作区与注入快照：纯过程产物，每次运行重建。
+_work/*_snapshots/
+_work/*_inject/
+_work/tmp/
+
+# 🛑 过程日志与探针输出：可复算，不属证据（证据是 verification/*.md 与
+#    compliance/reports/REVERSE-VERIFICATION-*.md）。*.log 已在上方全局忽略。
+_work/_probe*.sql
+_work/_probe*.py

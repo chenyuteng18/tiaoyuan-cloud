@@ -1,0 +1,135 @@
+======================================================================
+dy-crypto ADVERSARIAL VERIFICATION PROBE
+repo-root   : /c/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton
+probe-src   : /c/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/crypto/AdversarialVerificationProbe.java
+classes-dir : /c/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/dy-crypto/target/classes
+evidence    : /c/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/crypto/evidence
+======================================================================
+[runner] 临时编译目录：C:\Users\lenovo\AppData\Local\Temp/crypto-adv-sL4RcQ
+[runner] 编译探针（仅 javac，不动 Maven 生命周期）...
+[runner] java classpath：C:\Users\lenovo\AppData\Local\Temp\crypto-adv-sL4RcQ;C:\Users\lenovo\WorkBuddy\2026-09-16-10-37-59\deliverables\product-strategy\skeleton\dy-crypto\target\classes
+[runner] 执行探针矩阵...
+[ADV-PROBE] [PASS] A1 用租户 KEK 直接解字段密文（绕过 FieldCipher/DEK）
+                    期望: 认证失败（KEK 不是字段密钥，且域分离）
+                    实测: CipherAuthenticationException: AEAD 认证失败：密钥不正确、密文被篡改，或 AAD 绑定不匹配（三者本层无法区分，这是 AEAD 的固有性质，不应假装能分辨）
+[ADV-PROBE] [PASS] A2 底层是否存在绕过 FieldCipher 的 DEK 捷径 / 明文密钥出口
+                    期望: 无捷径；明文出口仅 unwrap()/rawDek()/currentKek()/kekVersion()（接口必需）
+                    实测: unwrap() 返回明文 DEK len=32; SubjectDek.rawDek() 明文出口=true; inventoryForBackupAudit 含明文DEK=false; 用取回的DEK自行解密=成功解出 72
+[ADV-PROBE] [PASS] A3 用另一主体的 DEK + 另一主体的 AAD 解目标密文
+                    期望: 认证失败（DEK 与 AAD 双重不匹配）
+                    实测: CipherAuthenticationException
+[ADV-PROBE] [PASS] A4 含 '|' 的 subjectId 构造 AAD（拼接式 AAD 碰撞）
+                    期望: 入口拒绝
+                    实测: IllegalArgumentException
+[ADV-PROBE] [PASS] B1 把 C1 的密文挂到 C2 名下解密
+                    期望: 认证失败
+                    实测: CipherAuthenticationException
+[ADV-PROBE] [PASS] B2 把『hr』字段的密文当『spo2』解（同主体）
+                    期望: 认证失败
+                    实测: CipherAuthenticationException
+[ADV-PROBE] [PASS] B3 同一 customerId 在 B 租户的身份解 A 租户的密文
+                    期望: 认证失败/取不到密钥
+                    实测: SubjectKeyNotFoundException: 未找到主体密钥: tnt-bbbb-0002/customer/cust-0001 不存在 DEK 版本 v1 —— 密文指向一个本存储没有的密钥版本 —— 该主体从未加密过数据，与本模块的 SubjectKeyDestroyedException（已依法销毁）是两种不同状态，调用方需要分别处置（前者通常是逻辑错误，后…
+[ADV-PROBE] [PASS] B4 把 wrappedDek 的租户改成 B（kekId 仍是 A 的）
+                    期望: 拒绝（跨租户 KEK 不可用 + AAD 归属不符）
+                    实测: SubjectKeyNotFoundException: 未找到主体密钥: 租户 tnt-bbbb-0002 不存在 KEK 版本 kek-tnt-aaaa-0001-v1 —— 下面的历史材料无法还原（可能来自另一环境或已被轮换清理） —— 该主体从未加密过数据，与本模块的 SubjectKeyDestroyedException（已依法销毁）是两种不同状态，调用方需要分别…
+[ADV-PROBE] [PASS] B5 把 wrappedDek 的 kekId 改成同租户的【另一代】真实 KEK
+                    期望: 拒绝（AAD 含 kekId，选择器不可篡改）
+                    实测: CipherAuthenticationException: AEAD 认证失败：密钥不正确、密文被篡改，或 AAD 绑定不匹配（三者本层无法区分，这是 AEAD 的固有性质，不应假装能分辨） [kekV1=kek-tnt-aaaa-0001-v1, 篡改为=kek-tnt-aaaa-0001-v2]
+[ADV-PROBE] [PASS] B6 把 v1 密文的 DEK 版本位改成 v2（版本号是密钥选择器）
+                    期望: 认证失败（dekVersion 在 AAD 内）
+                    实测: 注入生效=true; CipherAuthenticationException
+[ADV-PROBE] [PASS] B7 subjectType/subjectId 含 NUL 时两个不同主体是否共用同一把 DEK
+                    期望: 两个主体必须得到不同 DEK；更强的修法是构造器直接拒绝含 NUL 的分量
+                    实测: 构造器拒绝 x=true（IllegalArgumentException: SubjectRef.subjectId 含 NUL（U+0000）—— NUL 是本模块作用域键的拼接分隔符，分量自带 NUL 会让两个不同的主体拼出同一个键，从而【共用同一把 DEK】：既击穿 per-subject 粒度，又会让删除权误伤另一个主体（销毁其一时另一个也永久不可读）。若业务 id 里确实需要该字符，…）; 拒绝 y=true（IllegalArgumentException: SubjectRef.subjectType 含 NUL（U+0000）—— NUL 是本模块作用域键的拼接分隔符，分量自带 NUL 会让两个不同的主体拼出同一个键，从而【共用同一把 DEK】：既击穿 per-subject 粒度，又会让删除权误伤另一个主体（销毁其一时另一个也永久不可读）。若业务 id 里确实需要该字…） ⇒ 键碰撞在入口被结构性堵住
+[ADV-PROBE] [PASS] C1 信封算法位声称 AES，密文实为 ChaCha20-Poly1305 生成
+                    期望: 认证失败，不猜测替换算法
+                    实测: CipherAuthenticationException
+[ADV-PROBE] [PASS] C2 把 AES 密文的算法位篡改为 SM4-GCM（诱使静默回退 AES）
+                    期望: 抛 PendingAlgorithmConfirmationException，绝不回退到 AES
+                    实测: 注入生效=true; PendingAlgorithmConfirmationException（消息含 H.4-1=true）
+[ADV-PROBE] [PASS] C3 把 SM4 实现注册进注册表后再解析 SM4（攻击者能注册时）
+                    期望: 仍抛 PendingAlgorithmConfirmationException（门在状态位，不在注册表）
+                    实测: PendingAlgorithmConfirmationException（即使实现已注册，仍被状态拦住）
+[ADV-PROBE] [PASS] C4 算法位的未知串/大小写变体/前后空白
+                    期望: 全部明确拒绝（无宽松匹配）
+                    实测: [AES-256-GCM-X→IllegalArgumentException] [aes-256-gcm→IllegalArgumentException] [AES-256-GCM →IllegalArgumentException] [ AES-256-GCM→IllegalArgumentException] [sm4-gcm→IllegalArgumentException] [SM4_GCM→IllegalArgumentException]
+[ADV-PROBE] [PASS] C5 信封算法位为空 / 含 ':'（破坏切分）
+                    期望: 明确拒绝
+                    实测: [dy1::1:AAAA:BBBB→IllegalArgumentException] [dy1:A:B:C:AAAA:BBBB→EnvelopeFormatException]
+[ADV-PROBE] [PASS] D1 独立复核『无算法字面量』并检查四个包内的隐藏算法耦合
+                    期望: FieldCipher 干净 + 四包内无算法字面量/无具体 Provider instanceof/无按算法名分支
+                    实测: 扫描源码文件数=21; FieldCipher 代码无算法字面量=true; 扫描器自检（剥注释后仍见方法名）=true; 四包算法字面量命中=[]; instanceof 具体Provider=[]; 按算法名分支=[]
+[ADV-PROBE] [PASS] E1 墓碑承重性：分步隔离『在线材料删除』与『墓碑』两个机制
+                    期望: ① 仅清墓碑仍不可读（在线材料确已删除）；② 清墓碑+恢复备份 → 又可读；③ 重立墓碑 → 又不可读
+                    实测: 销毁后被阻断=true; ①仅清墓碑→CipherAuthenticationException; ②清墓碑+恢复wrappedDek→72; ③重立墓碑后又被阻断=true
+[ADV-PROBE] [PASS] E2 销毁后持事前抄走的 wrappedDek 做离线还原（墓碑在场）
+                    期望: 被墓碑阻断
+                    实测: SubjectKeyDestroyedException（连离线材料也被墓碑堵住）
+[ADV-PROBE] [PASS] E3 重启（墓碑丢失、KEK 持久）+ 事前抄走的 wrappedDek → 已删除数据是否复活
+                    期望: 【期望复活成功】—— 该缺口是他主动固化的坏消息，本次独立确认其真实存在
+                    实测: 已删除数据重新读出=72（墓碑丢失 + KEK 持久 ⇒ 删除权被静默撤销）; rebornCipher=true
+[ADV-PROBE] [PASS] F1 21 组畸形信封（段数/前缀/base64/版本/空串/超长/控制字符）
+                    期望: 明确抛 EnvelopeFormatException 或 IllegalArgumentException；无崩溃、无静默 null
+                    实测: 崩溃=0; 未预期异常=0; 结构上被接受组数=1（超长算法位无长度上限，记录为观察事实）; [null→EnvelopeFormatException] [空串→EnvelopeFormatException] [纯空白→EnvelopeFormatException] [2段→EnvelopeFormatException] [3段→EnvelopeFormatException] [4段→EnvelopeFormatException] [6段→EnvelopeFormatException] [前缀错→EnvelopeFormatException] [前缀大写→EnvelopeFormatException] [版本非数字→EnvelopeFormatException] [版本0→IllegalArgumentException] [版本负数→IllegalArgumentException] [版本超长数字→EnvelopeFormatException] [nonce非法base64→EnvelopeFormatException] [密文非法base64→EnvelopeFormatException] [nonce空段→IllegalArgumentException] [密文空段→IllegalArgumentException] [算法位超长→被接受(构造成功，algo=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA…] [含换行→EnvelopeFormatException] [含CR→EnvelopeFormatException] [仅分隔符→EnvelopeFormatException] ; [1字节密文→parse 接受（ctLen=1），解密期才认证失败]
+[ADV-PROBE] [PASS] F2 2MB 密文段（结构合法、内容非法）端到端解密
+                    期望: 认证失败，不崩溃
+                    实测: CipherAuthenticationException（未崩溃）
+[ADV-PROBE] [PASS] G1 12 线程并发 getOrCreateDek 同一主体（门控确定性复现，非概率）
+                    期望: 所有线程拿到同一把 DEK；且按版本号 1 取回的材料能还原出同一把；存储中只应有 1 把活跃密钥
+                    实测: 全部 12 线程都进入创建路径=false; 不同 DEK 数=1（1=正确；>1 ⇒ 并发下为同一主体生成多把 DEK，历史密文将按版本解不开）; 取用失败线程=0; wrappedOf(c,1) 可还原且等于所取 DEK=true（yzGheJmDwpqCsF182q0/pSozVmfPql388qpsxwNfk0A=）; liveKeyCount(应为1)=1
+[ADV-PROBE] [PASS] G2 并发写入后逐个回读（同一主体，门控确定性复现）
+                    期望: 全部可读（并发不得使任何一条已写入的密文变成不可读）
+                    实测: 全部 12 线程都进入创建路径=false; 回读成功=12/12; 回读失败(认证类)=0; 取不到密钥版本类=0
+[ADV-PROBE] [PASS] G3 同主体【顺序】写入 12 条后回读（G2 的对照组）
+                    期望: 全部可读且值正确 —— 用来证明 G2 的失败归因是并发而非写入次数
+                    实测: 回读错误条数=0/12
+[ADV-PROBE] [PASS] H1 备份未就绪时 getOrCreateDek / rotateDek 是否都被拒，且不留密钥材料
+                    期望: 两条创建路径都 fail-closed，拒绝后 liveKeyCount=0
+                    实测: 首次创建→KeyBackupUnavailableException; 拒绝后活跃密钥数=0; 撤回就绪后轮换→KeyBackupUnavailableException
+[ADV-PROBE] [PASS] H2 DEK 轮换后 v1/v2 历史与当前密文各自可解
+                    期望: v1 密文用老版本 DEK、v2 用新版本，两者都可读
+                    实测: 信封版本 v1=1 v2=2; 解 v1=11; 解 v2=22
+[ADV-PROBE] [PASS] H3 按显式 DEK 版本取包裹材料（历史版本必须可取，未来的必须为空）
+                    期望: v1/v2 可取、v99 为空、wrappedOf(subject) 返回 v3（最新）
+                    实测: v1=true v2=true v99为空=true 最新版本=3
+[ADV-PROBE] [PASS] H4 确定性复现：两线程均越过『无 DEK』判定后各自建 v1
+                    期望: 同一主体最终只有一把 v1；且按版本号 1 取回的材料必须还原出调用方拿到的那把
+                    实测: 两线程都进入创建路径=false; 得到的不同 DEK 数=1; wrappedOf(c,1) 还原出的那把是否在其中=true（false ⇒ 存储里第一条 v1 与调用方拿到的不是同一把，按版本号解密的密文会解到错的密钥）
+[ADV-PROBE] [PASS] H5 8 线程并发 rotateDek 同一主体（门控确定性 + 按版本号取回 + CME 计数）
+                    期望: 版本号两两不同且与 DEK 一一对应；每个版本都能按版本号取回并还原出同一把；历史版本 1..maxV 无缺失；并发取回不得抛 CME
+                    实测: 全部 8 线程都进入创建路径=false; 版本号集合=[7, 8, 2, 1, 3, 4, 6, 5]（大小 8，应为 8）; 不同 DEK 数=8; 一一对应=true; 按版本号取回问题=无; 缺失历史版本=无; 并发读者圈数=7365816; CME 次数=0
+[ADV-PROBE] [PASS] H6 销毁后不得自动重建 + 重复销毁幂等 + 不误伤 C2
+                    期望: 重建被拒、重复销毁无异常且仍为已销毁、C2 不受影响且取用稳定
+                    实测: 重建→SubjectKeyDestroyedException; 重复销毁→重复销毁无异常; 仍为已销毁=true; C2 取用稳定=true
+[ADV-PROBE] [PASS] H7 真实替换算法实现（ChaCha20-Poly1305）后 FieldCipher 零改动仍工作
+                    期望: 三条路径（KEK 包裹/DEK/字段）全部换实现后仍可往返，信封契约不变
+                    实测: 往返=95/96; 信封算法位=AES-256-GCM; 替代实现 encryptCalls=4
+[ADV-PROBE] [PASS] H8 per-subject 粒度（正常 id）：4 个主体互不相同 + 同主体幂等
+                    期望: 两两 DEK 不同、同主体重复取用同一把、scope=PER_SUBJECT
+                    实测: 两两不同=true; 同主体幂等=true; scope=PER_SUBJECT=true; liveKeyCount(应为4)=4
+[ADV-PROBE] [PASS] H9 销毁与并发创建交错：已删主体的密钥材料是否会复活
+                    期望: 销毁完成后该主体不得再有活跃密钥材料，也不得暴露包裹材料
+                    实测: 创建者是否越过墓碑检查进入创建=true; 销毁调用耗时=1002ms（修复后为键锁等待，非 0）; 期间墓碑已记=true; 放行后创建结果=创建成功（密钥材料被写回）（创建者成功本身不算缺陷：它先于销毁拿到锁，等价于先创建后销毁的串行语义）; 创建者被墓碑拒绝=false; 销毁后仍有活跃密钥材料=false（liveKeyCount=0）; wrappedOf(c,1) 仍暴露材料=false
+[ADV-PROBE] [PASS] I1 删除 DAG：未确认→拒绝销毁且数据仍可读；全确认→销毁且不可读
+                    期望: ① completed=false/keyDestroyed=false/仍可读；② completed=true/keyDestroyed=true/不可读
+                    实测: ① completed=false keyDestroyed=false 读到=75; ② completed=true keyDestroyed=true 解密=SubjectKeyDestroyedException; 待办数=7
+[ADV-PROBE] [PASS] I2 DAG handler 抛异常 → 视为未完成（不得当作已删除）
+                    期望: completed=false、DEK 未销毁、拒绝原因点名失败项
+                    实测: completed=false; keyDestroyed=false; 原因点名=true
+[ADV-PROBE] [PASS] I3 pom 声明的『真库 crypto-shredding 门禁』是否真实存在（已排除探针自命中）
+                    期望: 若 pom 声称有真库门禁，则 test 树里必须有真库/JDBC 代码
+                    实测: pom 声称 postgresql 为『真库门禁用』=false; 被检查的 test java 文件数=3; 含 JDBC/真库代码的文件=[]（空 ⇒ 该依赖未被任何测试使用，pom 所述的门禁不存在）
+[ADV-PROBE] [PASS] I4 KEK 轮换 2 代后：老密文仍可解 + 新写入可用（声明 ② 正面用例）
+                    期望: 轮换后老密文用老 kekId 还原仍可读；新写入正常
+                    实测: 轮换生效=true; 轮换后读老密文=61; DEK 轮换后再读老密文=61; 读新密文=62
+[ADV-PROBE] [PASS] J1 【门禁有效性对照】旧节奏替身必须被同一套门控手法抓住（PASS 语义＝探针有牙齿，非实现正确）
+                    期望: 旧节奏下应出现『版本号重复』：版本号种类数 < 线程数 且 DEK 数 == 线程数
+                    实测: 全部 8 线程都进入创建路径=true; 版本号种类数=2（应 < 8）; 不同 DEK 数=8; 按版本号取回异常/缺失数=0 ⇒ 旧节奏被抓住：G1/H5 若跑在未修版本上必红，门禁不是摆设
+[ADV-PROBE] 报告已写入 C:\Users\lenovo\WorkBuddy\2026-09-16-10-37-59\deliverables\product-strategy\skeleton\verification\crypto\evidence\adversarial-report.txt
+======================================================================
+[runner] 探针退出码 = 0
+[runner] 结论：全部探针 PASS —— 门禁判绿
+[runner] 报告：/c/Users/lenovo/WorkBuddy/2026-09-16-10-37-59/deliverables/product-strategy/skeleton/verification/crypto/evidence/adversarial-report.txt
+======================================================================
+RUNNER_EXIT=0

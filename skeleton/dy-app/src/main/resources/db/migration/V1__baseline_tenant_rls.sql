@@ -1,0 +1,122 @@
+-- ============================================================================
+-- V1 基线迁移: 租户表 + 示范业务表 + RLS (fail-closed) + 审计日志 + 幂等迁移版本表
+-- 适用: PostgreSQL (RLS / UUID 为 PG 专属语法, ADR-01 Pool 模型)
+-- 本文件是「可运行骨架」唯一真实落库的 DDL; 不建业务全量表, 仅建基线与一张示范表。
+-- ============================================================================
+
+-- ---------------------------------------------------------------------------
+-- 1) 租户表
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tenant
+(
+    id            UUID PRIMARY KEY,
+    name          VARCHAR(128) NOT NULL,
+    -- 迁移预留 (ADR-01): 未来高付费企业租户可平滑升级 Silo; 本轮不实现, 值 TBD
+    datastore_hint VARCHAR(32),
+    status        VARCHAR(16)  NOT NULL DEFAULT 'active',
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+-- ---------------------------------------------------------------------------
+-- 2) 示范业务表: customer (含 tenant_id, ADR-02 第 1 层全表 tenant_id)
+--    F-4: 仅留 status 5 值, 14 态状态机实体待建 (见规格书)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS customer
+(
+    id         UUID PRIMARY KEY,
+    tenant_id  UUID NOT NULL REFERENCES tenant (id),
+    name       VARCHAR(128) NOT NULL,
+    -- 5 值状态: pending / active / paused / archived / closed
+    status     VARCHAR(16) NOT NULL DEFAULT 'pending',
+    owner_id   UUID,                       -- 门店/客户级 owner, 不可为空 (ADR-12 owner 不可空)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_customer_tenant ON customer (tenant_id);
+
+-- ---------------------------------------------------------------------------
+-- 3) RLS: 强制行级安全 (ADR-02 第 2 层, 防表 owner 绕过)
+--    ENABLE  + FORCE: 两者都要。FORCE 使表 owner 也受策略约束, 杜绝 owner 绕过隔离。
+--
+-- ⚠️ 2026-09-24 幂等修复 (S1-2 验收④「连跑 2 次幂等」实测暴露):
+--    PostgreSQL 的 CREATE POLICY 没有 IF NOT EXISTS; 本文件原先【缺少】
+--    DROP POLICY IF EXISTS 守卫, 于是第二次应用 V1 会以
+--      `错误: 用于表"customer"的策略"tenant_isolation"已经存在`
+--    整体失败 —— "连跑 2 次"这一验收项在 V1 上不成立。
+--    V2/V3/V4/V5 的 CREATE POLICY 前均已带该守卫; 本处补齐, 使整条迁移链
+--    的幂等性口径一致 (CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS /
+--    DROP POLICY IF EXISTS / ON CONFLICT DO NOTHING)。
+--    修复方式 = 前置 DROP POLICY IF EXISTS: 表尚不存在时 CREATE TABLE 先建出、
+--    该 DROP 输出一条 NOTICE(跳过) 而不报错; 表已存在时先丢旧策略再建, 语义不变
+--    (策略定义完全一致, 非"改策略", 只是让重放安全)。
+-- ---------------------------------------------------------------------------
+ALTER TABLE customer ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customer FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON customer;
+
+-- fail-closed 策略 (关键):
+--   current_setting('app.tenant_id', true) -> 未设置上下文时返回 NULL (missing_ok=true)
+--   NULLIF(NULL, '') -> NULL; NULLIF('', '') -> NULL (空串也视为未设置)
+--   tenant_id = NULL 的布尔结果是 NULL (非 TRUE) -> 该行不满足 USING -> 返回零行。
+-- 因此: 未注入 app.tenant_id 时, 任何查询都拿到 0 行, 而非全表泄漏。
+--
+-- 为何 NULLIF 是必需的 (精确机制, 勿误读为"不用 NULLIF 就泄漏"):
+--   current_setting 有【两种】"无上下文"形态:
+--     形态① 变量从未设置 -> 返回 NULL -> NULLIF(NULL,'') = NULL
+--     形态② 变量被显式设为空串 -> 返回 ''  -> NULLIF('','')  = NULL
+--   两者都收敛到 tenant_id = NULL -> UNKNOWN -> 零行 (fail-closed)。
+--   若去掉 NULLIF: 形态① 仍零行 (NULL::uuid 合法), 但形态② 会因 ''::uuid 抛
+--   "invalid input syntax for type uuid" -> 表现为【偶发 500】。
+--   NULLIF 的真实价值 = 堵死"为了修那个 500 而引入默认租户"这条路:
+--   ❌ COALESCE(current_setting('app.tenant_id', true), '<某个默认租户>')
+--   ❌ 未设上下文即回落到 admin / 默认租户
+--   ❌ USING (true)
+--   ❌ 不启用 RLS 的"临时简化"
+--   ✅ 唯一允许语义: 未设上下文 = 零行
+--
+-- 为何显式写 WITH CHECK (即使 PG 允许省略):
+--   FOR ALL 策略省略 WITH CHECK 时, PG 会默认沿用 USING 表达式作为写入校验, 故当前功能正确。
+--   但一旦有人把它拆成 FOR SELECT + FOR INSERT, 或在 pgAdmin 里误改,
+--   写入侧校验会【静默消失】(不报错、只让跨租户写入成为可能)。
+--   显式声明使"写入侧也受租户约束"在代码里可见, 而不依赖读者知道 PG 的省略语义。
+CREATE POLICY tenant_isolation ON customer
+    FOR ALL
+    USING      (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+
+-- ---------------------------------------------------------------------------
+-- 4) 审计日志表 (ADR-09, append-only + 哈希链; 结构同 dy-audit 资源脚本)
+--    撤销 UPDATE/DELETE 权限由 DBA 在库级执行: REVOKE UPDATE, DELETE ON audit_log FROM app_role;
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS audit_log
+(
+    id          UUID PRIMARY KEY,
+    tenant_id   UUID          NOT NULL,
+    actor       VARCHAR(128)  NOT NULL,
+    action      VARCHAR(64)   NOT NULL,
+    target_type VARCHAR(64)   NOT NULL,
+    target_id   VARCHAR(128)  NOT NULL,
+    payload     TEXT,
+    prev_hash   CHAR(64)      NOT NULL,
+    hash        CHAR(64)      NOT NULL,
+    created_at  TIMESTAMPTZ   NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON audit_log (tenant_id, created_at);
+
+-- ---------------------------------------------------------------------------
+-- 5) 幂等迁移版本表 (ADR-10 数据级 ON CONFLICT 双分支键; 幂等迁移用)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS schema_migration
+(
+    version      VARCHAR(32) PRIMARY KEY,
+    description  VARCHAR(256),
+    applied_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 幂等写入示例 (数据级 upsert, 重复执行安全):
+--   INSERT INTO schema_migration (version, description)
+--   VALUES ('V1', 'baseline tenant rls')
+--   ON CONFLICT (version) DO NOTHING;

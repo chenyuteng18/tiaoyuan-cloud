@@ -1,0 +1,54 @@
+{
+  "_comment": "ADR-12 build-time compliance scan manifest. The three scan_faces are fixed by the ADR-12 ruling and MUST NOT be renamed, removed or added to. scan_compliance.py refuses to run (exit 4) if this list drifts, and tests/compliance_injection_test.py independently re-asserts it.",
+  "version": "1.0.0",
+  "authority": [
+    "ADR-12 arch-decisions-lead-2026-09-19.md section 12",
+    "H-2 / H-11 / O-10 arch-constraints-inventory-2026-09-19.md",
+    "contract-t6-api-freeze-2026-09-19.md L570 / L571 / L603",
+    "architecture-saas-2026-09-19.md L686-L692",
+    "PRD section 2.4 X-2 / section 2.6 P0-26 W-1 W-2"
+  ],
+  "scan_faces": [
+    "scan1_refund",
+    "scan2_negative",
+    "scan3_derived"
+  ],
+  "owners": "owners.csv",
+  "client_package_root": "client-package",
+  "_channel_parity": "Scan face 1 must cover every channel a refund string can reach the customer through, including the ones that are easy to forget. Omitting a channel is exactly the 'the page was changed but the push template was not' silent-failure mode. These are the six channels named by ADR-12 plus the api path list from contract L603.",
+  "required_channels": [
+    "client-package/i18n",
+    "client-package/enums",
+    "client-package/constants",
+    "client-package/errors",
+    "client-package/analytics",
+    "client-package/subscribe-messages",
+    "client-package/api"
+  ],
+  "faces": {
+    "scan1_refund": {
+      "wordlist": "wordlists/scan1_refund.words",
+      "roots": [
+        "client-package",
+        "frontends/client-mp/miniprogram"
+      ],
+      "rationale": "The client mini-program package must contain no refund wording, in any channel. Internal documents and the manager / therapist surfaces are not scanned here: refund wording is a legitimate internal business term there. The second root is the REAL mini-program project (G-B B-3, 2026-09-28): until it was added here, the discipline covered only the sample package, and the real project was an unscanned word surface -- the build-check covered it locally, but a local check is not a gate."
+    },
+    "scan2_negative": {
+      "wordlist": "wordlists/scan2_negative.words",
+      "roots": [
+        "client-package",
+        "frontends/client-mp/miniprogram"
+      ],
+      "rationale": "The client must not surface negative counting or gap-attribution wording; missing band data must never be imputed as 0, and must never be described as a medical basis. Second root = the real mini-program project (B-3)."
+    },
+    "scan3_derived": {
+      "wordlist": "wordlists/scan3_derived.words",
+      "roots": [
+        "client-package",
+        "frontends/client-mp/miniprogram"
+      ],
+      "rationale": "Derived fields and derived verdicts are server-side only; the client must not even name them, since the internal gap-reason enum and the client sync-state enum are two independent enum namespaces. Second root = the real mini-program project (B-3)."
+    }
+  }
+}

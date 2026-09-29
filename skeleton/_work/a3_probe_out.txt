@@ -1,0 +1,11 @@
+probe_pk:PRIMARY KEY (probe_id)
+cov_uq:UNIQUE (device_id, date)
+cov_fk:band_daily_coverage_customer_id_fkey=FOREIGN KEY (tenant_id, customer_id) REFERENCES customer(tenant_id, id)
+cov_fk:band_daily_coverage_device_id_fkey=FOREIGN KEY (tenant_id, device_id) REFERENCES band(tenant_id, band_id)
+cov_fk:band_daily_coverage_source_sync_log_id_fkey=FOREIGN KEY (tenant_id, source_sync_log_id) REFERENCES band_sync_log(tenant_id, sync_log_id)
+cov_fk:band_daily_coverage_tenant_id_fkey=FOREIGN KEY (tenant_id) REFERENCES tenant(id)
+rls_probe:true/true
+rls_cov:true/true
+fn_assert_ctx:1
+band_pk:PRIMARY KEY (band_id)
+cust_fk_target:FOREIGN KEY (tenant_id, customer_id) REFERENCES customer(tenant_id, id)

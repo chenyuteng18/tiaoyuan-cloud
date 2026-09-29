@@ -1,0 +1,90 @@
+# =============================================================================
+# ADR-12 SCAN FACE 2  --  NEGATIVE COUNTING / ATTRIBUTION WORDING
+# =============================================================================
+# Authority : ADR-12 (arch-decisions-lead-2026-09-19.md section 12)
+#             H-11 (arch-constraints-inventory-2026-09-19.md, rule H-11)
+#             contract-t6-api-freeze-2026-09-19.md
+#               - section 4.2 / 4.3 (the client sync-state enum and the internal
+#                 gap_reason enum MUST be two independent namespaces)
+#               - section 5.1 rule R2 (client-visible field / enum names must not
+#                 contain the diagnostic wording)
+#               - section 5 row X-2 (build-time scan of the mini-program bundle)
+#             PRD section 2.6 / P0-26 W-2  ("缺失 N 天 / 未佩戴 / 未达标 / 数据不全")
+#
+# CITATION RULE: semantic anchors only (section / rule id / item title / config
+# number / function name), never line numbers -- see wordlists/scan1_refund.words.
+# Owner     : see ../owners.csv  ->  subject = scan2_negative
+# Encoding  : UTF-8 (readers MUST decode as UTF-8, never as platform ANSI/GBK)
+#
+# Rationale: a gap in band data MUST NOT be read back to the customer as "you
+# did not wear it" / "you did not comply". The client may only show POSITIVE
+# counting plus neutral wording ("已采集 N 天", "该日暂无数据", "手环未接入"),
+# and missing data MUST NOT be imputed as 0.
+#
+# MATCHING CONTRACT FOR THIS FILE (important)
+#   ASCII terms -> matched against identifier segments, so `AS_refund` and
+#                  `/api/v1/refund/x` both fire while `refundable` does not.
+#   CJK terms   -> matched as SUBSTRINGS, because a Chinese sentence has no word
+#                  boundaries and is therefore a single token. Substring matching
+#                  is the only rule that can find the term inside real copy, and
+#                  it means: DO NOT ADD A SHORT CJK TERM that happens to sit
+#                  inside an innocuous customer-facing word.
+#
+# CURATION DECISION ON RECORD
+#   The bare term "判定" (judge / determine) was considered and REJECTED from
+#   this wordlist. As a CJK substring term it fires on the entirely legitimate
+#   neutral client label "待判定" (pending), which would produce permanent false
+#   positives and get the gate switched off -- a gate nobody trusts is worse than
+#   no gate. The negative form "未判定" is listed instead: it is the pending
+#   verdict the client must not render, and it does not collide with 待判定.
+#
+# FORMAT
+#   one term per line; '#' starts a comment.
+# =============================================================================
+
+## group: negative counting
+缺失
+未佩戴
+未达标
+不达标
+达标
+数据不全
+没戴
+覆盖率
+
+## group: attribution wording (blaming the customer for the gap)
+依从不足
+未填报
+漏填
+漏报
+归因
+
+## group: pending / unjudged status that must not be rendered client-side
+未判定
+无法判定
+
+## group: medical-claim wording
+# Decision on record: ADR-12 scan face 2 is named "negative counting /
+# attribution wording" and does NOT itself enumerate medical claims. The
+# team-lead brief for task A6 additionally makes it a red line that band data
+# must never be described as a medical / diagnostic / efficacy basis, and
+# contract section 5.1 rule R2 / section 5 row X-2 already list 诊断 in the
+# forbidden-word set. The terms below
+# therefore form a SECOND TERM GROUP of scan face 2 -- no fourth scan face was
+# added and no scan face was renamed.
+#
+# DECISION ON RECORD (2026-09-20, team-lead): this group is RETAINED, not narrowed.
+#   Basis: PRD section 2.6 ruling W-3 already rules the client-side wording for the
+#   band view: the client must show (1) "手环数据为参考之一，不用于单方判定" and
+#   (2) "数据同步时间". That ruled wording contains NEITHER 医疗 NOR 诊断.
+#   PRD Non-goals / section 2.2 compliance boundary ("不出具医疗诊断结论") are
+#   PRODUCT-POSITIONING statements about the system as a whole, not client-package
+#   copy -- they must never be rendered inside the mini-program bundle. Therefore
+#   any occurrence of 诊断/医疗 inside client-package IS a
+#   violation, and this group stays as-is.
+诊断
+医疗
+医学
+疗效
+治疗
+病症

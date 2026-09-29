@@ -1,0 +1,36 @@
+\set ON_ERROR_STOP on
+BEGIN;
+SELECT 'fn:'||p.proname||' args='||pg_get_function_identity_arguments(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN ('register_sync_probe','register_daily_coverage') ORDER BY 1;
+SELECT 'reg:'||version||'|'||description FROM schema_migration WHERE version='V22';
+
+INSERT INTO tenant (id,name) VALUES ('00000000-0000-0000-0000-0000000c0001','P-A'),('00000000-0000-0000-0000-0000000c0002','P-B');
+
+-- 租户 A 底数据
+SELECT set_config('app.tenant_id','00000000-0000-0000-0000-0000000c0001',true);
+INSERT INTO customer (id,tenant_id,name) VALUES ('00000000-0000-0000-0000-0000000c0011','00000000-0000-0000-0000-0000000c0001','A客户');
+INSERT INTO customer (id,tenant_id,name) VALUES ('00000000-0000-0000-0000-0000000c0012','00000000-0000-0000-0000-0000000c0001','A客户乙');
+INSERT INTO band (band_id,tenant_id,customer_id,vendor,bound_at) VALUES ('00000000-0000-0000-0000-0000000c0021','00000000-0000-0000-0000-0000000c0001','00000000-0000-0000-0000-0000000c0011','V',DATE '2026-02-01');
+
+-- P1 探针 CREATED
+SELECT 'P1='||register_sync_probe('00000000-0000-0000-0000-0000000c0001','00000000-0000-0000-0000-0000000c0031','00000000-0000-0000-0000-0000000c0021','hr','["2026-02-20"]'::jsonb,7,'保守假设');
+-- P2 探针重放（不同值）⇒ ALREADY_EXISTS 且不覆盖
+SELECT 'P2='||register_sync_probe('00000000-0000-0000-0000-0000000c0001','00000000-0000-0000-0000-0000000c0031','00000000-0000-0000-0000-0000000c0021','hr',NULL,3,'运行时探测');
+SELECT 'P2row='||retention_window_days||'/'||probe_source FROM band_sync_probe WHERE probe_id='00000000-0000-0000-0000-0000000c0031';
+-- P3 同 device 再探测 ⇒ CREATED（追加）
+SELECT 'P3='||register_sync_probe('00000000-0000-0000-0000-0000000c0001','00000000-0000-0000-0000-0000000c0032','00000000-0000-0000-0000-0000000c0021','hr',NULL,14,'厂商文档');
+-- P4 非法 history_type
+DO $$BEGIN
+  PERFORM register_sync_probe('00000000-0000-0000-0000-0000000c0001',gen_random_uuid(),'00000000-0000-0000-0000-0000000c0021','blood_sugar',NULL,7,'保守假设');
+  RAISE NOTICE 'P4=ACCEPTED(BAD)';
+EXCEPTION WHEN raise_exception THEN RAISE NOTICE 'P4=REJECTED %', left(SQLERRM,60); END$$;
+-- P5 跨租户撞号（probe）：先让租户 B 占住一个 probe_id，再用租户 A 写同 id
+SELECT set_config('app.tenant_id','00000000-0000-0000-0000-0000000c0002',true);
+INSERT INTO customer (id,tenant_id,name) VALUES ('00000000-0000-0000-0000-0000000c0091','00000000-0000-0000-0000-0000000c0002','B客户');
+INSERT INTO band (band_id,tenant_id,customer_id,vendor,bound_at) VALUES ('00000000-0000-0000-0000-0000000c0092','00000000-0000-0000-0000-0000000c0002','00000000-0000-0000-0000-0000000c0091','V',DATE '2026-02-01');
+SELECT 'P5prep='||register_sync_probe('00000000-0000-0000-0000-0000000c0002','00000000-0000-0000-0000-0000000c0033','00000000-0000-0000-0000-0000000c0092','hr',NULL,7,'保守假设');
+SELECT set_config('app.tenant_id','00000000-0000-0000-0000-0000000c0001',true);
+DO $$BEGIN
+  PERFORM register_sync_probe('00000000-0000-0000-0000-0000000c0001','00000000-0000-0000-0000-0000000c0033','00000000-0000-0000-0000-0000000c0021','hr',NULL,7,'保守假设');
+  RAISE NOTICE 'P5=ACCEPTED(BAD)';
+EXCEPTION WHEN raise_exception THEN RAISE NOTICE 'P5=REJECTED %', left(SQLERRM,72); END$$;
+ROLLBACK;

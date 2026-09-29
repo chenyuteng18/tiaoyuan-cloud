@@ -1,0 +1,16 @@
+[反向验证] 注入内容: 盘点衍生存储的处置状态
+           期望结果: 待人工确认 > 0（如实登记，不得声称已自动清理）
+           实际结果: 待人工确认=6/8; 已确证处理=[primary_db]; 外部处理方=[third_party_processor]
+
+[反向验证] 注入内容: 衍生存储处理方全部返回 false（未确认）
+           期望结果: 回执 completed=false + DEK 未销毁 + 数据仍可解密
+           实际结果: completed=false; keyDestroyed=false; 待办=[cache, search_index, analytics_warehouse, application_log, audit_log, backup, third_party_processor]; 拒绝原因=以下衍生存储未确认处理: [cache, search_index, analytics_warehouse, application_log, audit_log, backup, third_party_processor] —— 先销毁 DEK 会让这些存储的清理失去定位能力，故本 DAG 强制要求先清理后销毁
+
+[反向验证] 注入内容: 数仓处理方抛 IllegalStateException（连接超时），其余返回 true
+           期望结果: 该步视为未完成 → 回执 completed=false + DEK 未销毁
+           实际结果: completed=false; 拒绝原因含 analytics_warehouse=true
+
+[反向验证] 注入内容: 衍生存储处理方全部返回 true
+           期望结果: 回执 completed=true + DEK 已销毁 + 数据不可解密 + 主库不参与清理
+           实际结果: completed=true; 清理顺序=[cache, search_index, analytics_warehouse, application_log, audit_log, backup, third_party_processor]; 主库被当清理项=false; 解密抛=SubjectKeyDestroyedException
+

@@ -1,0 +1,31 @@
+==============================================================================
+P2 反向验证 —— 【红态】撤掉 SubjectRef 对 NUL 的拒绝
+==============================================================================
+
+降级方式（只在【仓库外】副本上改）：envelope/SubjectRef.java 把
+  if (v.indexOf('\u0000') >= 0) { ... }   改为   if (false) { ... }
+即回到"两个不同主体是否碰撞、全靠运气"的旧态。
+
+输出：PASS=33 FAIL=6 N/A=0    RUNNER_EXIT=1
+本次红项 = B7, G1, G2, H4, H5, H9
+  说明：G1/G2/H4/H5/H9 的红，是因为本副本同时保留了 P0 降级（同因）；
+        P2 的【专属】红项是 B7。
+
+B7【期望 / 实测】：
+  [B7] subjectType/subjectId 含 NUL 时两个不同主体是否共用同一把 DEK
+      期望: 两个主体必须得到不同 DEK；且销毁 x 不得改变 y 的可读性
+       共用同一 DEK=true; liveKeyCount(应为2)=1; 销毁前 y 可读=true（55）; 销毁后 y 可读=false（SubjectKeyDestroyedException）; 可读性
+       不变=false ⇒ 删除权误伤/被误伤
+
+同一探针下的绿态（修复态）：
+  [B7] PASS
+       构造器拒绝 x=true（IllegalArgumentException: SubjectRef.subjectId 含 NUL（U+0000）—— NUL 是本模块作用域键的拼接分隔符，分量自带 NUL 
+       会让两个不同的主体拼出同一个键，从而【共用同一把 DEK】：既击穿 per-subject 粒度，又会让删除权误伤另一个主体（销毁其一时另一个也永久不可读）。若业务 id 里确实需要该字符，…）; 拒绝 y=
+       true（IllegalArgumentException: SubjectRef.subjectType 含 NUL（U+0000）—— NUL 是本模块作用域键的拼接分隔符，分量自带 NUL 会让两个不同
+       的主体拼出同一个键，从而【共用同一把 DEK】：既击穿 per-subject 粒度，又会让删除权误伤另一个主体（销毁其一时另一个也永久不可读）。若业务 id 里确实需要该字…） ⇒ 键碰撞在入口被结构性堵住
+
+判据要点（team-lead 明确要求）：误伤判据写成"销毁 x 前后 y 的可读性【不变】"，
+  而不是"y 仍可读"—— 后者在"二者本就共用 DEK"时恒为假，无法区分
+  "被误伤"与"本就共享"。红态实测正是这一形态：
+  销毁前 y 可读=true（55） → 销毁后 y 可读=false（SubjectKeyDestroyedException）
+  ⇒ 可读性不变=false ⇒ 删除权误伤成立。

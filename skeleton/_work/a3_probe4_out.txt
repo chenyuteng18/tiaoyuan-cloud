@@ -1,0 +1,9 @@
+customer_nn:id, tenant_id, name, status, created_at, updated_at
+tenant_nn:id, name, status, created_at
+band_chk:band_status_check=CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'paused'::character varying, 'unbound'::character varying, 'retired'::character varying])::text[])))
+band_chk:band_unbind_reason_check=CHECK (((unbind_reason)::text = ANY ((ARRAY['主动放弃'::character varying, '换机'::character varying, '设备损坏'::character varying, '其他'::character varying])::text[])))
+cust_chk:customer_age_check=CHECK (((age IS NULL) OR ((age > 0) AND (age < 120))))
+cust_chk:customer_gender_check=CHECK (((gender IS NULL) OR ((gender)::text = ANY ((ARRAY['男'::character varying, '女'::character varying])::text[]))))
+band_fk:band_customer_id_fkey=FOREIGN KEY (tenant_id, customer_id) REFERENCES customer(tenant_id, id)
+band_fk:band_tenant_id_fkey=FOREIGN KEY (tenant_id) REFERENCES tenant(id)
+cust_nn_defaults:id~-, tenant_id~-, name~-, status~'pending'::character varying, created_at~now(), updated_at~now()

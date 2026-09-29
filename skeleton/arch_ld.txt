@@ -1,0 +1,11 @@
+Compiled from "Architectures.java"
+public final class com.tngtech.archunit.library.Architectures$LayeredArchitecture$LayerDefinition {
+  final com.tngtech.archunit.library.Architectures$LayeredArchitecture this$0;
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture definedBy(com.tngtech.archunit.base.DescribedPredicate<? super com.tngtech.archunit.core.domain.JavaClass>);
+  public com.tngtech.archunit.library.Architectures$LayeredArchitecture definedBy(java.lang.String...);
+  boolean isOptional();
+  com.tngtech.archunit.base.DescribedPredicate<com.tngtech.archunit.core.domain.JavaClass> containsPredicate();
+  public java.lang.String toString();
+  com.tngtech.archunit.library.Architectures$LayeredArchitecture$LayerDefinition(com.tngtech.archunit.library.Architectures$LayeredArchitecture, java.lang.String, boolean, com.tngtech.archunit.library.Architectures$1);
+  static java.lang.String access$400(com.tngtech.archunit.library.Architectures$LayeredArchitecture$LayerDefinition);
+}

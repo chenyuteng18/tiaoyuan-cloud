@@ -1,0 +1,12 @@
+{
+  "name": "dy-client-mp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "端 C · 客户微信小程序（契约驱动骨架）。真实产物由微信开发者工具编译；本仓库的 build 做工程侧自检（结构 / 契约一致 / 端 C 禁用词 / 页面清单）。",
+  "scripts": {
+    "build": "node ../../tools/build-check.mjs --end=client-mp",
+    "gen:endpoints": "python ../../tools/gen-endpoints.py"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
