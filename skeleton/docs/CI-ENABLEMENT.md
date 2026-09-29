@@ -1,6 +1,6 @@
 # CI 门禁接入交接文档
 
-> **一句话结论：仓库已经 git init 并完成了基线提交，但 CI 目前仍然拦不住任何合并。**
+> **一句话结论：仓库已 git init、仓库根已修正、workflow 已就位，但 CI 目前仍然拦不住任何合并。**
 > Workflow 文件被提交 ≠ 门禁生效。要真正拦合并，还差 §2 的一次人工配置。
 > 本文件里所有 job 名、命令都是从仓库现有文件里逐字抄来的，没有改写、没有补写。
 
@@ -8,14 +8,49 @@
 
 ## 0. 当前真实状态（已核实，非推断）
 
+> 🛑 **2026-09-30 全面重写本节**：旧版本记的是「仓库根 = `skeleton/`」时代的状态
+> （基线提交 `ba22251`、默认分支 `master`），那些记录**已全部作废**。
+> 根因是**第 49 条系统性缺陷**（仓库根建错层级 ⇒ CI 永远无法变绿），已随仓库根上移修复。
+> 下方每一行的"证据"列都是本轮实际跑出来的输出，不是推断。
+
 | 项目 | 状态 | 证据 |
 |---|---|---|
-| 仓库是 git 仓库 | **已完成** | `git rev-parse` 不再报 NOT_A_GIT_REPO；`git log --oneline -1` = `ba22251` |
-| 有 remote | **未完成（本次刻意不做）** | `git remote -v` 输出为空 |
-| workflow 已纳入版本库 | **已完成** | 三个 `.yml` 均在基线提交里 |
+| 仓库是 git 仓库 | **已完成** | `git log --oneline -1` = `073b338` |
+| **仓库根层级正确** | **✅ 已完成（本轮修复）** | 仓库根 = `product-strategy/`；clone 到 `/tmp` 后 7 个门禁测试类全部命中根，`TOTAL 1199` / `BUILD SUCCESS` |
+| `_work/` 根锚点文件已入库 | **✅ 已完成** | `git ls-files` 实测：`_work/contract-t6-api-freeze-2026-09-19.md`、`_work/data-dict-entities-ddl-2026-09-19.md` 均 `[TRACKED]`，且 `git check-ignore` 返回「未被忽略」 |
+| 根锚点同类文件已入库 | **✅ 已完成** | `contract/openapi-v1.0.0.yaml`、`prototype/index.html`、`prd-health-mgmt-saas-2026-09-16.md` 均在**仓库根**且 `[TRACKED]` |
+| workflow 位于仓库根 | **✅ 已完成（本轮修复）** | 原在 `skeleton/.github/` ⇒ GitHub Actions **从不加载**；已移到仓库根 `.github/workflows/`，三文件 `[TRACKED]` |
+| workflow 已纳入版本库 | **已完成** | 三个 `.yml` 均被 git 跟踪（`git ls-files .github/workflows/` 返回 3 行） |
+| 有 remote | **未完成（必须人工）** | `git remote -v` 输出为空；本机无 `gh` CLI，建远端仓库需人工 |
 | workflow 在 GitHub 上跑过 | **未完成** | 没有 remote，GitHub 看不到这个仓库 |
 | 三个 job 配为 required status check | **未完成（必须人工）** | 见 §2 |
-| 默认分支名 | **需注意** | 本地 `git init` 建的是 `master`；三个 workflow 的 `pull_request.branches` 写的是 `main` |
+| 默认分支名 | **✅ 已一致** | 本地已 `git branch -M main`，当前分支 `main`；与三个 workflow 的 `pull_request.branches: [main]` 一致，无需再改名 |
+
+### 0.1 剩余的两个人工项（这是本文件存在的唯一理由）
+
+| # | 人工步骤 | 为什么不能自动化 |
+|---|---|---|
+| 1 | 在 GitHub 建仓库并 `git remote add origin <url>` + `git push -u origin main` | 需要账号凭据与建仓权限；本机未装 `gh` CLI |
+| 2 | Settings → Branches → 把三个 check 名配为 required status check | 需要仓库 admin 权限，无 API 凭据可用；且**不配就等于没有闸门**（§3） |
+
+**除这两项外，其余 CI 前置条件本轮已全部落地并验证。**
+
+人工项 1 的可直接复制命令（**在 `product-strategy/` 目录下执行，不是 `skeleton/`**）：
+
+```bash
+cd <path-to>/product-strategy
+git remote add origin https://github.com/<org>/<repo>.git
+git push -u origin main
+# 推送后确认：
+git remote -v          # 应有 origin 两行
+git ls-files .github/workflows/ | wc -l   # 应为 3
+```
+
+> 本机 `~/.git-credentials` 里已有 `github.com` 的凭据（`credential.helper=store`），
+> 故 HTTPS 推送通常不需要重新登录。若仓库属组织且开了 SSO，需先授权该 token。
+> 注：本机 git 配置里另有一条 `credential.https://gitee.com.provider=generic`，
+> 那只是 provider 映射项，**不代表托管平台是 Gitee**；实际凭据主机为 `github.com`，
+> 三个 workflow 用的也是 GitHub Actions 语法，口径一致。
 
 ### 关于「四个门禁 job」的更正
 
@@ -67,7 +102,8 @@ GitHub 官方文档（About protected branches）明确：required status check 
 
 ## 2. 配成 required status check —— 逐步操作
 
-**前提 A：仓库必须先推到 GitHub。** 本仓库还没有 remote（§0），这一步不在本次范围内。
+**前提 A：仓库必须先推到 GitHub。** 本仓库目前 `git remote -v` 为空（§0.1 人工项 1），
+本文档无法代替这一步。
 **前提 B：这三个 check 必须先在该分支上跑过一次**，否则设置页的搜索框里搜不到它们。
 三个 workflow 都带 `workflow_dispatch`，可以先手动跑一次。
 
@@ -78,8 +114,7 @@ GitHub 官方文档（About protected branches）明确：required status check 
 3. **Add branch protection rule**（若 `main` 已有规则，则点右侧 **Edit**）。
 4. **Branch name pattern** 填 `main` —— 必须与三个 workflow 里
    `pull_request.branches: [main]` 一致；填成 `master` 的话 PR 触发不到门禁。
-   （若决定让 `master` 当默认分支，则反过来：先改三个 workflow 的
-   `pull_request.branches`，或统一重命名分支。二者必须一致，见 §0 最后一行。）
+   （本地分支已统一为 `main`，见 §0 最后一行，此项无需再改。）
 5. 勾选 **Require status checks to pass before merging**。
 6. 建议同时勾选 **Require branches to be up to date before merging**
    （否则可以拿一个过时的分支骗过门禁）。
@@ -121,22 +156,30 @@ GitHub 官方文档（About protected branches）明确：required status check 
 所以完整的因果链是：
 
 ```
-git init（已完成，本文件 §0）
+git init（已完成）
    ↓
-加 remote 并 push（未完成）
+仓库根放到正确层级 + workflow 放到仓库根（已完成 2026-09-30，修第 49 条缺陷）
+   ↓
+加 remote 并 push（未完成 ← 人工项 1）
    ↓
 GitHub 真正执行 workflow（未完成）
    ↓
-把 3 个 job 配成 required status check（未完成 —— 这一步之前，一切都拦不住合并）
+把 3 个 job 配成 required status check（未完成 ← 人工项 2；这一步之前，一切都拦不住合并）
 ```
 
-`compliance/README.md` 里还登记了第二条同源限制：
+> 📌 **为什么本轮要专门修"仓库根层级"这一步**：在它修好之前，CI 即使配齐了
+> remote 与 required check，**每一次都必然是红的**（7 个门禁测试类在 clone 上找不到仓库根）。
+> 那会让 required check 变成"永远关不上的门"——比没有门禁更糟，因为所有人都会学会无视红叉。
+> 这也是为什么本轮把它当作**阻断级**缺陷优先修掉，而不是登记待办。
 
-> The repository is not under git yet, so the workflow file is inert until it is
-> committed to a remote that runs GitHub Actions.
+`compliance/README.md`（「Handover: what is still open」一节）里登记的第二条同源限制，
+**本轮已同步改写**，现措辞为：
 
-本次 git init + 基线提交只解决了这条的「前半句」（不再是 inert 文件了），
-**「committed to a remote」仍未解决**。
+> The repository is under git now (as of 2026-09-30), but it has **no remote yet**,
+> so the workflow still cannot run. … Until (1) happens the workflow is inert —
+> being committed locally is not enough.
+
+即：这条的「不是 git 仓库」已解决，**「没有 remote」仍未解决**（同一人工项 1）。
 
 另有一条与 CI 无关的 P0 阻塞项，顺带记录，不要与 CI 混为一谈：
 `compliance/owners.csv` 目前全是占位 owner（`role:dev-compliance-lead` 等），
@@ -261,46 +304,65 @@ bash verification/99_b12_run.sh
 
 ---
 
-## 5. 本次对 `.gitignore` 的改动（追加，未删改原有任何一行）
+## 5. 对 `.gitignore` 的改动 —— 现在是**两层**，分工而非重复
 
-根级 `.gitignore` 原本已有 `target/`、`*.class`、`logs/`、`*.log`、
-`.idea/`、`*.iml`、`.vscode/`、`application-local.yml`、`.env` 等规则，
-本次**只**追加了以下内容：
+> 🛑 **2026-09-30 重写**：仓库根上移到 `product-strategy/` 后，`.gitignore` 变成两层。
+> 旧版本本节写的是"追加到根级 `.gitignore`"（当时根 = `skeleton/`），口径已过时。
 
-| 新增规则 | 理由 |
+| 文件 | 位置 | 职责 | 状态 |
+|---|---|---|---|
+| `skeleton/.gitignore` | 子树细化 | 骨架自身的构建产物与 IDE 杂项 | `[TRACKED]`，79 行，**未删改原有任何一行** |
+| `.gitignore`（仓库根） | 全局规则 | 跨目录的通用忽略 + 根上移时的新增取舍 | `[TRACKED]`，78 行，**新建** |
+
+两者是**分工**：根级管全局（`target/`、`*.class`、`node_modules/`、`dist/`、`_work/` 取舍等），
+`frontends/.gitignore` 另有第三层管前端依赖与产物（已实测命中
+`frontends/admin-web/node_modules`、`frontends/admin-web/dist` 等四条路径）。
+
+### 5.1 根级 `.gitignore` 的取舍（逐条已在文件内注明理由）
+
+| 规则 | 理由 |
 |---|---|
-| `compliance/reports/last-build*.json` | 构建产物。四个 `validate` 门禁每次构建都重写它们，提交只会制造无意义 diff。**已实测命中全部 4 个文件** |
+| `compliance/reports/last-build*.json` | 构建产物。四个 `validate` 门禁每次构建都重写它们，提交只会制造无意义 diff |
 | `*.iws` `.settings/` `.project` `.classpath` | 补 Eclipse 系 IDE 产物（原文件只有 IntelliJ / VS Code 系） |
 | `ehthumbs.db` `Desktop.ini` | 补 OS 杂项 |
+| `_work/quotes_incident_backup/`、`_work/backup_quotes/`、`_work_backups/` | **一次历史事故（报价单）的取证备份**，约 8.2 MB 且含整份源码树副本。属"某时点的快照"而非活代码；入库会让全仓搜索命中同一份代码的两份副本，并放大 clone 体积 |
+| `_work/*_snapshots/`、`_work/*_inject/`、`_work/tmp/` | 反向验证的临时工作区与注入快照，每次运行重建 |
+| `_work/_probe*.sql`、`_work/_probe*.py` | 过程日志与探针输出，可复算，不属证据 |
+
+### 5.2 本轮的实测复核（不是照抄上轮结论）
+
+| 复核项 | 实测结果 |
+|---|---|
+| `_work/` 两个**根锚点文件**是否被忽略 | **未被忽略**，且 `[TRACKED]` ⇒ 与 §0 的"根锚点已入库"互证 |
+| `_work/_probe*` 是否有生产代码引用 | **无**。磁盘上已无 `_work/_probe*` 文件；源码/脚本中的 `_probe` 全部是 `compliance_injection_test.py` 内部的 `PROBE_PREFIXES` 命名约定常量，不指向任何真实文件 ⇒ 忽略规则安全 |
+| 旧版"刻意保留 `_work/` 整目录"的说法 | **已作废**。当时担心 `_work/` 可能是真实源码；本轮确认其中的生产代码引用面（探针 SQL/PY）已不存在 ⇒ 改为按子路径选择性忽略 |
 
 **刻意保留（不忽略）**：
 
 - `compliance/reports/REVERSE-VERIFICATION-*.md` —— 反向验证报告是**证据**，必须可追溯。
-  已实测：`git check-ignore` 对该文件返回「未被忽略」。
 - `compliance/reports/ci-scan.json`、`baseline.json`、`manual-scan.json`、`s16-*.json`、
   `last-golive.json` —— 性质介于证据与产物之间，**本次没有替它们做决定**，留待人工裁定。
-  若日后要把它们一并忽略，请连同上面那句「保留 REVERSE-VERIFICATION-*.md」的约束一起评估。
-- `_work/`、`_work_backups/` —— 这两个目录含 427 个 .java / 57 个 .sql / 25 个 .py，
-  看起来像某条并行开发线的暂存副本，但也可能是真实源码。**没有把握时不替它做忽略决定**，
-  本次照常纳入基线快照。人工确认是暂存垃圾后，再单独加规则并清理。
-
-**`frontends/.gitignore` 已确认生效，本次未改动它**：
-`git check-ignore -v` 实测显示 `frontends/admin-web/node_modules`、
-`frontends/admin-web/dist`、`frontends/therapist-app/node_modules`、
-`frontends/therapist-app/dist` 均由 `frontends/.gitignore` 命中。
+  其中 `ci-scan.json` 本轮因 `frontends/client-mp/miniprogram` 新增进扫描根而更新（`hits` 仍为 0，`verdict` 仍 `PASS`），已单独提交以便留痕。
 
 ---
 
 ## 6. 本文件自身的状态（重要）
 
-本文件是在基线提交 `ba22251` **之后**才创建的，因此它**目前不在任何 commit 里**，
-`git status` 会把它显示为未跟踪。要让它在 GitHub 上可见、可被别人读到，
-还需要一次后续提交把它纳入版本库 —— 本次任务限制「只提交一次」，故未做。
+> 🛑 **2026-09-30 更正**：旧版本本节自称"不在任何 commit 里、需一次后续提交"，
+> 那是 `ba22251` 时代的遗留说明。**现已入库**，本节仅保留说明意义。
+
+| 项目 | 当前事实 |
+|---|---|
+| 本文件是否已入库 | **是**。`docs/CI-ENABLEMENT.md` 已随基线提交纳入版本库 |
+| 当前最新提交 | `073b338`（本文件本轮更新后会再产生一次提交） |
+| 当前分支 | `main`（已从 `master` 重命名，与 workflow 的 `pull_request.branches` 一致） |
+| `git remote -v` | **空**（§0 人工项 1，尚未接远端） |
 
 拿到本仓库后，请先确认：
 
 ```bash
-git status --porcelain      # 应能看到 docs/CI-ENABLEMENT.md 为未跟踪
-git log --oneline -1        # 应为 ba22251
-git remote -v               # 应为空（尚未接远端）
+git status --porcelain      # 应为空（工作区干净）
+git log --oneline -1        # 应为 073b338 或之后的新提交
+git remote -v               # 应为空（尚未接远端 —— 这是唯一还缺的"外部"前提）
+git ls-files .github/workflows/   # 应返回 3 行
 ```

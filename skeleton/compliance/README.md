@@ -725,8 +725,15 @@ restore can never leave the tree holding an injected defect.
 - **Branch protection.** The workflow fails the job, but a GitHub workflow cannot
   block a merge on its own. The job **MUST** be added as a required status check
   in the repository settings; until that is done the gate cannot block a merge.
-- **The repository is not under git yet**, so the workflow file is inert until it
-  is committed to a remote that runs GitHub Actions.
+- **The repository is under git now** (as of 2026-09-30), but it has **no remote
+  yet**, so the workflow still cannot run. Two things remain, both manual:
+  (1) push to a remote that runs GitHub Actions —
+  the repository root is **`product-strategy/`**, not `skeleton/`, and
+  `.github/workflows/` lives at that root (it used to sit under `skeleton/.github/`,
+  where GitHub Actions never loads it);
+  (2) add the job as a required status check (see the previous bullet).
+  Until (1) happens the workflow is inert — being committed locally is not enough.
+  See `docs/CI-ENABLEMENT.md` §0.1 for the exact remaining steps.
 
 ## P0 blocker before go-live: name the real owners
 
