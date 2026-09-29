@@ -237,20 +237,84 @@ if (therOnly.length > 0) {
 // ---------------------------------------------------------------------------
 // ⑦ 页面清单：每个导航项依赖的端点必须真的在本端生成物里
 // ---------------------------------------------------------------------------
+// 🛑 判据必须同时认【两种形态】——否则门禁会静默漏检（本仓第 52 条同族）
+// ---------------------------------------------------------------------------
+// 初版只认字面量 `requires: 'getCustomer'`，正则 `/requires:\s*'([^']+)'/`。
+// 后来「专属动作」导航项改成**机械推导**形态 `requires: firstSoleEndpointId()`
+// ⇒ 正则匹配不到 ⇒ 该导航项**根本没被检查**，而输出仍是
+// `✓ nav: 导航项依赖的 2 个端点都在本端生成物里` —— **数字是错的却没人看得出来**
+// （实际有 3 个非 null 依赖）。这正是本仓反复登记的那类静默漏检。
+//
+// 修法分两路（各自判"它该是什么形态"）：
+//   · 字面量形态 ⇒ 该 id **必须存在于生成物**（防止改名/删除后留下死链）；
+//   · 调用形态   ⇒ 函数名必须在**白名单**内，且该函数**必须定义在 access.ts**，
+//                  且其实现**必须引用生成物**（不许在别处临时算一个）。
+// 两路计数之和必须等于"非 null 的 requires 条数"—— 用来防"新增了第三种形态
+// 又没人管"这件事（那会让门禁再次静默漏过）。
 {
-  const appText = stripComments(readFileSync(join(SRC, 'App.tsx'), 'utf8'));
-  const requiresRe = /requires:\s*'([^']+)'/g;
-  let m;
-  const bad = [];
-  let count = 0;
-  while ((m = requiresRe.exec(appText))) {
-    count += 1;
-    if (!entries.some((e) => e.id === m[1])) bad.push(m[1]);
-  }
-  if (bad.length) {
-    fail('nav', `导航项引用了不在本端生成物里的端点：${bad.join(', ')}`);
+  const appAll = stripComments(readFileSync(join(SRC, 'App.tsx'), 'utf8'));
+
+  // 🛑 先**圈出 NAV 数组本体**再判 —— 否则会把 `interface NavItem` 的
+  //    `readonly requires: string | null;` 也算成"一条依赖"，
+  //    于是"未覆盖形态"的交叉核对会永远误报（首跑就撞上了这个）。
+  const navBlock = (() => {
+    const start = appAll.search(/const\s+NAV\s*[:=]/);
+    if (start < 0) return null;
+    // 从这里往后取到第一个 `]);` —— NAV 是 Object.freeze([ ... ]) 形态
+    const rest = appAll.slice(start);
+    const end = rest.search(/\]\s*\)\s*;/);
+    return end >= 0 ? rest.slice(0, end) : rest;
+  })();
+  if (navBlock === null) {
+    fail('nav', 'App.tsx 里找不到 NAV 清单（本判据的检查对象不存在 —— 若已重构请同步更新本门禁）');
   } else {
-    ok('nav', `导航项依赖的 ${count} 个端点都在本端生成物里`);
+    // 只允许"从生成物现算"的推导函数出现在 requires 的调用形态里
+    const NAV_DERIVATION_WHITELIST = ['firstSoleEndpointId'];
+    const accessText = stripComments(readFileSync(ACCESS, 'utf8'));
+
+    const literals = [];
+    const calls = [];
+    for (const m of navBlock.matchAll(/requires:\s*'([^']+)'/g)) literals.push(m[1]);
+    for (const m of navBlock.matchAll(/requires:\s*([A-Za-z_$][\w$]*)\s*\(\s*\)/g)) calls.push(m[1]);
+
+    const requiresTotal = (navBlock.match(/requires:/g) ?? []).length;
+    const nullCount = (navBlock.match(/requires:\s*null/g) ?? []).length;
+    const nonNullExpected = requiresTotal - nullCount;
+
+    const bad = [];
+
+    for (const id of literals) {
+      if (!entries.some((e) => e.id === id)) bad.push(`字面量 ${id} 不在本端生成物里`);
+    }
+
+    for (const fn of calls) {
+      if (!NAV_DERIVATION_WHITELIST.includes(fn)) {
+        bad.push(`requires 用了未登记的推导函数 ${fn}()（若确为"从生成物现算"，请加入本门禁白名单并说明依据）`);
+        continue;
+      }
+      if (!new RegExp(`export\\s+function\\s+${fn}\\s*\\(`).test(accessText)) {
+        bad.push(`${fn}() 未定义在 contract/access.ts（依赖推导不得散落在界面文件里）`);
+        continue;
+      }
+      if (!/ENDPOINTS|solelyGrantedEndpoints|endpointsForRole|grantedRolesOf/.test(accessText)) {
+        bad.push(`${fn}() 所在的 access.ts 未见对生成物的引用 —— 无法证明它是"现算"而非硬编码`);
+      }
+    }
+
+    const accounted = literals.length + calls.length;
+    if (accounted !== nonNullExpected) {
+      bad.push(
+        `导航依赖的形态未被判据覆盖：非 null 的 requires 有 ${nonNullExpected} 条，`
+        + `但只认出 ${accounted} 条（字面量 ${literals.length} + 调用 ${calls.length}）`
+        + ' —— 出现了第三种写法，本判据不会检查它（这是静默漏检，必须先补判据）'
+      );
+    }
+
+    if (bad.length) {
+      fail('nav', `导航项依赖检查未通过：\n      ` + bad.join('\n      '));
+    } else {
+      ok('nav', `导航项依赖的 ${accounted} 项全部可核（字面量 ${literals.length} 项已在生成物 · 推导函数 ${calls.length} 项已登记且定义于 access.ts）`);
+    }
   }
 }
 

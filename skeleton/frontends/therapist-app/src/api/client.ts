@@ -63,7 +63,12 @@ function fillPath(path: string, params?: Record<string, string | number>): strin
   return out;
 }
 
-function newIdempotencyKey(): string {
+/**
+ * 生成幂等键（契约 `x-global-conventions.idempotency`：24h 窗口）。
+ * 🛑 导出是刻意的：页面若各自实现一个"造键"函数，就会在服务端眼里出现
+ *    两种形态的幂等键（前缀不同），排查时无从判断"这是同一个键吗"。
+ */
+export function newIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return `th-${crypto.randomUUID()}`;
   }

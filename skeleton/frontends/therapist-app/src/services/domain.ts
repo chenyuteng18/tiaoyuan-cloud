@@ -459,11 +459,30 @@ export function getPlan(role: AppRole, planId: string): Promise<Record<string, u
  * 🛑 这是本端 7 个"仅经络师"端点之一。配合的角色边界**在出站层强制**
  *    （`assertCanCall`），故本函数对 `therapist` 调用的结果是抛错 ——
  *    界面侧必须**不渲染**该入口（函数名后缀 -AsMeridian 就是在提醒这一点）。
+ *
+ * 🛑 请求体字段名来自【后端控制器的真实接收形状】，不是自创
+ * ---------------------------------------------------------------------------
+ * 契约对 D5-c **没有声明 requestBody**（裁剪契约与全量契约都只有 parameters），
+ * 故字段名未被契约冻结。唯一可核对的真相源是控制器：
+ * `PlanController.ReviewRequest` = `{result, reason, second_confirm}`。
+ * ⚠️ 本函数初版写成 `{decision, reason?}` —— 那是**自创字段名**：
+ *    tsc 不会报错（`decision` 只是多了一个键），服务端也**不会报错**
+ *    （`result` 为空 ⇒ 走的是"未给出审核结论"的分支），
+ *    于是表现为"审核提交成功但方案状态没变" —— 最坏的一类静默失效。
+ *    这与本仓第 50 条同族：**"写下的字段名"与"服务端真读的字段名"是两件事**，
+ *    只能靠对照控制器（或真请求）证明，不能靠看契约（契约此处是空的）。
  */
 export function reviewPlanAsMeridian(
   role: AppRole,
   planId: string,
-  body: { decision: string; reason?: string },
+  body: {
+    /** 审核结论。逐字取自 `PlanController.ReviewRequest.result`。 */
+    result: string;
+    /** 退回必填（契约 summary 逐字：「退回必填 reason」）。 */
+    reason?: string;
+    /** 二次确认（`second_confirm`，控制器为 `Boolean`）。 */
+    second_confirm?: boolean;
+  },
   idempotencyKey: string
 ): Promise<Record<string, unknown> | undefined> {
   return call<Record<string, unknown>>('reviewPlan', {
@@ -667,11 +686,31 @@ export function getRefundAsMeridian(role: AppRole, refundId: string): Promise<Re
  * G3 挽留记录（**仅经络师**）。
  * 🛑 契约 summary 逐字：「挽留记录**必填**；入口 B 不经挽留」。
  *    故本函数要求 `body` 非空 —— 空对象会被本地直接挡下，而不是发出去再被服务端拒。
+ *
+ * 🛑 字段名来自控制器真实形状（契约未声明 requestBody）
+ * ---------------------------------------------------------------------------
+ * `RefundWorkOrderController.CreateRetentionRequest` =
+ * `{attempts, script_version, result, analysis, communication}`。
+ * `analysis` / `communication` 在库层是 **JSONB**，控制器收 `JsonNode`
+ * ⇒ 端侧**传对象即可**（不必自己 `JSON.stringify`，控制器两种都收）。
  */
+export interface RetentionRequest {
+  /** 挽留尝试次数。控制器把 null 归一为 0。 */
+  readonly attempts?: number;
+  /** 话术版本。 */
+  readonly script_version?: string;
+  /** 挽留结论。 */
+  readonly result?: string;
+  /** 五维原因分析（JSONB，传对象）。 */
+  readonly analysis?: Record<string, unknown>;
+  /** 沟通记录（JSONB，传对象）。 */
+  readonly communication?: Record<string, unknown>;
+}
+
 export function createRetentionAsMeridian(
   role: AppRole,
   refundId: string,
-  body: Record<string, unknown>,
+  body: RetentionRequest,
   idempotencyKey: string
 ): Promise<Record<string, unknown> | undefined> {
   if (Object.keys(body).length === 0) {
@@ -690,11 +729,31 @@ export interface RefundReceipt {
   readonly receipt_state?: '已推送' | '未授权（转线下）' | '推送失败';
 }
 
-/** G5 回执（**仅经络师**）。 */
+/**
+ * G5 回执（**仅经络师**）。
+ * 🛑 字段名来自控制器真实形状（契约未声明 requestBody）
+ * ---------------------------------------------------------------------------
+ * `RefundWorkOrderController.CreateReceiptRequest` =
+ * `{subscription_quota, template_id, push_succeeded, failure_reason}`。
+ * 🛑 契约与控制器都强调：`subscription_quota` 是**推送之前**判定的额度
+ *    （≤0 ⇒ 「未授权（转线下）」）—— 端侧顺序搞反会让"未授权"这一态
+ *    在库里永不出现。本层不重排顺序，只**如实传值**。
+ */
+export interface RefundReceiptRequest {
+  /** 订阅消息剩余额度（推送**之前**判定；≤0 → 未授权（转线下））。 */
+  readonly subscription_quota?: number;
+  /** 订阅消息模板 ID（P0-19「回执独占一个模板 ID」）。 */
+  readonly template_id?: string;
+  /** 本次推送是否成功（由推送网关回传）。 */
+  readonly push_succeeded?: boolean;
+  /** 推送失败原因（`push_succeeded = false` 时必填）。 */
+  readonly failure_reason?: string;
+}
+
 export function createRefundReceiptAsMeridian(
   role: AppRole,
   refundId: string,
-  body: Record<string, unknown>,
+  body: RefundReceiptRequest,
   idempotencyKey: string
 ): Promise<RefundReceipt | undefined> {
   return call<RefundReceipt>('createRefundReceipt', {

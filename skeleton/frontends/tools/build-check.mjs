@@ -64,6 +64,9 @@ const ENDS = {
   'therapist-app': {
     label: '端 B · 调理师 / 经络师 APP',
     contractKey: 'therapist-app',
+    // 🛑 这里列的是**本轮实装的面**，不是"骨架期留下的占位"。
+    //    漏列一项的后果是"文件被删了门禁也不会红"（本仓第 52 条同型的静默漏检）
+    //    —— 故每新增一个承载职责的模块（准入 / 会话 / 域服务 / UI / 页面）都要落在这里。
     required: [
       'package.json',
       'tsconfig.json',
@@ -74,6 +77,19 @@ const ENDS = {
       'src/env/index.ts',
       'src/api/client.ts',
       'src/contract/endpoints.ts',
+      // X-3 唯一权威面（角色准入）+ 会话/错误/域服务/UI 元件
+      'src/contract/access.ts',
+      'src/services/session.ts',
+      'src/services/errors.ts',
+      'src/services/domain.ts',
+      'src/ui/tokens.ts',
+      'src/ui/components.tsx',
+      // 页面
+      'src/pages/LoginPage.tsx',
+      'src/pages/WorkbenchPage.tsx',
+      'src/pages/CustomerPage.tsx',
+      'src/pages/BandPage.tsx',
+      'src/pages/MeridianActionsPage.tsx',
     ],
     // 🛑 端 B / 端 A 刻意【不】套用端 C 的禁用词自检：
     //    compliance/wordlists/scan1_refund.words 的 SCOPE 段逐字声明本面只扫客户端包，

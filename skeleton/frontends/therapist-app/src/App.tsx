@@ -27,14 +27,15 @@ import LoginPage from './pages/LoginPage';
 import WorkbenchPage from './pages/WorkbenchPage';
 import BandPage from './pages/BandPage';
 import CustomerPage from './pages/CustomerPage';
+import MeridianActionsPage from './pages/MeridianActionsPage';
 import { currentRole, getCachedProfile, logout, type Profile } from './services/session';
 import { getCustomer, type CustomerDetail } from './services/domain';
 import { describe } from './services/errors';
-import { ROLE_LABEL, canCall, type AppRole } from './contract/access';
+import { ROLE_LABEL, canCall, firstSoleEndpointId, type AppRole } from './contract/access';
 import { COLOR, FONT, SPACE } from './ui/tokens';
 import { buttonGhostStyle, Card, ErrorBar, inputStyle, labelStyle, Page } from './ui/components';
 
-type Tab = 'workbench' | 'customer' | 'band';
+type Tab = 'workbench' | 'customer' | 'band' | 'sole';
 
 interface NavItem {
   readonly key: Tab;
@@ -48,11 +49,21 @@ interface NavItem {
  * 🛑 `requires` 是**端点 id**，界面过滤时用 `canCall(requires, role)` 判定，
  *    不在界面里手写"调理师看不到手环页"这类条件 —— 手写条件会与契约漂移。
  *    `null` 表示不依赖具体端点（如工作台本身）。
+ *
+ * 🛑「专属动作」页的 `requires` 由 access.ts 的 `firstSoleEndpointId()` 现算
+ * ---------------------------------------------------------------------------
+ * 不写 `requires: 'createRefund'` 这类固定行号：那样等于把"本端最窄的那一档"
+ * 钉在某一个具体端点上，契约增删行号后它会悄悄指错（而且不会让门禁变红）。
+ * 也不在本文件写一个 `soleRequires()` 局部函数：那会让**准入/依赖推导逻辑
+ * 出现第二个位置**（X-3 门禁 `x3-single-authority` 的同类风险）。
+ * ⇒ 一律放 `access.ts`（唯一权威面），本文件只引用。
  */
 const NAV: readonly NavItem[] = Object.freeze([
   { key: 'workbench', label: '工作台', requires: null },
   { key: 'customer', label: '客户详情', requires: 'getCustomer' },
   { key: 'band', label: '手环数据', requires: 'getBandTelemetry' },
+  // 「专属动作」依赖"本端最窄的一档"里当前存在的第一项（在 access.ts 现算，见其注释）。
+  { key: 'sole', label: '专属动作', requires: firstSoleEndpointId() },
 ]);
 
 export default function App() {
@@ -189,6 +200,15 @@ export default function App() {
             </Card>
           </Page>
         )
+      ) : tab === 'sole' ? (
+        <MeridianActionsPage
+          role={role}
+          roleLabel={roleLabel}
+          onNeedRelogin={() => {
+            logout();
+            setProfile(null);
+          }}
+        />
       ) : null}
     </div>
   );

@@ -169,6 +169,59 @@ export function canCall(operationId: string, role: string): boolean {
 }
 
 /**
+ * 「只授予单一角色」的端点 —— 机械枚举，**不在调用点写角色字面量**。
+ *
+ * 🛑 存在的理由与 `anyGrantedRoleFor` 同源：界面需要展示"这些动作是本端里
+ *    最窄的一档（只有某一个角色能做）"，若由调用点自己写
+ *    `endpointsForRole('meridian')`，就在 access.ts 之外造出了角色字面量
+ *    （X-3 门禁 `x3-single-authority` 抓的正是这件事）。
+ * ⇒ 由本层提供 **role + endpoint 成对**的结果，调用点只负责渲染。
+ */
+export interface SoleGrant {
+  readonly role: string;
+  readonly endpoint: Endpoint;
+}
+
+export function solelyGrantedEndpoints(): readonly SoleGrant[] {
+  const out: SoleGrant[] = [];
+  for (const e of ENDPOINTS) {
+    const g = e.grantedRoles as readonly string[];
+    if (g.length === 1) out.push({ role: g[0], endpoint: e });
+  }
+  return out;
+}
+
+/** 某端点是否为「只授予单一角色」；是则返回那个角色，否则 null。 */
+export function soleGrantedRoleOf(operationId: string): string | null {
+  const granted = grantedRolesOf(operationId);
+  if (!granted || granted.length !== 1) return null;
+  return granted[0];
+}
+
+/**
+ * 「专属动作」导航项该依赖哪个端点 —— **机械推导，不在界面里写死行号**。
+ *
+ * 🛑 为什么不让界面直接写 `requires: 'createRefund'`
+ * ---------------------------------------------------------------------------
+ * 那等于把"本端最窄的那一档"钉死在某一个具体端点上：契约增删行号后，
+ * 该导航项会**悄悄指向一个已不存在（或已不再专属）的端点** —— 表现是
+ * "这个页签莫名其妙消失了"，且不会让任何门禁变红（本仓第 46 条同型）。
+ * ⇒ 取「当前存在的第一个单一角色专属端点」：契约里还有这类端点时该页可用，
+ *    一个都不剩时**返回 null**（导航项自动失效，而不是留一个死链）。
+ *
+ * 🛑 取值来源必须是生成物（`solelyGrantedEndpoints` 即 `ENDPOINTS` 现算）
+ * ---------------------------------------------------------------------------
+ * 界面只负责渲染这个结果。X-3 门禁 `x3-nav` 会同时认这两种形态：
+ *   · 字面量 `requires: 'getCustomer'` ⇒ 必须存在于生成物；
+ *   · 调用形态 `requires: firstSoleEndpointId()` ⇒ 函数名必须在门禁白名单内
+ *     （即只允许"从生成物现算"的形态，不允许别处临时算一个）。
+ */
+export function firstSoleEndpointId(): string | null {
+  const sole = solelyGrantedEndpoints();
+  return sole.length > 0 ? sole[0].endpoint.id : null;
+}
+
+/**
  * 断言准入。**不过就抛**，且把三种失败分开（见文件头）。
  *
  * 判定顺序刻意如此：
