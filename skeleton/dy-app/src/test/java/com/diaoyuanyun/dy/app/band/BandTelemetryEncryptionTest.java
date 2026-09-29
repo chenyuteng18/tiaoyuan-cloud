@@ -101,6 +101,24 @@ class BandTelemetryEncryptionTest {
     private static TransactionTemplate tx;
     private static boolean seeded;
 
+    /**
+     * 取信封的**密文段**（第 5 段）的 base64 原文 —— 供"密文里有没有明文"类断言使用。
+     *
+     * <p>🛑 为什么不能直接对整条信封文本用 {@code contains}（本仓第 59 条）
+     * ---------------------------------------------------------------------------
+     * {@code CipherEnvelope.serialize()} 的形态是 {@code dy1:alg:ver:<b64 nonce>:<b64 密文>}。
+     * 整条文本除密文外还含 <b>算法标识</b>（如 {@code AES-GCM-256}）、<b>DEK 版本数字</b>
+     * 与 <b>base64 字符集</b>（含 {@code 0-9A-Za-z+/}）。对整条文本判
+     * {@code contains("72")} 会同时映到算法名里的字符、版本号、以及 base64 的偶然相邻字符
+     * —— 这是**概率型假红**：约 1% 的随机密文会偶然含 "72"，全量回归不定期变红。
+     *
+     * <p>正确的判法是判**解码后的密文字节**：那才是"数据有没有被加密"的物理载体。
+     */
+    private static byte[] ciphertextOf(String envelopeText) {
+        CipherEnvelope env = CipherEnvelope.parse(envelopeText);
+        return env.ciphertext();
+    }
+
     @LocalServerPort
     int port;
 
@@ -253,8 +271,15 @@ class BandTelemetryEncryptionTest {
             assertNotNull(raw, "库中应有该行 —— 否则下面的断言无从谈起");
             assertTrue(raw.startsWith("dy1:"),
                     "value_enc 必须是 dy1: 信封。实际库里存的是: " + raw);
-            assertFalse(raw.contains("72"),
-                    "🛑 密文里出现了明文数值 '72' —— 这不是加密，是可逆编码");
+            // 🛑 判「密文里有没有明文」必须判**解码后的字节**，不能判 Base64 文本。
+            //    原写法 `raw.contains("72")` 是概率型假红（本仓第 59 条）：
+            //    `raw` 是 Base64（字符集含 '7' 与 '2'），nonce+密文约 40 字符随机，
+            //    "72" 这对相邻字符约 1% 概率偶然出现 —— 全量回归会不定期变红，
+            //    而那是**判据的错**，不是加密坏了。判据的错会让人不信任门禁本身。
+            assertFalse(new String(ciphertextOf(raw), StandardCharsets.ISO_8859_1).contains("72"),
+                    "🛑 密文**字节**里出现了明文 '72' —— 这不是加密，是可逆编码");
+            assertFalse(raw.contains("value"),
+                    "🛑 信封里出现了明文字段名 'value' —— 结构化明文未加密。实际: " + raw);
             // 段序必须与 CipherEnvelope.serialize() 逐字一致：前缀:算法:版本:nonce:密文
             String[] segs = raw.split(":", 5);
             assertEquals(5, segs.length,
@@ -332,10 +357,16 @@ class BandTelemetryEncryptionTest {
             assertNotNull(raw, "库中应有该行");
             assertTrue(raw.startsWith("dy1:"),
                     "sleep_json 必须落密文信封。实际: " + raw);
+            // 🛑 同第 59 条：判**解码后的密文字节**，不判 base64 文本
+            //    （原 `raw.contains("95")` 是概率型假红 —— base64 字符集含 '9'/'5'）。
+            byte[] ct = ciphertextOf(raw);
+            String ctText = new String(ct, StandardCharsets.ISO_8859_1);
+            assertFalse(ctText.contains("deep_min"),
+                    "🛑 密文字节里出现了 JSON 键名 'deep_min' —— 睡眠分期明细未加密");
+            assertFalse(ctText.contains("95"),
+                    "🛑 密文字节里出现了明文数值 '95' —— 睡眠分期明细未加密");
             assertFalse(raw.contains("deep_min"),
-                    "🛑 密文里出现了 JSON 键名 'deep_min' —— 睡眠分期明细未加密");
-            assertFalse(raw.contains("95"),
-                    "🛑 密文里出现了明文数值 '95' —— 睡眠分期明细未加密");
+                    "🛑 整条信封里出现了 JSON 键名 'deep_min' —— 睡眠分期明细未加密。实际: " + raw);
         }
     }
 

@@ -310,6 +310,59 @@ class FulfillmentDomainDEndpointsE2ETest {
             assertFalse(items.get(0).has("gate_check_json"),
                     "客户响应体不得出现 gate_check_json（x-visible-to 不含 client）: " + resp.getBody());
         }
+
+        /**
+         * 🛑 D2 分页越界必须【拒】(400)，不得静默夹逼（本仓第 58 条）。
+         *
+         * <p>本方法此前实现为 {@code Math.min(Math.max(pageSize, 1), 100)}，
+         * 对 {@code page_size=101} 会把它悄悄改成 100 后返回 200 —— 与
+         * A3 {@code GET /stores} 的「超界直接拒」在同一份契约下各走一路，
+         * 且两者 200 响应体、{@code tsc}、门禁全绿，客户端无从察觉。
+         *
+         * <p>契约依据：{@code x-api-protocol.pagination.over-range-policy: reject-400}
+         * + {@code x-error-codes.VALIDATION_FAILED.trigger}「约束不满足」。
+         */
+        @Test
+        @DisplayName("D2 page_size 越界 → 400 VALIDATION_FAILED（拒，不夹逼）")
+        void oversized_page_size_is_rejected_not_clamped() {
+            ResponseEntity<String> resp = get(
+                    "/api/v1/customers/" + S_CUSTOMER + "/visits?page=1&page_size=101",
+                    token("client"));
+            assertEquals(400, resp.getStatusCodeValue(),
+                    "page_size=101 越界必须拒（400），而不是夹逼为 100 后返回 200: " + resp.getBody());
+            JsonNode body = parse(resp.getBody());
+            assertEquals(1001, body.at("/code").asInt(),
+                    "越界应报 VALIDATION_FAILED(1001): " + resp.getBody());
+            assertFalse(body.at("/data").isArray(),
+                    "失败信封不得带正常分页 data: " + resp.getBody());
+        }
+
+        /** 页码越界同样必须【拒】，不得「当作没传」兜底成第 1 页。 */
+        @Test
+        @DisplayName("D2 page=0 → 400（不得当作没传兜底成第 1 页）")
+        void zero_page_is_rejected_not_defaulted() {
+            ResponseEntity<String> resp = get(
+                    "/api/v1/customers/" + S_CUSTOMER + "/visits?page=0&page_size=10",
+                    token("client"));
+            assertEquals(400, resp.getStatusCodeValue(),
+                    "page=0 必须拒 —— 把它当作没传会让『第 0 页』与『第 1 页』"
+                            + "拿到同一结果而不报错: " + resp.getBody());
+            assertEquals(1001, parse(resp.getBody()).at("/code").asInt(),
+                    "越界应报 VALIDATION_FAILED(1001): " + resp.getBody());
+        }
+
+        /** 边界：{@code page_size} 恰好等于上界 ⇒ 合法（判据不得写成 ≥，第 55 条）。 */
+        @Test
+        @DisplayName("D2 page_size=100（恰等上界）→ 200，回显 100")
+        void boundary_page_size_is_accepted() {
+            ResponseEntity<String> resp = get(
+                    "/api/v1/customers/" + S_CUSTOMER + "/visits?page=1&page_size=100",
+                    token("client"));
+            assertEquals(200, resp.getStatusCodeValue(),
+                    "page_size 恰好等于上界必须合法: " + resp.getBody());
+            assertEquals(100, parse(resp.getBody()).at("/data/page_size").asInt(),
+                    "回显的 page_size 应是生效值 100: " + resp.getBody());
+        }
     }
 
     @Nested

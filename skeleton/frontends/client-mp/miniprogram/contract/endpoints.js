@@ -45,6 +45,16 @@ const PROTOCOL = Object.freeze({
   IDEMPOTENCY_HEADER: "Idempotency-Key",
   ENVELOPE_FIELDS: Object.freeze(["code", "message", "data", "trace_id"]),
   ENVELOPE_OK_CODE: 0,
+  PAGINATION: Object.freeze({
+    PAGE_FIELD: "page",
+    PAGE_SIZE_FIELD: "page_size",
+    PAGE_MIN: 1,
+    PAGE_SIZE_MIN: 1,
+    PAGE_SIZE_MAX: 100,
+    PAGE_SIZE_DEFAULT: 20,
+    OVER_RANGE_POLICY: "reject-400",
+    OVER_RANGE_ERROR: "VALIDATION_FAILED",
+  }),
 });
 
 const END_TOKEN_ROLES = Object.freeze(["client"]);

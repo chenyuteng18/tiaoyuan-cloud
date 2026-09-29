@@ -9,6 +9,7 @@ import com.diaoyuanyun.dy.common.result.Result;
 import com.diaoyuanyun.dy.security.permission.RequirePermission;
 import com.diaoyuanyun.dy.security.visibility.VisibilityRole;
 import com.diaoyuanyun.dy.tenancy.context.TenantContext;
+import com.diaoyuanyun.dy.common.page.PageQuery;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -107,6 +108,16 @@ public class FulfillmentController {
     // D2 · GET /customers/{id}/visits
     // ==================================================================
 
+    /**
+     * D2 —— 客户维度服务记录分页。
+     *
+     * <p>🛑 分页参数越界一律 400（{@code VALIDATION_FAILED}），<b>不夹逼</b>：
+     * 唯一校验单点是 {@link PageQuery}（契约 {@code x-api-protocol.pagination}，
+     * {@code over-range-policy: reject-400}）。本方法此前用
+     * {@code Math.min(Math.max(pageSize, 1), 100)} 静默夹逼后返回 200 ——
+     * 与 A3 {@code GET /stores} 的「超界直接拒」在同一份契约下<b>各走一路</b>，
+     * 且两端 200 响应体、{@code tsc}、门禁全绿（本仓第 58 条）。
+     */
     @GetMapping("/customers/{id}/visits")
     public Result<Map<String, Object>> listVisits(
             @PathVariable("id") String id,
@@ -116,8 +127,10 @@ public class FulfillmentController {
         String tenantId = requireTenant();
         UUID customerId = uuid(id, "id");
 
-        int p = page == null || page < 1 ? 1 : page;
-        int s = pageSize == null ? 20 : Math.min(Math.max(pageSize, 1), 100);
+        // 🛑 越界【拒】（400），不夹逼 —— 唯一校验单点在 dy-web PageQuery（本仓第 58 条）
+        PageQuery pq = PageQuery.of(page, pageSize);
+        int p = pq.page();
+        int s = pq.pageSize();
 
         List<VisitRow> rows = service.listVisits(tenantId, customerId, p, s);
         int total = service.countVisits(tenantId, customerId);

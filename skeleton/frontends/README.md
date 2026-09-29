@@ -45,7 +45,7 @@ python frontends/tools/gen-endpoints.py --check   # 只校验产物与契约一�
 | client-mp | `npm run build` → `node ../tools/build-check.mjs --end=client-mp` | 零第三方依赖 |
 | therapist-app | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` · `npm run check:x3` · `npm run check:x3-reverse` | 需 `npm install`；X-3 两组门禁 |
 | admin-web | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` · `npm run check:a` · `npm run check:a-reverse` | 需 `npm install` |
-| 三端通用 | `npm run check:build-reverse` → `node ../tools/build-reverse-check.mjs` | `base-path-wiring`（6 组 R1–R6）+ `cross-end-protocol`（4 组 R7–R10）反向验证，**常驻**；且能抓住「判据被删」|
+| 三端通用 | `npm run check:build-reverse` → `node ../tools/build-reverse-check.mjs` | `base-path-wiring`（6 组 R1–R6）+ `cross-end-protocol`（4 组 R7–R10）+ `pagination-protocol`（3 组 R11–R13）反向验证，**常驻**；且能抓住「判据被删」|
 
 **依赖安装（本机实测可用的一条命令）**：
 
@@ -143,7 +143,7 @@ exit 2 且不得打印 PASS）—— **W10 首跑即为红**，正是它抓出�
 
 ⚠️ 该措辞**尚未经裁定**，本文件不把它写成"已裁定"。
 
-## 8. 🛑 九条写作/路径/判据/管道纪律（由本仓第 50、51、52、53、54、55、56、57 条系统性缺陷逼出，勿回退）
+## 8. 🛑 十二条写作/路径/判据/管道纪律（由本仓第 50、51、52、53、54、55、56、57、58、59、60 条系统性缺陷逼出，勿回退）
 
 ### 8.1 客户端包内【不得写出禁词原文】—— 一律用指代（第 51 条）
 
@@ -649,3 +649,230 @@ Vite 的 `server.proxy` 是**前缀匹配**，`'/api'` 确实能匹配 `/api/v1/
 **并且：生成物常量的"值"必须来自机械转录，不能是手抄的副本。**
 一个"存在但可漂移"的常量，与注释里的约定同样不可靠 ——
 判据若只断言"它存在"，那就是**第 52 条的假绿**。
+
+---
+
+### 8.11 分页「越界处置」也是跨端协议片段：只声明约束 ≠ 声明处置（第 58 条）
+
+#### 8.11.1 缺口：同一份契约下，两个列表端点对越界各走一路
+
+契约 `x-global-conventions.pagination` 原本只有一句：
+
+> 请求 `?page=<int>&page_size=<int≤100>；响应 `data.{items[], total, page, page_size}``
+
+它声明了**约束**（上界 100），**没说越界怎么办**。于是：
+
+| 端点 | `page_size=101` 时的行为 | 契约声明 |
+|---|---|---|
+| A3 `GET /stores` | **400 `VALIDATION_FAILED`**（超界直接拒） | 只有 `maximum: 100` |
+| D2 `GET /customers/{id}/visits` | `Math.min(Math.max(101,1),100)` = **100，静默夹逼后 200** | **未声明越界怎么办** |
+
+客户端请求 101 条、拿到 100 条、**无从察觉**。而两端 200 响应体、`tsc`、
+`vite`、**全部既有门禁都绿**（它们从不发真实请求）。
+
+🛑 **关键**：`x-error-codes` 里 `VALIDATION_FAILED.trigger` 逐字就是
+「参数类型 / 必填 / **约束不满足**」—— 契约自己已经写了"越界该报 400"，
+是 `FulfillmentController:120` 的无声夹逼**违反**了契约。但两处声明都在契约里，
+**却没有任何机械判据把它们连起来** ⇒ 静默夹逼能长期存活。
+
+另：后端**零测试**覆盖这两个端点的越界行为 —— 这是缺口的一半。
+
+#### 8.11.2 修法：四层 + 单点
+
+| 层 | 落点 | 谁守它 |
+|---|---|---|
+| ① 契约 | `x-api-protocol.pagination`（9 键：参数名 / 上下界 / 缺省 / `over-range-policy: reject-400` / `over-range-error`）；prose 订正为显式写「拒，不夹逼」；`parameters.PageSize` 补 `minimum/default/description` | `ContractFreezeGateTest` 的**四向互查**（12 例，含 `VALIDATION_FAILED.trigger` 必须含「约束」） |
+| ② 后端 | **唯一校验单点** `dy-common` 的 `PageQuery`（越界一律抛 `VALIDATION_FAILED`，**绝不夹逼**）；`FulfillmentController` 改调单点；`StoreListPage` / `StoreListService` 收归委派 | `PaginationDisciplineTest`（4 例，含源码扫描 + 反向验证） |
+| ③ 前端 | 生成物 `PROTOCOL.PAGINATION`（含 `PAGE_FIELD` / `PAGE_SIZE_FIELD`）；三端 `paging.ts` 助手 `pageQuery()`；端 A 6 处 + 端 B 4 处调用点收敛 | `build-check.mjs` ④d 值断言 + ④e `pagination-protocol` |
+| ④ 反向验证 | R11 端 A 参数名回退成手抄 / R12 端 B 透传形态回退 / R13 **分页助手把键名写错** | `build-reverse-check.mjs`（13/13） |
+
+🛑 **为什么必须有"唯一单点"**：此前 `page_size` 的校验逻辑在
+`StoreListService` 与 `FulfillmentController` **各有一份实现** ——
+**同一规则两处实现，正是静默夹逼能长期存活的土壤**（改一处、另一处不知道）。
+抽成单点后，"越界怎么办"全局只有一处实现。
+
+#### 8.11.3 第 53 条形态：R13 首跑漏过（判据覆盖面没跟上）
+
+④e 初版只扫"字面量"（`page_size` 作为字符串出现）。R13 注入的是
+**分页助手内部把键名改成别名**（`q['pageSize'] = ...`）—— 它**不是** `page_size`
+字面量，正则扫不到 ⇒ **R13 首跑"漏过"**。这正是第 53 条（覆盖面没跟上 ⇒ 静默漏检）。
+
+⇒ 修法：判**引用形态**（与 ④d 的 `PROTOCOL.<KEY>` 同构）——
+分页助手内必须出现 `PAGINATION.PAGE_FIELD` / `PAGE_SIZE_FIELD` 的成员访问。
+改后 13/13 PASS。
+
+#### 8.11.4 第 55 条形态：分页纪律门禁首跑即假红
+
+`PaginationDisciplineTest` 的源码扫描器首版只剥 `//` 与 `/*`，**没剥 Javadoc 内部行**
+（以 ` * ` 开头）。于是它把 `FulfillmentController` 的 Javadoc 里那句
+**描述缺陷**的 `{@code Math.min(Math.max(pageSize, 1), 100)}` 判红了 ——
+**第 55 条（判据太窄 ⇒ 把合法写法判红）**。
+
+⇒ 修法：`stripComment()` 同时处理行注释 / 块注释起止 / **Javadoc 内部行**。
+并把该形态写进反向验证（注入"只在 Javadoc 里提到夹逼"的文件，必须**不**被判红）。
+
+#### 8.11.5 复验数字（逐字）
+
+- 契约冻结门禁 **12/12**；分页纪律门禁 **4/4**；D2 真请求 E2E **9/9**（6→9）
+- `gen-endpoints.py --check` `[OK] client-mp 15 / therapist-app 29 / admin-web 39`
+- 三端 `build-check` 全绿（`pagination-protocol` 三端各 ✓）
+- `build-reverse-check` **13/13 PASS**；**禁用 ④e 后 10/13 ⇒ FAIL**（R11–R13 全漏过）
+- 端 A `check:a` 14/14；端 B `check:x3` 9/9
+- 后端全量回归 `TOTAL 1208   failures=0 errors=0 skipped=0`（1200 → **1208**，+8）
+
+---
+
+### 8.12 会随机变红的断言 = 判据的第四种失效形态（第 59 条）
+
+#### 8.12.1 缺口：`assertFalse(raw.contains("72"))`
+
+`BandTelemetryEncryptionTest` 里有：
+
+```java
+assertFalse(raw.contains("72"), "密文里出现明文 '72' —— 这不是加密");
+```
+
+`raw` 是 `CipherEnvelope.serialize()` 的产物，形态为
+`dy1:算法:版本:<b64 nonce>:<b64 密文>`。这条断言有两个问题：
+
+1. **概率型假红** —— base64 字符集含 `0-9`，nonce + 密文约 40 字符随机，
+   `"72"` 这对相邻字符约 **1%** 概率偶然出现 ⇒ 全量回归**不定期变红**。
+2. **判错了对象** —— 整条文本除密文外还含**算法标识**（`AES-GCM-256`）
+   与 **DEK 版本数字**；对整条文本判 `contains` 会映到这些**非密文段**。
+
+#### 8.12.2 为什么这算缺陷而不是小事
+
+**一个会随机变红的断言，长期会侵蚀门禁自身的可信度。**
+一旦"红了可能是运气"成为共识，就没人再认真看红 ——
+门禁从"守卫"退化成"噪音"。
+
+判据失效至此共有**四种形态**：
+
+| 条目 | 形态 | 后果 |
+|---|---|---|
+| 第 52 条（§8.3） | 判据**太宽** | 假绿 —— 错的被放过 |
+| 第 53 条（§8.5） | **覆盖面没跟上** | 静默漏检 |
+| 第 55 条（§8.6） | 判据**太窄** | 假红 —— 对的被判错 |
+| **第 59 条（本条）** | **不确定性（flaky）** | **随机假红 —— 门禁失去可信度** |
+
+#### 8.12.3 修法：判"数据有没有被加密"的物理载体
+
+判**解码后的密文字节**，而不是它的 base64 文本：
+
+```java
+new String(CipherEnvelope.parse(raw).ciphertext(), ISO_8859_1).contains("72")
+```
+
+后者才是「数据有没有被加密」的物理载体；前者只是它的**表示**。
+
+新增门禁 `ProbabilisticAssertionGateTest`（3 例）：扫描测试源码，
+禁止对**被断言为 `dy1:` 信封**的变量判 `contains`。
+
+#### 8.12.4 第 55 条第三次复发（判据的根本局限）
+
+该门禁首版按**变量名白名单**（`raw` / `envelope` / `*_enc`）判别，
+**首跑即误判 3 处合法写法**：
+
+```
+BandAvailableDatesTest:97       assertTrue(raw.contains("N = 7"))            // 源码原文
+DerivedProfileSourceTest:306    assertTrue(envelope.contains("DerivedRawConfig")) // 配置对象
+ProvisioningBoundaryGateTest:701 assertTrue(raw.contains("INSERT INTO tenant"))   // SQL 文本
+```
+
+这三处的变量**恰好也叫** `raw` / `envelope`，但装的是**确定性文本**。
+
+⇒ **变量名单看名字无法区分「随机密文」与「确定性文本」，这是判据的根本局限。**
+
+**正确判法是判数据来源**：只有同一文件里该变量被断言过
+`startsWith("dy1:")` 时，它才是随机字节的文本表示 ——
+与 ④d 的「判 `PROTOCOL.<KEY>` 引用形态」同构。改后 3/3 绿。
+
+#### 8.12.5 复验数字（逐字）
+
+- `BandTelemetryEncryptionTest` **连跑 3 次全绿**
+- `ProbabilisticAssertionGateTest` **3/3**
+- 后端全量回归 `TOTAL 1211   failures=0 errors=0 skipped=0`（1208 → **1211**，+3）
+
+---
+
+### 8.13 写在文档里的计数也是一句【活断言】—— 没人守它，它就能是假的（第 60 条）
+
+#### 8.13.1 缺口：4 处 `TOTAL` 全写错，而全部门禁全绿
+
+`README.md` 与 `frontends/README.md` 里共 **4 处**写着后端全量回归的计数，形态：
+
+```
+TOTAL <N> failures=<F> errors=<E> skipped=<S>
+```
+
+它**不是修辞** —— 它同时声称两件事：① 全仓回归计数为 `N`；② 失败/错误/跳过全为 `0`。
+
+第 58 条收尾时，真实值是 **`TOTAL 1211 failures=0 errors=0 skipped=0`**，而 4 处**全写 1204**（差 7）。
+
+**错法本身就是证据**：当时我是"预估"而不是"照抄实测" —— 在 `1200` 上只加了「分页纪律门禁 4 例」，
+**漏掉同一批改动里的另外 3 个新测试类**：
+
+| 漏掉的新增 | 例数 |
+| --- | ---: |
+| `ContractFreezeGateTest.pagination_over_range_policy...` | +1 |
+| `FulfillmentDomainDEndpointsE2ETest` 越界 3 例 | +3 |
+| `ProbabilisticAssertionGateTest` | +3 |
+| **合计** | **+7** |
+
+**为什么全绿**：`TOTAL` 锚点只活在 markdown 里，而 **markdown 不被任何测试读取**；
+前端三端自检只管 `frontends/` 的构建，后端门禁只管各模块的源码。
+⇒ **这句话的每一个字都可以是假的，而没有一台机器会因此变红。**
+与本仓第 32 条「一个恒真的断言等于没有断言」同族，但更隐蔽：那条是"断言写得太宽所以恒真"，
+**这条是"断言根本没人读"**。
+
+#### 8.13.2 它和 dy-crypto 已有的同名门禁的区别（必须写清，否则会被误认为重复）
+
+本仓**已有** `com.diaoyuanyun.dy.crypto.gate.DocTestCountAnchorGateTest`。但：
+
+| | dy-crypto 那个 | 缺的那个 |
+| --- | --- | --- |
+| 守的锚点形态 | `应为 **N**` | `TOTAL N failures=0 ...` |
+| 覆盖面 | **只有 `dy-crypto/` 模块内** | **跨 8 个模块的求和** |
+| 锚点所在文档 | `dy-crypto/*.md` · `verification/crypto/README.md` | `README.md` · `frontends/README.md` |
+
+⇒ 这不是"已有能力没被用上"，而是**覆盖面正好差了一层**：
+**判据守的是它写到的那一层，而漂移发生在它没写到的那一层。**
+与第 53 条（覆盖面没跟上）同族，但成因不同 —— 第 53 条是"新增了同类宿主而判据没跟上"，
+本条是**"同一件事在两个层级各有一份计数，只守了低层"**。
+
+#### 8.13.3 修法：把 `TOTAL` 抬成活断言（新建 `dy-app` 的 `DocTestCountAnchorGateTest`，2 例）
+
+| # | 判据 | 内容 |
+| --- | --- | --- |
+| ① | `total_anchors_in_docs_match_the_real_test_count` | 解析 `README.md` + `frontends/README.md` 全部锚点：**最新一条 `== 源码级实测合计`**；**每一条**的 `failures/errors/skipped` 必须全为 `0`；整份文档内锚点值**单调不降**（用例只增不减，写小只可能是漏加）；逐模块求和集必须与 `MODULES` 清单**完全一致**（少一个模块 = 求和系统性偏小，这正是本条的一半成因） |
+| ② | `gate_turns_red_when_doc_total_drifts_and_green_when_it_matches` | **反向验证五向**：写对 ⇒ 放行 / 少算 ⇒ 抓且**指名文档 + 两个数字** / 自称 `failures=1` ⇒ 抓 / 历史锚点值**倒退** ⇒ 抓 / 一个锚点都解析不到 ⇒ **按失败处理不按通过处理** |
+
+**一处刻意设计**：只对**最新一条**锚点要求"等于实测"，更早的只要求"单调不降"。
+因为条目表按时间追加，第 57 条那行写 `1200`、第 58 条那行写 `1208` 都是**当时如实**；
+若要求每一处都等于今天，每加一条测试就得回去改历史记录，文档就再也不能记录"当时是多少"。
+
+**主判据为什么取「源码级 `@Test` 计数」而不是「surefire 报告求和」**：本仓 `dy-config`
+（`default-test` + `config-truth-source-gate`）与 `dy-app`（`default-test` + `rls-isolation-gate`）
+各有**两个** surefire execution，报告求和会把**同一批用例被重复执行的次数**也加进去。
+源码级计数与执行顺序、execution 划分无关。且两条路**实测口径一致**：
+源码级 = 1211，逐 execution 求和也 = 1211（互相印证）。
+
+#### 8.13.4 首跑即红的证据（逐字）
+
+```
+[ERROR] Tests run: 2, Failures: 1, Errors: 0, Skipped: 0, ...
+文档的「全量回归计数」锚点与实测脱钩 —— 请更新文档锚点（最新一条应写 `TOTAL 1213 ...`）。
+命中:
+  - README.md : 最新锚点写的 `TOTAL 1204`（L1992 ...），实测源码级合计是 1213（差 9）
+  - frontends/README.md : 最新锚点写的 `TOTAL 1204`（L794 ...），实测源码级合计是 1213（差 9）
+```
+
+（`1213` = `1211` + 本类自己的 2 例 —— 这正是类注释里声明的"自指性"。）
+
+订正 4 处锚点（`1204` → `1208` / `1211`，并**按新增补齐 `1200 → 1208 → 1211` 的增量说明**）后 **2/2 绿**。
+
+#### 8.13.5 复验数字（逐字）
+
+- 全量回归 `EXIT=0 / BUILD SUCCESS`
+- `TOTAL 1213   failures=0 errors=0 skipped=0`（逐模块 `10/39/48/58/37/37/29/955`）
+- `DocTestCountAnchorGateTest` **2/2**（含反向验证五向全过）

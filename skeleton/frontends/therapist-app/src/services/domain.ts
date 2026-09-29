@@ -25,6 +25,7 @@
  * （把"忘了传角色"从静默失效变成编译失败）。
  */
 
+import { pageQuery, DEFAULT_PAGE_SIZE, type PageQuery } from './paging';
 import { call } from '../api/client';
 import type { AppRole } from '../contract/access';
 
@@ -52,9 +53,9 @@ export interface StoreList {
 export function listStores(
   role: AppRole,
   page = 1,
-  pageSize = 50
+  pageSize = DEFAULT_PAGE_SIZE
 ): Promise<StoreList | undefined> {
-  return call<StoreList>('listStores', { role, query: { page, page_size: pageSize } })
+  return call<StoreList>('listStores', { role, query: pageQuery(page, pageSize) })
     .then((r) => r.data);
 }
 
@@ -228,7 +229,7 @@ export interface ScaleItemBank {
 /** C1 题库拉取（按分龄组 + 维度）。 */
 export function listScaleItemBanks(
   role: AppRole,
-  query: { age_group?: string; dimension?: string; page?: number; page_size?: number } = {}
+  query: PageQuery & { age_group?: string; dimension?: string } = {}
 ): Promise<readonly ScaleItemBank[] | undefined> {
   return call<{ items?: readonly ScaleItemBank[] }>('listScaleItemBanks', { role, query })
     .then((r) => r.data?.items);
@@ -386,12 +387,12 @@ export function listVisits(
   role: AppRole,
   customerId: string,
   page = 1,
-  pageSize = 50
+  pageSize = DEFAULT_PAGE_SIZE
 ): Promise<readonly Visit[] | undefined> {
   return call<{ items?: readonly Visit[] }>('listVisits', {
     role,
     params: { id: customerId },
-    query: { page, page_size: pageSize },
+    query: pageQuery(page, pageSize),
   }).then((r) => r.data?.items);
 }
 
@@ -430,12 +431,12 @@ export function listDailyReports(
   role: AppRole,
   customerId: string,
   page = 1,
-  pageSize = 50
+  pageSize = DEFAULT_PAGE_SIZE
 ): Promise<readonly DailyReport[] | undefined> {
   return call<{ items?: readonly DailyReport[] }>('listDailyReports', {
     role,
     params: { id: customerId },
-    query: { page, page_size: pageSize },
+    query: pageQuery(page, pageSize),
   }).then((r) => r.data?.items);
 }
 
@@ -620,12 +621,12 @@ export function listVerdictsAsMeridian(
   role: AppRole,
   customerId: string,
   page = 1,
-  pageSize = 20
+  pageSize = DEFAULT_PAGE_SIZE
 ): Promise<readonly Verdict[] | undefined> {
   return call<{ items?: readonly Verdict[] }>('listVerdicts', {
     role,
     params: { id: customerId },
-    query: { page, page_size: pageSize },
+    query: pageQuery(page, pageSize),
   }).then((r) => r.data?.items);
 }
 

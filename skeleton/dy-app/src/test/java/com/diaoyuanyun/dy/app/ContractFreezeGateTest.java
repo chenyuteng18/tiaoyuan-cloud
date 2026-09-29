@@ -365,6 +365,128 @@ class ContractFreezeGateTest {
                 "trace-header 不应与信封字段同名（前者是 HTTP 头、后者是响应体键）");
     }
 
+    /**
+     * 分页协议的<b>越界处置</b>必须是结构化事实，且与 prose / OpenAPI 原生参数 / 错误码表一致。
+     *
+     * <h2>它堵的洞（第 58 条）</h2>
+     * 契约原本只在 {@code x-global-conventions.pagination} 写一句：
+     * 「请求 {@code ?page=<int>&page_size=<int≤100>}；响应 {@code data.{items[], total, page, page_size}}」
+     * —— 声明了<b>约束</b>（上界 100），却<b>没声明越界怎么办</b>。于是同一份契约下
+     * 两个列表端点各走一路：
+     * <pre>
+     *   A3 GET /stores   page_size=101 ⇒ 400 VALIDATION_FAILED（超界直接拒）
+     *   D2 GET /visits   page_size=101 ⇒ Math.min(Math.max(101, 1), 100) = 100，静默夹逼后 200
+     * </pre>
+     * 两者的 200 响应体、{@code tsc}、{@code vite}、全部门禁<b>都绿</b>，客户端聚类
+     * 拿到 100 条却以为请求了 101 条且无从察觉 —— 正是第 57 条 {@code X-Trace-Id} 的同族。
+     *
+     * <p>断言方向同样是<b>双向</b>：结构化块不得凭空多出 prose 没有的约定，
+     * prose 也不得与结构化块矛盾；且 {@code over-range-policy} 必须与
+     * {@code x-error-codes} 里 {@code VALIDATION_FAILED.trigger}「约束不满足」同源 ——
+     * 否则就是「契约内部两处规则各说各话」。
+     */
+    @Test
+    void pagination_over_range_policy_is_structured_and_agrees_with_prose_and_error_codes()
+            throws IOException {
+        Sources s = load();
+        Map<String, Object> doc = s.openapi();
+
+        Map<String, Object> proto = cast(doc.get("x-api-protocol"), "x-api-protocol");
+        Map<String, Object> pag = cast(proto.get("pagination"),
+                "x-api-protocol.pagination");
+
+        // --- ① 结构化块自身的必填键（缺一个 = 生成器无法转录该常量）---
+        List<String> requiredKeys = List.of(
+                "request-fields", "response-fields", "page-min", "page-size-min",
+                "page-size-max", "page-size-default", "over-range-policy", "over-range-error");
+        for (String k : requiredKeys) {
+            assertNotNull(pag.get(k), "x-api-protocol.pagination 缺键 " + k
+                    + "（生成物无法机械取用，前端只能手抄字面量 —— 第 58 条的成因）");
+        }
+
+        int pageSizeMax = (int) pag.get("page-size-max");
+        int pageSizeDefault = (int) pag.get("page-size-default");
+        assertEquals(100, pageSizeMax, "分页上界冻结为 100（prose 逐字「page_size=<int≤100>」）");
+        assertEquals(20, pageSizeDefault, "分页缺省冻结为 20");
+
+        // --- ② over-range-policy 唯一合法取值 + 与错误码表同源 ---
+        String policy = str(pag.get("over-range-policy"));
+        assertEquals("reject-400", policy,
+                "分页越界处置唯一合法取值是 reject-400。若允许静默夹逼，客户端会拿到"
+                        + "被悄悄改小的页大小而不报错 —— 这正是第 58 条被静默存活的原因");
+
+        String overError = str(pag.get("over-range-error"));
+        assertEquals("VALIDATION_FAILED", overError, "越界报错必须是 VALIDATION_FAILED");
+
+        @SuppressWarnings("unchecked")
+        List<Object> errorCodes = (List<Object>) doc.get("x-error-codes");
+        assertNotNull(errorCodes, "x-error-codes 必须是列表");
+        Map<String, Object> vf = null;
+        for (Object e : errorCodes) {
+            Map<String, Object> m = cast(e, "x-error-codes[]");
+            if ("VALIDATION_FAILED".equals(str(m.get("name")))) {
+                vf = m;
+            }
+        }
+        assertNotNull(vf, "x-error-codes 缺 VALIDATION_FAILED —— 越界处置无处落款");
+        assertEquals(400, (int) vf.get("http"), "VALIDATION_FAILED 必须是 400");
+        String trigger = str(vf.get("trigger"));
+        assertTrue(trigger.contains("约束"),
+                "VALIDATION_FAILED.trigger 必须含「约束」字样，以承认「参数超出声明的 minimum/maximum」"
+                        + "属于本码适用范围；否则 over-range-policy=reject-400 就成了"
+                        + "「契约里没写过的规则」: " + trigger);
+
+        // --- ③ 与 prose（x-global-conventions.pagination）双向互查 ---
+        Map<String, Object> conv = cast(doc.get("x-global-conventions"), "x-global-conventions");
+        String pagProse = str(conv.get("pagination"));
+        assertNotNull(pagProse, "x-global-conventions.pagination 不得缺失");
+        assertTrue(pagProse.contains(String.valueOf(pageSizeMax)),
+                "pagination prose 未含结构化上界 " + pageSizeMax + ": " + pagProse);
+        assertTrue(pagProse.contains(overError),
+                "pagination prose 未含越界报错码 " + overError
+                        + " ⇒ 读者只看到约束、看不到越界怎么办（原缺陷形态）: " + pagProse);
+        assertTrue(pagProse.contains("不夹逼") || pagProse.contains("拒"),
+                "pagination prose 必须显式写出「拒 / 不夹逼」，否则越界处置仍是"
+                        + "「结构性事实里有、给人读的句子里没有」: " + pagProse);
+
+        // --- ④ 与真正的 OpenAPI 原生参数互查 ---
+        Map<String, Object> components = cast(doc.get("components"), "components");
+        Map<String, Object> parameters = cast(components.get("parameters"), "parameters");
+        Map<String, Object> pageParam = cast(parameters.get("Page"), "parameters.Page");
+        Map<String, Object> pageSizeParam = cast(parameters.get("PageSize"), "parameters.PageSize");
+
+        assertEquals("page", str(pageParam.get("name")), "parameters.Page.name 必须是 page");
+        assertEquals("page_size", str(pageSizeParam.get("name")),
+                "parameters.PageSize.name 必须是 page_size（不是 pageSize —— 契约是 snake_case）");
+
+        Map<String, Object> psSchema = cast(pageSizeParam.get("schema"), "PageSize.schema");
+        assertEquals(pageSizeMax, (int) psSchema.get("maximum"),
+                "parameters.PageSize.schema.maximum 与 x-api-protocol.pagination.page-size-max "
+                        + "不一致 ⇒ 同一份契约里有两个上界，必分叉");
+        assertEquals(pageSizeDefault, (int) psSchema.get("default"),
+                "parameters.PageSize.schema.default 与 pagination.page-size-default 不一致");
+        assertTrue(str(pageSizeParam.get("description")).contains(overError),
+                "parameters.PageSize.description 必须写明越界报 " + overError
+                        + "，使 OpenAPI 原生工具链（Swagger UI / 代码生成器）也能读到该处置");
+
+        int pageMin = (int) pag.get("page-min");
+        Map<String, Object> pSchema = cast(pageParam.get("schema"), "Page.schema");
+        assertEquals(pageMin, (int) pSchema.get("minimum"),
+                "parameters.Page.schema.minimum 与 pagination.page-min 不一致");
+
+        // --- ⑤ 请求字段名不得与响应字段名分叉（items/total 是响应专有）---
+        @SuppressWarnings("unchecked")
+        List<Object> reqFields = (List<Object>) pag.get("request-fields");
+        @SuppressWarnings("unchecked")
+        List<Object> respFields = (List<Object>) pag.get("response-fields");
+        assertTrue(reqFields.contains("page") && reqFields.contains("page_size"),
+                "pagination.request-fields 必须含 page / page_size");
+        for (Object f : reqFields) {
+            assertTrue(respFields.contains(f) || "page".equals(str(f)) || "page_size".equals(str(f)),
+                    "请求字段 " + f + " 既不在响应字段里、也不是 page/page_size ⇒ 声明可疑");
+        }
+    }
+
     // ======================================================================
     // 五、② 行集与上游 §2 完全一致（超集/子集都不行）
     // ======================================================================

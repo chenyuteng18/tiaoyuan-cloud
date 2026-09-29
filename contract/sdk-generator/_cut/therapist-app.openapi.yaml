@@ -41,7 +41,7 @@ x-global-conventions:
     '
   envelope: '{ "code": 0, "message": "ok", "data": {...}, "trace_id": "..." }'
   envelope-rule: code != 0 时 data 为空
-  pagination: 请求 ?page=<int>&page_size=<int≤100>；响应 data.{items[], total, page, page_size}
+  pagination: 请求 ?page=<int>&page_size=<int≤100>；响应 data.{items[], total, page, page_size}；page/page_size 越界（<1 或 >100）一律 400 VALIDATION_FAILED（拒，不夹逼）
   visibility: 每个接口的响应字段按 x-visibility 矩阵在服务端裁剪；无权限字段不下发（不是 null、不是空串）
   forbidden-403: 「前置门禁缺失」与「可见性档位不足」统一返回 403，message 必须给出缺失项名称 / 档位名称（不得模糊报错）
   idempotency: 写接口接受 Idempotency-Key 请求头（UUID）；服务端在 24h 窗口内去重
@@ -60,6 +60,22 @@ x-api-protocol:
   - trace_id
   envelope-ok-code: 0
   envelope-rule: code != 0 时 data 为空
+  pagination:
+    request-fields:
+    - page
+    - page_size
+    response-fields:
+    - items
+    - total
+    - page
+    - page_size
+    page-min: 1
+    page-size-min: 1
+    page-size-max: 100
+    page-size-default: 20
+    over-range-policy: reject-400
+    over-range-error: VALIDATION_FAILED
+    echo-policy: 回显"实际生效值"（缺省时回显缺省值，拒时不回显）
 x-field-groups:
   raw_data:
     name: ① 手环原始数据
@@ -1117,13 +1133,17 @@ components:
       schema:
         type: integer
         minimum: 1
+      description: 页码（从 1 起）。越界（< 1）一律 400 VALIDATION_FAILED，不静默纠正
     PageSize:
       name: page_size
       in: query
       required: false
       schema:
         type: integer
+        minimum: 1
         maximum: 100
+        default: 20
+      description: 每页条数（1..100，缺省 20）。越界（< 1 或 > 100）一律 400 VALIDATION_FAILED，不夹逼
     IdempotencyKey:
       name: Idempotency-Key
       in: header

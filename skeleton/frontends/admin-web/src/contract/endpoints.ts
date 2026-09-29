@@ -51,6 +51,27 @@ export interface ProtocolSpec {
   readonly ENVELOPE_FIELDS: readonly string[];
   /** 信封成功码 —— 契约 §2.0 逐字「code != 0 时 data 为空」，故成功码为 0。 */
   readonly ENVELOPE_OK_CODE: number;
+  /** 分页协议（契约 x-api-protocol.pagination）—— 上下界与【越界处置】。 */
+  readonly PAGINATION: PaginationSpec;
+}
+
+export interface PaginationSpec {
+  /** 页码参数名（契约 pagination.request-fields[0]）—— 出站拼接用。 */
+  readonly PAGE_FIELD: string;
+  /** 每页条数参数名（契约 pagination.request-fields[1]）。 */
+  readonly PAGE_SIZE_FIELD: string;
+  /** page 下界（< 该值一律 400，不静默纠正）。 */
+  readonly PAGE_MIN: number;
+  /** page_size 下界。 */
+  readonly PAGE_SIZE_MIN: number;
+  /** page_size 上界（> 该值一律 400，不夹逼 —— 唯一合法处置见 OVER_RANGE_POLICY）。 */
+  readonly PAGE_SIZE_MAX: number;
+  /** 未传 page_size 时的缺省值。 */
+  readonly PAGE_SIZE_DEFAULT: number;
+  /** 越界处置。本仓唯一合法取值 'reject-400'（越界直接拒，不得静默夹逼）。 */
+  readonly OVER_RANGE_POLICY: 'reject-400';
+  /** 越界对应的错误码名（契约 pagination.over-range-error）。 */
+  readonly OVER_RANGE_ERROR: string;
 }
 
 export const PROTOCOL: ProtocolSpec = Object.freeze({
@@ -61,6 +82,16 @@ export const PROTOCOL: ProtocolSpec = Object.freeze({
   IDEMPOTENCY_HEADER: "Idempotency-Key",
   ENVELOPE_FIELDS: Object.freeze(["code", "message", "data", "trace_id"]),
   ENVELOPE_OK_CODE: 0,
+  PAGINATION: Object.freeze({
+    PAGE_FIELD: "page",
+    PAGE_SIZE_FIELD: "page_size",
+    PAGE_MIN: 1,
+    PAGE_SIZE_MIN: 1,
+    PAGE_SIZE_MAX: 100,
+    PAGE_SIZE_DEFAULT: 20,
+    OVER_RANGE_POLICY: "reject-400",
+    OVER_RANGE_ERROR: "VALIDATION_FAILED",
+  } as PaginationSpec),
 });
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';

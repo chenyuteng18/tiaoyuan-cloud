@@ -311,6 +311,25 @@ def load_api_protocol(end_id: str):
         raise SystemExit(
             "MISCONFIGURED: %s 的 x-api-protocol.envelope-ok-code 必须是整数，实为 %r。"
             % (path, ok_code))
+    pag = proto.get("pagination")
+    if not isinstance(pag, dict):
+        raise SystemExit(
+            "MISCONFIGURED: %s 的 x-api-protocol 缺 pagination 结构化块 —— 越界【处置】"
+            "（reject-400 vs 静默夹逼）必须写死，否则同一契约下两个列表端点会各走一路"
+            "且两端 200 响应体、tsc、门禁全绿（本仓第 58 条）。" % path)
+    pag_required = ("request-fields", "response-fields", "page-min", "page-size-min",
+                    "page-size-max", "page-size-default", "over-range-policy", "over-range-error")
+    pag_missing = [k for k in pag_required if pag.get(k) in (None, "")]
+    if pag_missing:
+        raise SystemExit(
+            "MISCONFIGURED: %s 的 x-api-protocol.pagination 缺键 %s —— 生成物无法机械取用。"
+            % (path, pag_missing))
+    policy = str(pag["over-range-policy"])
+    if policy != "reject-400":
+        raise SystemExit(
+            "MISCONFIGURED: %s 的 x-api-protocol.pagination.over-range-policy=%r —— "
+            "本仓唯一合法取值是 'reject-400'（越界直接拒，不夹逼）。静默夹逼会让客户端"
+            "拿到 100 条却以为请求了 101 条，且无从察觉。" % (path, policy))
     return {
         "auth_header": str(proto["auth-header"]),
         "auth_scheme": str(proto["auth-scheme"]),
@@ -321,6 +340,16 @@ def load_api_protocol(end_id: str):
         "envelope_ok_code": ok_code,
         "idempotency_window_hours": proto.get("idempotency-window-hours"),
         "envelope_rule": str(proto.get("envelope-rule") or ""),
+        "pagination": {
+            "request_fields": [str(f) for f in pag["request-fields"]],
+            "response_fields": [str(f) for f in pag["response-fields"]],
+            "page_min": int(pag["page-min"]),
+            "page_size_min": int(pag["page-size-min"]),
+            "page_size_max": int(pag["page-size-max"]),
+            "page_size_default": int(pag["page-size-default"]),
+            "over_range_policy": policy,
+            "over_range_error": str(pag["over-range-error"]),
+        },
     }
 
 
@@ -379,6 +408,11 @@ def _render_role_expansion(role_expansion, indent, ts):
     return out
 
 
+def _pag(proto):
+    """取分页结构化块（gen 后的 proto dict 内）—— 少写一层 .get 噪音。"""
+    return proto["pagination"]
+
+
 def _render_protocol_cjs(proto):
     """跨端协议片段常量（CommonJS 形态）。逐条转录自契约 x-api-protocol。"""
     return [
@@ -401,6 +435,16 @@ def _render_protocol_cjs(proto):
         "  ENVELOPE_FIELDS: Object.freeze([%s]),"
         % ", ".join(js_literal(f) for f in proto["envelope_fields"]),
         "  ENVELOPE_OK_CODE: %d," % proto["envelope_ok_code"],
+        "  PAGINATION: Object.freeze({",
+        "    PAGE_FIELD: %s," % js_literal(_pag(proto)["request_fields"][0]),
+        "    PAGE_SIZE_FIELD: %s," % js_literal(_pag(proto)["request_fields"][1]),
+        "    PAGE_MIN: %d," % _pag(proto)["page_min"],
+        "    PAGE_SIZE_MIN: %d," % _pag(proto)["page_size_min"],
+        "    PAGE_SIZE_MAX: %d," % _pag(proto)["page_size_max"],
+        "    PAGE_SIZE_DEFAULT: %d," % _pag(proto)["page_size_default"],
+        "    OVER_RANGE_POLICY: %s," % js_literal(_pag(proto)["over_range_policy"]),
+        "    OVER_RANGE_ERROR: %s," % js_literal(_pag(proto)["over_range_error"]),
+        "  }),",
         "});",
         "",
     ]
@@ -434,6 +478,27 @@ def _render_protocol_ts(proto):
         "  readonly ENVELOPE_FIELDS: readonly string[];",
         "  /** 信封成功码 —— 契约 §2.0 逐字「code != 0 时 data 为空」，故成功码为 0。 */",
         "  readonly ENVELOPE_OK_CODE: number;",
+        "  /** 分页协议（契约 x-api-protocol.pagination）—— 上下界与【越界处置】。 */",
+        "  readonly PAGINATION: PaginationSpec;",
+        "}",
+        "",
+        "export interface PaginationSpec {",
+        "  /** 页码参数名（契约 pagination.request-fields[0]）—— 出站拼接用。 */",
+        "  readonly PAGE_FIELD: string;",
+        "  /** 每页条数参数名（契约 pagination.request-fields[1]）。 */",
+        "  readonly PAGE_SIZE_FIELD: string;",
+        "  /** page 下界（< 该值一律 400，不静默纠正）。 */",
+        "  readonly PAGE_MIN: number;",
+        "  /** page_size 下界。 */",
+        "  readonly PAGE_SIZE_MIN: number;",
+        "  /** page_size 上界（> 该值一律 400，不夹逼 —— 唯一合法处置见 OVER_RANGE_POLICY）。 */",
+        "  readonly PAGE_SIZE_MAX: number;",
+        "  /** 未传 page_size 时的缺省值。 */",
+        "  readonly PAGE_SIZE_DEFAULT: number;",
+        "  /** 越界处置。本仓唯一合法取值 'reject-400'（越界直接拒，不得静默夹逼）。 */",
+        "  readonly OVER_RANGE_POLICY: 'reject-400';",
+        "  /** 越界对应的错误码名（契约 pagination.over-range-error）。 */",
+        "  readonly OVER_RANGE_ERROR: string;",
         "}",
         "",
         "export const PROTOCOL: ProtocolSpec = Object.freeze({",
@@ -445,6 +510,16 @@ def _render_protocol_ts(proto):
         "  ENVELOPE_FIELDS: Object.freeze([%s]),"
         % ", ".join(js_literal(f) for f in proto["envelope_fields"]),
         "  ENVELOPE_OK_CODE: %d," % proto["envelope_ok_code"],
+        "  PAGINATION: Object.freeze({",
+        "    PAGE_FIELD: %s," % js_literal(_pag(proto)["request_fields"][0]),
+        "    PAGE_SIZE_FIELD: %s," % js_literal(_pag(proto)["request_fields"][1]),
+        "    PAGE_MIN: %d," % _pag(proto)["page_min"],
+        "    PAGE_SIZE_MIN: %d," % _pag(proto)["page_size_min"],
+        "    PAGE_SIZE_MAX: %d," % _pag(proto)["page_size_max"],
+        "    PAGE_SIZE_DEFAULT: %d," % _pag(proto)["page_size_default"],
+        "    OVER_RANGE_POLICY: %s," % js_literal(_pag(proto)["over_range_policy"]),
+        "    OVER_RANGE_ERROR: %s," % js_literal(_pag(proto)["over_range_error"]),
+        "  } as PaginationSpec),",
         "});",
         "",
     ]

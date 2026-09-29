@@ -10,6 +10,7 @@ import com.diaoyuanyun.dy.common.result.ErrorCode;
 import com.diaoyuanyun.dy.security.visibility.VisibilityRole;
 import com.diaoyuanyun.dy.tenancy.context.RowScope;
 import com.diaoyuanyun.dy.tenancy.context.TenantContext;
+import com.diaoyuanyun.dy.common.page.PageQuery;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -160,40 +161,21 @@ public class StoreListService {
     /**
      * 校验 {@code page}（契约 {@code parameters.Page: minimum: 1}）。
      *
-     * <p>🛑 缺省值只在<b>真的没传</b>时生效（{@code null}）；
-     * 传了 {@code 0} 或负数一律拒 —— 把它们"当作没传"是另一种静默改动。
+     * <p>🛑 委派给唯一校验单点 {@link PageQuery} —— 分页越界语义全局只有一处实现
+     * （本仓第 58 条）。此前本类自带一份实现，正因为「同一规则多处实现」，
+     * 才让 D2 的静默夹逼能长期存活而无人察觉。
      */
     static int validatePage(Integer page) {
-        if (page == null) {
-            return 1;
-        }
-        if (page < 1) {
-            throw new BizException(ErrorCode.VALIDATION_FAILED,
-                    "page 必须 ≥ 1：实际=" + page
-                            + "（契约 parameters.Page: minimum: 1）。"
-                            + "🛑 不把 0 / 负数当作『没传』来兜底：那是静默改动用户输入，"
-                            + "会让『我要了第 0 页』与『我要了第 1 页』拿到同一个结果而不报错");
-        }
-        return page;
+        return PageQuery.validatePage(page);
     }
 
     /**
      * 校验 {@code page_size}（契约 {@code parameters.PageSize: maximum: 100}）。
      *
-     * <p>🛑 上界之上<b>直接拒</b>而不夹逼到 100：见类注释第 3 节。
+     * <p>🛑 委派给唯一校验单点 {@link PageQuery}：上界之上<b>直接拒</b>（400），不夹逼。
      */
     static int validatePageSize(Integer pageSize) {
-        if (pageSize == null) {
-            return StoreListPage.DEFAULT_PAGE_SIZE;
-        }
-        if (pageSize < 1 || pageSize > StoreListPage.MAX_PAGE_SIZE) {
-            throw new BizException(ErrorCode.VALIDATION_FAILED,
-                    "page_size 必须在 1.." + StoreListPage.MAX_PAGE_SIZE + " 之间：实际=" + pageSize
-                            + "（契约 parameters.PageSize: maximum: 100）。"
-                            + "🛑 不夹逼到 100：夹逼会让客户端以为自己拿到了 page_size=500 的结果，"
-                            + "把『还有 400 条』读成『一共就这些』—— 而它不会报错");
-        }
-        return pageSize;
+        return PageQuery.validatePageSize(pageSize);
     }
 
     /**

@@ -2,6 +2,7 @@ package com.diaoyuanyun.dy.app.identity.domain;
 
 import com.diaoyuanyun.dy.common.exception.BizException;
 import com.diaoyuanyun.dy.common.result.ErrorCode;
+import com.diaoyuanyun.dy.common.page.PageQuery;
 
 import java.util.List;
 
@@ -40,11 +41,16 @@ import java.util.List;
  */
 public record StoreListPage(List<StoreRow> items, int total, int page, int pageSize) {
 
-    /** 契约 {@code PageSize} 的上界（{@code parameters.PageSize.maximum: 100}）。 */
-    public static final int MAX_PAGE_SIZE = 100;
+    /**
+     * 契约 {@code pagination.page-size-max} 的上界（{@code 100}）。
+     *
+     * <p>🛑 值不再本类另外写死 —— 引用唯一校验单点 {@link PageQuery}，
+     * 使「上界」在全局只有一个来源（本仓第 58 条：分页协议越界语义收口）。
+     */
+    public static final int MAX_PAGE_SIZE = PageQuery.MAX_PAGE_SIZE;
 
-    /** 未传 {@code page_size} 时的缺省值 —— {@code 20}，与既有列表端点的骨架口径一致。 */
-    public static final int DEFAULT_PAGE_SIZE = 20;
+    /** 未传 {@code page_size} 时的缺省值 —— {@code 20}，同样引用单点。 */
+    public static final int DEFAULT_PAGE_SIZE = PageQuery.DEFAULT_PAGE_SIZE;
 
     public StoreListPage {
         if (items == null) {

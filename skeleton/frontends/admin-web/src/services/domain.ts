@@ -26,6 +26,7 @@
  *   4. **不把幂等重放当失败** —— 4002 的语义是"此前已成功"。
  */
 
+import { pageQuery, DEFAULT_PAGE_SIZE, type PageQuery } from './paging';
 import { call } from '../api/client';
 import { CONTRACT_VERSION, endpointById, type Endpoint } from '../contract/endpoints';
 import {
@@ -62,8 +63,8 @@ export interface StoreList {
  *    同一调用在不同子档位下返回的行数不同（本店 / 辖区 / 全量），
  *    界面必须显示"当前范围"而不是自己过滤（自行过滤 = 造第二个裁剪点）。
  */
-export function listStores(page = 1, pageSize = 50): Promise<StoreList | undefined> {
-  return call<StoreList>('listStores', { query: { page, page_size: pageSize } }).then((r) => r.data);
+export function listStores(page = 1, pageSize = DEFAULT_PAGE_SIZE): Promise<StoreList | undefined> {
+  return call<StoreList>('listStores', { query: pageQuery(page, pageSize) }).then((r) => r.data);
 }
 
 // ===========================================================================
@@ -212,7 +213,7 @@ export interface ScaleItemBank {
 
 /** C1 题库拉取（按分龄组 + 维度）。 */
 export function listScaleItemBanks(
-  query: { age_group?: string; dimension?: string; page?: number; page_size?: number } = {}
+  query: PageQuery & { age_group?: string; dimension?: string } = {}
 ): Promise<readonly ScaleItemBank[] | undefined> {
   return call<{ items?: readonly ScaleItemBank[] }>('listScaleItemBanks', { query })
     .then((r) => r.data?.items);
@@ -349,11 +350,11 @@ export function createVisit(
 export function listVisits(
   customerId: string,
   page = 1,
-  pageSize = 50
+  pageSize = DEFAULT_PAGE_SIZE
 ): Promise<readonly Visit[] | undefined> {
   return call<{ items?: readonly Visit[] }>('listVisits', {
     params: { id: customerId },
-    query: { page, page_size: pageSize },
+    query: pageQuery(page, pageSize),
   }).then((r) => r.data?.items);
 }
 
@@ -384,11 +385,11 @@ export function submitDailyReportAsStaff(
 export function listDailyReports(
   customerId: string,
   page = 1,
-  pageSize = 50
+  pageSize = DEFAULT_PAGE_SIZE
 ): Promise<readonly DailyReport[] | undefined> {
   return call<{ items?: readonly DailyReport[] }>('listDailyReports', {
     params: { id: customerId },
-    query: { page, page_size: pageSize },
+    query: pageQuery(page, pageSize),
   }).then((r) => r.data?.items);
 }
 
@@ -546,11 +547,11 @@ export function createVerdict(
 export function listVerdicts(
   customerId: string,
   page = 1,
-  pageSize = 20
+  pageSize = DEFAULT_PAGE_SIZE
 ): Promise<readonly Verdict[] | undefined> {
   return call<{ items?: readonly Verdict[] }>('listVerdicts', {
     params: { id: customerId },
-    query: { page, page_size: pageSize },
+    query: pageQuery(page, pageSize),
   }).then((r) => r.data?.items);
 }
 
@@ -569,7 +570,7 @@ export interface AuditCoverage {
  *    **门店与加盟商完全不可见**」⇒ 行级范围由服务端执行，本层不筛。
  */
 export function listAuditSignals(
-  query: { page?: number; page_size?: number } = {}
+  query: PageQuery = {}
 ): Promise<readonly Record<string, unknown>[] | undefined> {
   return call<{ items?: readonly Record<string, unknown>[] }>('listAuditSignals', { query })
     .then((r) => r.data?.items);
@@ -738,7 +739,7 @@ export function createRefundReceipt(
 
 /** I1 文书模板列表。契约：**占位待冻结**。 */
 export function listDocTemplates(
-  query: { page?: number; page_size?: number } = {}
+  query: PageQuery = {}
 ): Promise<readonly Record<string, unknown>[] | undefined> {
   return call<{ items?: readonly Record<string, unknown>[] }>('listDocTemplates', { query })
     .then((r) => r.data?.items);

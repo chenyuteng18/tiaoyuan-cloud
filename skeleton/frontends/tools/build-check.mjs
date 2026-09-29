@@ -167,6 +167,36 @@ const END_ROOT = join(FRONTENDS, END_ID);
 const failures = [];
 const notes = [];
 let envBlocked = false;
+
+/**
+ * 剥源码中的注释（行注释 / 块注释 / 字符串内的斜杠不算）—— 模块级，供 ④d 与 ④e 共用。
+ *
+ * 🛑 为什么必须剥注释再判字面量：注释里**解释**「为什么不能写 xxx」是合法且推荐的写法，
+ *    不剥注释就会把它判红 —— 那是第 55 条（判据太窄 ⇒ 假红 ⇒ 判据被删）。
+ *    本仓已复发两次：① 契约冻结门禁的 envelope-required 断言；② 分页纪律门禁的
+ *    Javadoc 形态。故此处统一提升为模块级，两处判据共用同一实现，避免再次分叉。
+ */
+const stripComments2 = (src) => {
+  let out = '';
+  let i = 0, inLine = false, inBlock = false, inStr = null;
+  const n = src.length;
+  while (i < n) {
+    const c = src[i], nx = src[i + 1];
+    if (inLine) { if (c === '\n') { inLine = false; out += c; } i += 1; continue; }
+    if (inBlock) { if (c === '*' && nx === '/') { inBlock = false; i += 2; continue; } i += 1; continue; }
+    if (inStr) {
+      out += c;
+      if (c === '\\') { out += (nx || ''); i += 2; continue; }
+      if (c === inStr) inStr = null;
+      i += 1; continue;
+    }
+    if (c === '/' && nx === '/') { inLine = true; i += 2; continue; }
+    if (c === '/' && nx === '*') { inBlock = true; i += 2; continue; }
+    if (c === '"' || c === "'" || c === '`') { inStr = c; out += c; i += 1; continue; }
+    out += c; i += 1;
+  }
+  return out;
+};
 const fail = (step, msg) => failures.push(`[${step}] ${msg}`);
 const ok = (step, msg) => notes.push(`  ✓ ${step}: ${msg}`);
 
@@ -586,33 +616,30 @@ if (cfg.outbound) {
     if (!/ENVELOPE_FIELDS\s*:\s*Object\.freeze\(\s*\[[^\]]*\btrace_id\b/.test(genSrc2)) {
       badGen.push('ENVELOPE_FIELDS 缺失或不含 trace_id');
     }
+    // 🛑 PAGINATION（第 58 条）：值必须与契约 x-api-protocol.pagination 一致。
+    //    「值漂移」与「键缺失」是两件事，都要报 —— 只判存在会让改值静默通过
+    //    （第 52 条：判据太宽 ⇒ 假绿）。
+    const expectedPag = [
+      ['PAGE_FIELD', '"page"'],
+      ['PAGE_SIZE_FIELD', '"page_size"'],
+      ['PAGE_MIN', '1'],
+      ['PAGE_SIZE_MAX', '100'],
+      ['PAGE_SIZE_DEFAULT', '20'],
+      ['OVER_RANGE_POLICY', '"reject-400"'],
+      ['OVER_RANGE_ERROR', '"VALIDATION_FAILED"'],
+    ];
+    for (const [key, lit] of expectedPag) {
+      const re = new RegExp(`\\b${key}\\s*:\\s*(${lit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\s*[,}]`);
+      if (!re.test(genSrc2)) {
+        badGen.push(`PAGINATION.${key} 缺失或 ≠ 契约值 ${lit}`);
+      }
+    }
     if (badGen.length) {
       fail('cross-end-protocol',
         `${genRel2} 的 PROTOCOL 常量组与契约 x-api-protocol 不一致:\n      ${badGen.join('\n      ')}\n`
         + '      请先跑 python frontends/tools/gen-endpoints.py（生成器会读 x-api-protocol）。');
     } else {
       // ②③ 出站层：必须引用 PROTOCOL.*，且不得残留协议字面量（剥注释后判）
-      const stripComments2 = (src) => {
-        let out = '';
-        let i = 0, inLine = false, inBlock = false, inStr = null;
-        const n = src.length;
-        while (i < n) {
-          const c = src[i], nx = src[i + 1];
-          if (inLine) { if (c === '\n') { inLine = false; out += c; } i += 1; continue; }
-          if (inBlock) { if (c === '*' && nx === '/') { inBlock = false; i += 2; continue; } i += 1; continue; }
-          if (inStr) {
-            out += c;
-            if (c === '\\') { out += (nx || ''); i += 2; continue; }
-            if (c === inStr) inStr = null;
-            i += 1; continue;
-          }
-          if (c === '/' && nx === '/') { inLine = true; i += 2; continue; }
-          if (c === '/' && nx === '*') { inBlock = true; i += 2; continue; }
-          if (c === '"' || c === "'" || c === '`') { inStr = c; out += c; i += 1; continue; }
-          out += c; i += 1;
-        }
-        return out;
-      };
       const ob = stripComments2(readFileSync(outboundPath, 'utf8'));
       const relOut = relative(END_ROOT, outboundPath);
 
@@ -645,11 +672,84 @@ if (cfg.outbound) {
           `${relOut} 仍残留协议字面量: ${literalHits.join(', ')}\n`
           + '      ⇒ 契约 x-api-protocol 一改，这里不会跟着改（tsc / 构建都不会报）。');
       } else {
-        ok('cross-end-protocol',
+ok('cross-end-protocol',
           `${relOut} 协议片段全部引用生成物 PROTOCOL 常量（${usedKeys.length} 个键），无字面量残留`);
       }
     }
+}
+
+// ---------------------------------------------------------------------------
+// ④e 分页协议：参数名不得手抄（第 58 条）
+// ---------------------------------------------------------------------------
+// 🛑 它堵的洞
+//   契约 x-global-conventions.pagination 只声明约束（上界 100），**没说越界怎么办**，
+//   于是后端两个列表端点各走一路（A3 超界拒 400 / D2 静默夹逼后 200）。前端这一侧
+//   是同一个病的另一形态：分页【参数名】page / page_size 在调用点手抄（端 A 6 处、
+//   端 B 4 处）。契约若把 page_size 改名，tsc / 构建 / 门禁**都不会报** ——
+//   请求参数会静默变成服务端不认识的键，分页悄然失效。与第 57 条 X-Trace-Id 同族。
+//
+//   判据分两段：
+//     ① 生成物 PAGINATION 键值必须与契约一致（值漂移 = 红，见④d 的 expectedPag）；
+//     ② 服务层【出站 query 构造】不得出现 page / page_size 的字面量键，
+//        必须经由分页助手（pageQuery）间接取用生成物常量。
+//   判据②刻意**只扫服务层**（services/*.ts），不扫界面层（pages/）—— 界面里
+//   `page` 常作为局部变量/循环变量，把它判红就是第 55 条（太窄 ⇒ 假红 ⇒ 判据被删）。
+if (cfg.outbound) {
+  const svcRel = (END_ID === 'client-mp')
+    ? 'miniprogram/services'
+    : 'src/services';
+  const svcDir = join(END_ROOT, svcRel);
+  if (existsSync(svcDir)) {
+    const files = readdirSync(svcDir).filter((f) => /\.(ts|js)$/.test(f));
+    const hits = [];
+    for (const f of files) {
+      const src = readFileSync(join(svcDir, f), 'utf8');
+      // 剥注释（复用模块级 stripComments2）后，逐行找「query 对象里手抄的分页键」
+      const code = stripComments2(src);
+      code.split('\n').forEach((line, i) => {
+        // 形态：`{ page, ... }` / `{ page: x, page_size: y }` / `[PAGE_SIZE_FIELD]` 允许
+        if (/\bpage\s*[,:}]/.test(line) && /query|params/i.test(line)
+            && !/pageQuery\s*\(/.test(line) && !/PAGE_(SIZE_)?FIELD/.test(line)) {
+          hits.push(`${svcRel}/${f}:${i + 1}  ${line.trim()}`);
+        }
+        if (/\bpage_size\s*[,:}]/.test(line) && !/readonly\s+page_size/.test(line)
+            && !/PAGE_SIZE_FIELD/.test(line)) {
+          hits.push(`${svcRel}/${f}:${i + 1}  ${line.trim()}`);
+        }
+      });
+    }
+
+    // 🛑 追加判据（第 53 条形态）：分页助手的**内部实现**也必须引用生成物常量。
+    //    上面只扫"字面量"，抓不到把键名改成**别名**的写法（如 `q['pageSize'] = ...`
+    //    —— 它不是 `page_size` 字面量，正则扫不到）。而分页助手是所有调用点的
+    //    唯一构造点，改错它会让**全部**分页请求发错参数名且全绿。
+    //    反向验证 R13 首跑即漏过，证明了这是真盲区。
+    //    ⇒ 判"引用形态"（与 ④d 的 `PROTOCOL.<KEY>` 判法同构）：助手内必须出现
+    //      PAGE_FIELD 与 PAGE_SIZE_FIELD 的成员访问。
+    const pagingHelper = files.find((f) => /^paging\.(ts|js)$/.test(f));
+    if (pagingHelper) {
+      const ph = stripComments2(readFileSync(join(svcDir, pagingHelper), 'utf8'));
+      for (const key of ['PAGE_FIELD', 'PAGE_SIZE_FIELD']) {
+        if (!new RegExp(`PAGINATION\\.${key}\\b`).test(ph)) {
+          hits.push(`${svcRel}/${pagingHelper}  未引用 PROTOCOL.PAGINATION.${key} —— `
+            + '分页助手是全部调用点的唯一构造点，改错键名会让所有分页请求'
+            + '发错参数名且 tsc/构建全绿');
+        }
+      }
+    }
+    if (hits.length) {
+      fail('pagination-protocol',
+        `${END_ID} 服务层仍有手抄的分页参数名 —— 契约 x-api-protocol.pagination 一改，`
+        + '这里不会跟着改（tsc / 构建都不会报，分页会静默失效）：\n      '
+        + hits.join('\n      ')
+        + '\n      ⇒ 请经分页助手构造：pageQuery(page, size)（键名取自生成物 PROTOCOL.PAGINATION）。'
+        + '\n      （响应字段 readonly page_size 是契约 schema 字段名，不属手抄，已豁免。）');
+    } else {
+      ok('pagination-protocol',
+        `${svcRel} 分页参数名全部经分页助手取用（无 page/page_size 字面量键；响应字段除外）`);
+    }
   }
+}
 }
 
 // ---------------------------------------------------------------------------

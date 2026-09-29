@@ -13,11 +13,13 @@
  * 和"代码是对的"完全一样。故每条判据都必须做反向验证：
  *   **注入一个真实的缺陷 → 判据必须变红 → 还原 → 必须变绿。**
  *
- * 本脚本覆盖 `build-check.mjs` 的两条判据：
+ * 本脚本覆盖 `build-check.mjs` 的**三条**判据：
  *   · `base-path-wiring`（第 56 条，R1–R6）—— 契约 Base Path（`servers[0].url`）
  *     必须真的进入三端出站 URL；
  *   · `cross-end-protocol`（第 57 条，R7–R10）—— 鉴权头名 / 令牌前缀 / 幂等头名 /
- *     追踪头名 / 信封成功码必须引用生成物 PROTOCOL 常量，不得手抄字面量。
+ *     追踪头名 / 信封成功码必须引用生成物 PROTOCOL 常量，不得手抄字面量；
+ *   · `pagination-protocol`（第 58 条，R11–R13）—— 分页参数名必须经分页助手取自
+ *     生成物 PROTOCOL.PAGINATION，不得手抄；且生成物键值不得漂移。
  *
  * 🛑 为什么在这里做而不再写一次性探针
  * ---------------------------------------------------------------------------
@@ -212,6 +214,37 @@ const CASES = [
     expectItem: 'cross-end-protocol',
     mutate: (s) => s.replace(/AUTH_HEADER: "Authorization"/, 'AUTH_HEADER: "X-Auth"'),
   },
+
+  // --- 第 58 条：分页协议（越界语义 + 参数名收敛）的反向验证 --------------------
+  {
+    id: 'R11',
+    end: 'admin-web',
+    rel: 'src/services/domain.ts',
+    title: '端 A：分页参数名回退成手抄字面量（不差分页助手）',
+    expectItem: 'pagination-protocol',
+    mutate: (s) => s.replace(/query: pageQuery\(page, pageSize\)/,
+      'query: { page, page_size: pageSize }'),
+  },
+  {
+    id: 'R12',
+    end: 'therapist-app',
+    rel: 'src/services/domain.ts',
+    title: '端 B：分页参数名回退成手抄（含过滤条件的那种透传形态）',
+    expectItem: 'pagination-protocol',
+    mutate: (s) => s.replace(
+      /query: PageQuery & \{ age_group\?: string; dimension\?: string \} = \{\}/,
+      'query: { age_group?: string; dimension?: string; page?: number; page_size?: number } = {}'),
+  },
+  {
+    id: 'R13',
+    end: 'admin-web',
+    rel: 'src/services/paging.ts',
+    title: '分页助手把 page_size 键名写错（与契约 request-fields[1] 不一致）',
+    expectItem: 'pagination-protocol',
+    mutate: (s) => s.replace(
+      /q\[PROTOCOL\.PAGINATION\.PAGE_SIZE_FIELD\] = pageSize;/,
+      "q['pageSize'] = pageSize;"),
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -260,7 +293,7 @@ process.stdout.write(`还原后三端构建自检：${Object.entries(finalCodes)
   + `${allGreen && leftovers.length === 0 ? '（全绿 ✓，无残留）' : '（异常 ✗）'}\n`);
 
 if (passed === results.length && allGreen && leftovers.length === 0) {
-  process.stdout.write('\nbuild-check 反向验证 PASS —— 两条判据（base-path-wiring / cross-end-protocol）确实有牙齿，且还原干净。\n');
+  process.stdout.write('\nbuild-check 反向验证 PASS —— 三条判据（base-path-wiring / cross-end-protocol / pagination-protocol）确实有牙齿，且还原干净。\n');
   process.exit(0);
 }
 process.stdout.write('\nbuild-check 反向验证 FAIL。\n');

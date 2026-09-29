@@ -76,7 +76,7 @@ x-global-conventions:
     不返回 404 以避免存在性探测）。
   envelope: '{ "code": 0, "message": "ok", "data": {...}, "trace_id": "..." }'
   envelope-rule: code != 0 时 data 为空
-  pagination: "请求 ?page=<int>&page_size=<int≤100>；响应 data.{items[], total, page, page_size}"
+  pagination: "请求 ?page=<int>&page_size=<int≤100>；响应 data.{items[], total, page, page_size}；page/page_size 越界（<1 或 >100）一律 400 VALIDATION_FAILED（拒，不夹逼）"
   visibility: 每个接口的响应字段按 x-visibility 矩阵在服务端裁剪；无权限字段不下发（不是 null、不是空串）
   forbidden-403: 「前置门禁缺失」与「可见性档位不足」统一返回 403，message 必须给出缺失项名称 / 档位名称（不得模糊报错）
   idempotency: 写接口接受 Idempotency-Key 请求头（UUID）；服务端在 24h 窗口内去重
@@ -114,6 +114,31 @@ x-api-protocol:
   envelope-fields: [code, message, data, trace_id]
   envelope-ok-code: 0
   envelope-rule: code != 0 时 data 为空
+  # ---------------------------------------------------------------------------
+  # 分页（第 58 条）—— 越界【处置】必须写死，不能只声明约束
+  # ---------------------------------------------------------------------------
+  # 🛑 上面 `x-global-conventions.pagination` 那句 prose 只说了
+  # 「请求 ?page=<int>&page_size=<int≤100>」—— 声明了**约束**，没说**越界怎么办**。
+  # 于是同一份契约下两个列表端点各走一路：
+  #     A3 GET /stores   → page_size=101 ⇒ 400 VALIDATION_FAILED（超界直接拒）
+  #     D2 GET /visits   → page_size=101 ⇒ 静默夹逼为 100，返回 200
+  # 两者的 200 响应体、tsc、vite、全部门禁**都绿** —— 客户端拿到 100 条却以为是
+  # 自己请求的 101 条，且无从察觉。这与第 57 条 X-Trace-Id 同族：
+  # **契约写下的协议与各端实现的协议是两件事，中间丢项不报错。**
+  # 故把分页的【参数名 / 响应字段名 / 上下界 / 缺省 / 越界处置】全部结构化；
+  # 越界处置只有一个合法取值：reject-400 —— 与 x-error-codes 里
+  # VALIDATION_FAILED.trigger「参数类型 / 必填 / 约束不满足」逐字同源。
+  pagination:
+    request-fields: [page, page_size]
+    response-fields: [items, total, page, page_size]
+    page-min: 1
+    page-default: 1
+    page-size-min: 1
+    page-size-max: 100
+    page-size-default: 20
+    over-range-policy: reject-400
+    over-range-error: VALIDATION_FAILED
+    echo-policy: 回显"实际生效值"（缺省时回显缺省值，拒时不回显）
 
 # =============================================================================
 # 字段组定义（契约 §3.1）—— 四组 × 五角色，与 config #43 / 原型 D1 逐格一致
@@ -1435,11 +1460,13 @@ components:
       in: query
       required: false
       schema: { type: integer, minimum: 1 }
+      description: 页码（从 1 起）。越界（< 1）一律 400 VALIDATION_FAILED，不静默纠正
     PageSize:
       name: page_size
       in: query
       required: false
-      schema: { type: integer, maximum: 100 }
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      description: 每页条数（1..100，缺省 20）。越界（< 1 或 > 100）一律 400 VALIDATION_FAILED，不夹逼
     IdempotencyKey:
       name: Idempotency-Key
       in: header
