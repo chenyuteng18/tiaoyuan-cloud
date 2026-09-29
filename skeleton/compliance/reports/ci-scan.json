@@ -1,6 +1,6 @@
 {
   "verdict": "PASS",
-  "generated_at": "2026-09-24T21:12:26",
+  "generated_at": "2026-09-30T03:54:14",
   "repo_root": "C:\\Users\\lenovo\\WorkBuddy\\2026-09-16-10-37-59\\deliverables\\product-strategy\\skeleton",
   "manifest": "C:\\Users\\lenovo\\WorkBuddy\\2026-09-16-10-37-59\\deliverables\\product-strategy\\skeleton\\compliance\\scan-manifest.json",
   "faces": [
@@ -10,7 +10,8 @@
       "wordlist": "wordlists/scan1_refund.words",
       "term_count": 6,
       "roots": [
-        "client-package"
+        "client-package",
+        "frontends/client-mp/miniprogram"
       ],
       "hits": 0
     },
@@ -20,7 +21,8 @@
       "wordlist": "wordlists/scan2_negative.words",
       "term_count": 21,
       "roots": [
-        "client-package"
+        "client-package",
+        "frontends/client-mp/miniprogram"
       ],
       "hits": 0
     },
@@ -30,7 +32,8 @@
       "wordlist": "wordlists/scan3_derived.words",
       "term_count": 28,
       "roots": [
-        "client-package"
+        "client-package",
+        "frontends/client-mp/miniprogram"
       ],
       "hits": 0
     }
