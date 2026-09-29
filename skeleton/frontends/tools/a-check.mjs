@@ -553,6 +553,114 @@ if (entries.length === 0) {
 }
 
 // ---------------------------------------------------------------------------
+// ⑩ 【端点触达】39 个端点必须在【业务代码里被以调用形态发出】
+// ---------------------------------------------------------------------------
+// 🛑 为什么需要这条：任务书写的是"页面覆盖 39 个端点"，但"覆盖"是可自我声称的。
+//    本仓第 52 条的教训是：**"代码里出现了某个名字"≠"那个名字被使用了"**。
+//    故本条不判"id 字面量出现过"（那会被 `void 'authMe'`、注释、类型声明满足），
+//    而判**两层调用链**：
+//      ① 出站层里存在 `call<T>('<id>'` 调用形态（真正出站）；
+//      ② 定义该调用的导出函数**被某个页面/外壳以调用形态使用**（`fn(` 且带实参）。
+//    ⇒ 只做 ① 会漏掉"封装好了但从没接上界面"（本轮实测：D 域 5 个端点正是如此）。
+//
+// 🛑 出站层是 `services/` **整个目录**，不是只有 domain.ts（首跑即被本判据抓出）
+// ---------------------------------------------------------------------------
+// 初版把出站扫描写死成 `services/domain.ts` 一个文件 ⇒ 首跑报
+// 「authLogin / authMe 未以出站调用形态出现」。**那是判据太窄**（第 55 条）：
+// A1/A2 合法地定义在 `services/session.ts`（会话层的职责就是"A1→A2 取档位"），
+// 不在 domain.ts —— 本仓并没有"所有出站必须写在 domain.ts"这条纪律。
+// 修法不是把 A1/A2 搬进 domain.ts（那会让会话层失去职责完整性），
+// 而是**把出站层的定义写成本仓实际的样子：`services/` 整个目录**。
+//   · 出站（`call(`）只允许出现在 `services/` 层；
+//   · 页面 / 外壳**不得**直接出站（必须经 services 层的函数）。
+// 后者顺带成为一条被门禁守着的分层纪律。
+//
+// 🛑 本条的计数等式（第 53/55 条教训：判据必须证明自己覆盖了全部）
+// ---------------------------------------------------------------------------
+// 判据打印 ①/② 各自的命中数，并断言 `① 命中数 === 生成物端点总数`。
+// 等式不成立即报红并逐条列出**未触达的端点** —— 这正是本轮补 D 域 5 个入口的由来。
+{
+  const CALL_RE = /\bcall\s*(?:<[^(]*?>)?\s*\(\s*['"]([^'"]+)['"]/gs;
+  const SERVICES = join(SRC, 'services');
+  const svcFiles = walk(SERVICES).filter((f) => /\.(ts|tsx)$/.test(f));
+
+  // ① 出站调用形态：call<T>('<id>')（扫 services/ 层全部文件）
+  const called = new Set();
+  const fnOf = new Map(); // 端点 id → 定义它的 services 函数名
+  for (const f of svcFiles) {
+    const code = stripComments(readFileSync(f, 'utf8'));
+    for (const m of code.matchAll(CALL_RE)) called.add(m[1]);
+    const fnRe = /export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(([\s\S]*?)\n\}/g;
+    let fm;
+    while ((fm = fnRe.exec(code))) {
+      const c = new RegExp(CALL_RE.source, 's').exec(fm[2]);
+      if (c && !fnOf.has(c[1])) fnOf.set(c[1], fm[1]);
+    }
+  }
+
+  // ② 页面 / 外壳里以调用形态使用该函数
+  const consumers = walk(SRC).filter((f) => {
+    const rel = relative(SRC, f).replace(/\\/g, '/');
+    return rel.startsWith('pages/') || rel === 'App.tsx';
+  });
+  const consumerCode = consumers.map((f) => ({
+    rel: relative(SRC, f).replace(/\\/g, '/'),
+    code: stripComments(readFileSync(f, 'utf8')),
+  }));
+
+  const noCallForm = entries.filter((e) => !called.has(e.id)).map((e) => e.id);
+  const noFn = entries.filter((e) => !fnOf.has(e.id)).map((e) => e.id);
+  const noUi = [];
+  for (const e of entries) {
+    const fn = fnOf.get(e.id);
+    if (!fn) continue;
+    const used = consumerCode.some((c) => new RegExp(`\\b${escapeRe(fn)}\\s*\\(`).test(c.code));
+    if (!used) noUi.push(`${e.id}（封装函数 ${fn}() 未被任何页面/外壳调用）`);
+  }
+  // 分层纪律：页面/外壳不得直接出站（必须经 services 层）
+  const pageDirectCall = consumerCode
+    .filter((c) => new RegExp(CALL_RE.source, 's').test(c.code))
+    .map((c) => c.rel);
+
+  const bad = [];
+  if (noCallForm.length) {
+    bad.push(`以下端点未以出站调用形态出现（services/ 层里没有 call('<id>')）：`
+      + noCallForm.join(', '));
+  }
+  if (noFn.length) {
+    bad.push(`以下端点没有对应的封装函数（call 出现在函数体外或未封装）：`
+      + noFn.join(', '));
+  }
+  if (noUi.length) {
+    bad.push(`以下端点**封装了但从未接上界面**：\n        ` + noUi.join('\n        ')
+      + '\n        ⇒ "页面覆盖 N 个端点"是可自我声称的；本条要求每个端点都有一条'
+      + '从界面到出站的真实调用链。');
+  }
+  if (pageDirectCall.length) {
+    bad.push(`以下页面/外壳**直接出站**（绕过 services 层）：${pageDirectCall.join(', ')}`
+      + '\n        ⇒ 出站必须收在 services/ 层一处；页面直接 `call(` 会让"某端点被哪个服务封装"'
+      + '不再可查，也会让分层纪律失效。');
+  }
+  // 计数等式：出站调用形态必须覆盖全部端点
+  if (called.size !== entries.length) {
+    bad.push(`出站调用形态覆盖数 ${called.size} ≠ 生成物端点数 ${entries.length}`
+      + '（判据必须证明它认识的东西覆盖了全部 —— 第 53/55 条教训）');
+  }
+
+  if (bad.length) {
+    fail('endpoint-reachability',
+      `端点的界面触达链不完整：\n      ` + bad.join('\n      '));
+  } else {
+    ok('endpoint-reachability',
+      `${entries.length} 个端点全部有完整调用链：`
+      + `services/ 层出站 \`call<T>('<id>')\` ${called.size}/${entries.length} · `
+      + `封装函数 ${fnOf.size}/${entries.length} · `
+      + `均被页面/外壳以调用形态触达（已扫 ${consumerCode.length} 个消费侧文件；`
+      + `页面/外壳直接出站 0 处 —— 分层纪律成立）`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 输出
 // ---------------------------------------------------------------------------
 console.log('== 端 A · 契约元信息完整性自检 ==');

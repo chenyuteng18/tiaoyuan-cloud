@@ -24,7 +24,7 @@
  * 退出码：0 = 全部按预期 · 1 = 有注入未被抓住或还原不干净
  */
 
-import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -89,6 +89,30 @@ async function injection({ name, path, from, to, expectExit = 1, expectGate }) {
       : `期望 exit=${expectExit} + 失败项「${expectGate}」+ 还原绿；`
         + `实得 exit=${red.code} / 关键词${keywordOk ? '命中' : '未命中'} / 还原 exit=${back.code}`,
   });
+}
+
+// ---------------------------------------------------------------------------
+// 自愈：清掉上一次运行可能遗留的临时探针文件（第 24 条：门禁的证人必须能自愈）
+// ---------------------------------------------------------------------------
+// 🛑 实测踩过（本轮）：I10 / I13 会**新建**临时页再删。若上一次运行在
+//    "建好临时页、还没删"之间被中断（Ctrl-C / 超时），临时页会留在源树里，
+//    而 `unsettled-surfaced` 判据会因此**永远红** ⇒ 下一次跑本脚本时
+//    `基线门禁不是绿的` 直接 ABORT，且**报错指向的是"先修好再跑"**，
+//    真实原因（残骸）完全看不出来。
+//    这正是本仓第 24 条的形态：**检验工具被中断后，把自己的残骸当成了被检对象的错误**。
+//    修法：**每次启动先清掉自己命名空间下的全部临时文件**。
+//    🛑 只删本脚本自己创造的固定名字（`__probe_*.tsx`），绝不宽泛删除 ——
+//       其他脚本/作者的临时文件不属本脚本的处置范围。
+{
+  const PAGES = join(SRC, 'pages');
+  if (existsSync(PAGES)) {
+    for (const name of readdirSync(PAGES)) {
+      if (/^__probe_.*\.tsx$/.test(name)) {
+        rmSync(join(PAGES, name), { force: true });
+        console.log(`自愈：清掉上一次遗留的临时文件 pages/${name}`);
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -320,6 +344,38 @@ await injection({
   to: "  { key: 'docs', label: '文书模板', requires: (0 ? 'listDocTemplates' : null) as string | null },"
     + "\n  { key: 'extra', label: '额外页', requires: ['getCustomer'].join('') },",
   expectGate: 'nav-requires',
+});
+
+// ---------------------------------------------------------------------------
+// I15 把某个已封装端点从界面上摘掉（"封装了但从未接上界面"）
+//      ⇒ 期望 endpoint-reachability 报红
+// ---------------------------------------------------------------------------
+// 🛑 这正是本轮实测的形态：D 域 5 个端点（createVisit / submitDailyReportAsStaff /
+//    createPlan / getPlan / createDeviceDispatch）在 `domain.ts` 里封装得好好的，
+//    但**没有任何页面调用它们** —— "页面覆盖 39 个端点"在那时是**自我声称**。
+//    本条注入把某个确认被页面调用的封装函数名从页面里改掉，模拟"摘掉界面入口"。
+await injection({
+  name: 'I15 把已封装端点从界面上摘掉（封装了但从未接上界面）',
+  path: join(SRC, 'pages', 'CustomerConsolePage.tsx'),
+  from: '              setVisits((await listVisits(customerId)) ?? null);',
+  to: '              setVisits((await listVisitsRenamed(customerId)) ?? null);',
+  expectGate: 'endpoint-reachability',
+});
+
+// ---------------------------------------------------------------------------
+// I16 让页面绕过 services 层直接出站（分层纪律失效）
+//      ⇒ 期望 endpoint-reachability 报红
+// ---------------------------------------------------------------------------
+// 🛑 判据形态（第 52 条教训）：判**出站调用形态**出现在哪个层，
+//    不判"页面里有没有 call 这个词"（注释里的 call 不算 —— 判据先剥注释）。
+//    故这里注入一个真实的 `call('...')` **调用**（不是 `void call`、不是注释）。
+await injection({
+  name: 'I16 页面绕过 services 层直接出站（分层纪律失效）',
+  path: join(SRC, 'pages', 'UnsettledPage.tsx'),
+  from: 'export default function UnsettledPage({ roleLabel }: { roleLabel: string }) {',
+  to: 'export default function UnsettledPage({ roleLabel }: { roleLabel: string }) {\n'
+    + "  void call('authMe', {}); // 注入：页面直接出站（应被 endpoint-reachability 抓住）",
+  expectGate: 'endpoint-reachability',
 });
 
 // ---------------------------------------------------------------------------

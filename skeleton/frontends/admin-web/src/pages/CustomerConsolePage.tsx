@@ -30,12 +30,16 @@ import {
   AGE_GROUPS,
   DIMENSIONS,
   contractNoteOf,
+  createDeviceDispatch,
+  createPlan,
+  createVisit,
   createVerdict,
   getAssessment,
   getBandDerived,
   getBandTelemetry,
   getCustomer,
   getIntakeProfile,
+  getPlan,
   listDailyReports,
   listScaleItemBanks,
   listVerdicts,
@@ -44,6 +48,7 @@ import {
   reviewPlan,
   submitBaselineAssessment,
   submitCycleAssessment,
+  submitDailyReportAsStaff,
   type BandDerived,
   type BandTelemetry,
   type BaselineRequest,
@@ -102,6 +107,17 @@ export default function CustomerConsolePage({
   // 表单状态（刻意不用通用 JSON 输入框：通用框会让使用者不知道字段名）
   const [assessId, setAssessId] = useState('');
   const [planId, setPlanId] = useState('');
+  /** D5-b 读回方案（与 planId 分开存：读取结果不应覆盖输入框）。 */
+  const [plan, setPlan] = useState<Record<string, unknown> | null>(null);
+  // D1 服务核销表单
+  const [executedAt, setExecutedAt] = useState('');
+  const [confirmed, setConfirmed] = useState('true');
+  const [abnormalNote, setAbnormalNote] = useState('');
+  // D3 代核填报表单
+  const [dailyDate, setDailyDate] = useState('');
+  const [dailyAnswers, setDailyAnswers] = useState('{}');
+  // D6 设备下发表单
+  const [deviceTarget, setDeviceTarget] = useState('');
   const [reviewResult, setReviewResult] = useState('通过');
   const [reviewReason, setReviewReason] = useState('');
   const [intakePatch, setIntakePatch] = useState('');
@@ -351,6 +367,99 @@ export default function CustomerConsolePage({
         </Card>
       ) : null}
 
+      {/*
+        D1 服务核销 / D3 代核填报 —— 两个写入端点
+        ========================================================================
+        🛑 为什么代核（D3）要单独说明「source」写死为「代核」
+        ------------------------------------------------------------------------
+        D3 `submitDailyReport` 的请求体带 `source` 字段。端 A 是**管理后台**：
+        由员工替客户录入即 `source = 代核`（`domain.ts` 的 `submitDailyReportAsStaff`
+        已把该值写死在函数体内，不在页面暴露选择器）。
+        若在界面上摆一个"来源"下拉，就会让管理端可以伪造成"客户自填" ——
+        而 `source` 是审计追溯的依据，**界面无权改写**。
+      */}
+      <Card
+        title="D1 服务核销 / D3 代核填报"
+        hint="D1 核销是服务完成的凭证（executed_at 由服务端判定）；D3 代核的 source 固定为「代核」，界面不提供来源选择器。"
+      >
+        <div style={labelStyle}>服务执行时间（executed_at，留空由服务端判定）</div>
+        <input style={inputStyle} value={executedAt} onChange={(e) => setExecutedAt(e.target.value)} placeholder="2026-09-30T10:00:00" />
+        <div style={{ ...labelStyle, marginTop: SPACE.sm }}>客户是否已确认（customer_confirmed）</div>
+        <select style={selectStyle} value={confirmed} onChange={(e) => setConfirmed(e.target.value)}>
+          <option value="true">已确认</option>
+          <option value="false">未确认</option>
+        </select>
+        <div style={{ ...labelStyle, marginTop: SPACE.sm }}>异常说明（abnormal_note，可选）</div>
+        <input style={inputStyle} value={abnormalNote} onChange={(e) => setAbnormalNote(e.target.value)} placeholder="异常时必填" />
+        <button
+          style={{ ...buttonGhostStyle, marginTop: SPACE.sm }}
+          disabled={busy}
+          onClick={() => run('服务核销（D1）', async () => {
+            if (!customerId) throw new Error('缺少 customer_id。');
+            if (confirmed === 'false' && !abnormalNote.trim()) {
+              throw new Error('未确认时须填写异常说明 —— 否则该条核销无法解释。');
+            }
+            await createVisit(customerId, {
+              executed_at: executedAt.trim() || undefined,
+              customer_confirmed: confirmed === 'true',
+              abnormal_note: abnormalNote.trim() || undefined,
+            }, newIdempotencyKey());
+          })}
+        >
+          D1 服务核销
+        </button>
+
+        <div style={{ ...labelStyle, marginTop: SPACE.md }}> D3 代核 · 填报日期</div>
+        <input style={inputStyle} value={dailyDate} onChange={(e) => setDailyDate(e.target.value)} placeholder="2026-09-30" />
+        <div style={{ ...labelStyle, marginTop: SPACE.sm }}>D3 代核 · 答案 JSON</div>
+        <textarea style={textareaStyle} value={dailyAnswers} onChange={(e) => setDailyAnswers(e.target.value)} />
+        <button
+          style={{ ...buttonGhostStyle, marginTop: SPACE.sm }}
+          disabled={busy}
+          onClick={() => run('代核填报（D3）', async () => {
+            if (!customerId) throw new Error('缺少 customer_id。');
+            if (!dailyDate.trim()) throw new Error('请填写填报日期。');
+            await submitDailyReportAsStaff(
+              customerId,
+              { date: dailyDate.trim(), answers_json: JSON.parse(dailyAnswers || '{}') as Record<string, unknown> },
+              newIdempotencyKey(),
+            );
+          })}
+        >
+          D3 代核填报（source 固定「代核」）
+        </button>
+      </Card>
+
+      {/*
+        D6 设备下发
+        ========================================================================
+        🛑 为什么把「设备下发」放在客户台账页而不是「门店与合作」页
+        ------------------------------------------------------------------------
+        D6 的业务主语是**客户**（给谁下发设备），不是门店。放门店页会让人以为
+        下发是按门店批量的 —— 而契约的入参以 customer 为主。
+        另：D6 的请求体契约**未完整声明**，故按最小形状 + 显式标注。
+      */}
+      <Card
+        title="D6 设备下发"
+        hint="D6 以客户为业务主语（不是按门店批量下发）。请求体契约未完整声明 ⇒ 按最小形状提交，字段名以后端控制器为准。"
+      >
+        <div style={labelStyle}>设备序列号 / 下发对象</div>
+        <input style={inputStyle} value={deviceTarget} onChange={(e) => setDeviceTarget(e.target.value)} placeholder="设备或客户标识" />
+        <button
+          style={{ ...buttonGhostStyle, marginTop: SPACE.sm }}
+          disabled={busy}
+          onClick={() => run('设备下发（D6）', async () => {
+            if (!customerId) throw new Error('缺少 customer_id。');
+            await createDeviceDispatch(
+              { customer_id: customerId, target: deviceTarget.trim() || undefined },
+              newIdempotencyKey(),
+            );
+          })}
+        >
+          D6 下发设备（最小形状）
+        </button>
+      </Card>
+
       {tel || derived ? (
         <Card title="E3 手环原始数据 / E4 派生结果">
           {telNote ? <UnsettledBar items={telNote.unsettled} /> : null}
@@ -430,7 +539,54 @@ export default function CustomerConsolePage({
       >
         <div style={labelStyle}>plan_id</div>
         <input style={inputStyle} value={planId} onChange={(e) => setPlanId(e.target.value)} placeholder="方案 ID" />
-        <div style={{ ...labelStyle, marginTop: SPACE.sm }}>审核结论</div>
+
+        {/*
+          🛑 D5-a / D5-b 为什么必须也放在这一页（而不是"只做审核"）
+          ----------------------------------------------------------------------
+          契约 D5 是**三档位**（D5-a 出具 / D5-b 读取 / D5-c 审核），
+          其中只有 D5-c 的请求体字段名能从后端控制器核到；D5-a 的 `createPlan`
+          契约**未声明 requestBody**。若本页只渲染审核入口，就会出现：
+          「方案能被审核，但界面没有任何地方能出具方案」——
+          审核的对象从哪来？⇒ 使用者只能靠外部造数据。
+          故三个档位同页，并把 D5-a 的这一限制**写在入口上**。
+        */}
+        <div style={{ display: 'flex', gap: SPACE.sm, marginTop: SPACE.sm, flexWrap: 'wrap' }}>
+          <button
+            style={buttonGhostStyle}
+            disabled={busy}
+            onClick={() => run('读取方案（D5-b）', async () => {
+              if (!planId.trim()) throw new Error('请先填写 plan_id。');
+              const p = await getPlan(planId.trim());
+              setPlan(p ?? null);
+            })}
+          >
+            D5-b 读取方案
+          </button>
+          <button
+            style={buttonGhostStyle}
+            disabled={busy}
+            onClick={() => run('出具方案（D5-a）', async () => {
+              if (!customerId) throw new Error('缺少 customer_id（本端无「列出客户」端点）。');
+              // 🛑 D5-a 契约【未声明 requestBody】：按最小形状提交并在下方如实标注，
+              //    不臆造字段名（臆造 = 静默失效，端 B 已因此踩过坑）。
+              await createPlan({ customer_id: customerId }, newIdempotencyKey());
+            })}
+          >
+            D5-a 出具方案（最小形状）
+          </button>
+        </div>
+        {plan ? (
+          <div style={{ marginTop: SPACE.sm }}>
+            <KV k="方案 ID" v={String((plan as Record<string, unknown>).plan_id ?? planId)} />
+            <KV k="方案状态" v={String((plan as Record<string, unknown>).status ?? '—')} />
+          </div>
+        ) : null}
+        <div style={{ ...labelStyle, marginTop: SPACE.sm }}>
+          🛑 契约端 A 对 D5-a `createPlan` **未声明 requestBody**（已登记的缺口）
+          ⇒ 本入口按最小形状提交，**字段名以服务端控制器为准**，请以后端实现核对后再扩字段。
+        </div>
+
+        <div style={{ ...labelStyle, marginTop: SPACE.md }}>审核结论</div>
         <select style={selectStyle} value={reviewResult} onChange={(e) => setReviewResult(e.target.value)}>
           <option value="通过">通过</option>
           <option value="退回">退回</option>
