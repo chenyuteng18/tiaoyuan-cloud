@@ -23,6 +23,11 @@
  *   · `error-data-fields`（第 61 条，R14–R16）—— 契约「不得模糊报错」的机器可读那一半：
  *     出站层必须保留错误响应 data，错误层必须经 PROTOCOL.ERROR_DATA_FIELDS 取字段名，
  *     不得手写 'missing_items' / 'denied_fields' 字面量。
+ *   · `endpoint-reachability`（第 63 条，R17–R18）—— 每个端点都必须有一条
+ *     从界面到出站的**真实调用链**（端 C 的 CommonJS 形态单列）；
+ *   · `page-registry`（第 64 条，R19–R21）—— **装载层**：页面必须真的能被用户
+ *     走到（端 C 是 `app.json.pages` ↔ 磁盘 ↔ tabBar，端 A/B 是 NAV ↔ `type Tab`
+ *     ↔ 渲染分支）。调用链成立 ≠ 页面能打开。
  *
  * 🛑 为什么在这里做而不再写一次性探针
  * ---------------------------------------------------------------------------
@@ -262,9 +267,18 @@ const CASES = [
     rel: 'src/services/domain.ts',
     title: '端 B：分页参数名回退成手抄（含过滤条件的那种透传形态）',
     expectItem: 'pagination-protocol',
+    // 🛑 锚点已于 2026-09-30（Task #115 收口）更新，原因值得记录：
+    //    原锚点是 `query: PageQuery & { age_group?: string; dimension?: string } = {}`
+    //    —— 那一行是 `listScaleItemBanks` 的旧签名，本轮因它**在类型层面不可调用**
+    //    （`PageQuery` 的索引签名 `number|undefined` 与 `age_group?: string` 求交
+    //     得到内部矛盾类型）而被改成 `ScaleItemBankQuery`。
+    //    签名一变，本注入的 `mutate` 返回原文 ⇒ 用例**静默失效**
+    //    （首跑即报「变异未生效」—— 这正是本脚本"注入必须带来可观测差异"那条
+    //     自检的价值：它让"用例自己腐烂"变成一条显式失败，而不是假装通过）。
+    //    现锚点改为**真实的手抄形态本身**：把分页助手调用换成 `{page: page}` 字面量。
     mutate: (s) => s.replace(
-      /query: PageQuery & \{ age_group\?: string; dimension\?: string \} = \{\}/,
-      'query: { age_group?: string; dimension?: string; page?: number; page_size?: number } = {}'),
+      /query: pageQuery\(page, pageSize\)/,
+      'query: { page: page, page_size: pageSize }'),
   },
   {
     id: 'R13',
@@ -305,6 +319,78 @@ const CASES = [
     mutate: (s) => s.replace(
       /var field = code === null \? null : contract\.PROTOCOL\.ERROR_DATA_FIELDS\[code\];/,
       "var field = code === 2002 ? 'missing_items' : null;"),
+  },
+  // -------------------------------------------------------------------------
+  // 第 63 条 · 端点触达判据（④g）的牙齿证明
+  // -------------------------------------------------------------------------
+  // 🛑 本轮实测：端 C 的 `authLogin` 有**两份实现**（页面直接出站 + 会话层
+  //    已封装但从不被调用）。旧版判据集合**一条都管不到这种事**，
+  //    而 `tsc` / 构建 / 全部既有门禁**如实全绿**。
+  //    这两组注入把那个形态复刻出来，证明新判据确实承重。
+  {
+    id: 'R17',
+    end: 'client-mp',
+    rel: 'miniprogram/pages/login/login.js',
+    title: '端 C：登录页绕开会话层、自己直接出站（authLogin 出现第二份实现）',
+    expectItem: 'endpoint-reachability',
+    // 把收敛后的 `session.login(...)` 换回"页面自己 request.call('authLogin')"，
+    // 同时不再调用 session.login ⇒ 判据应报
+    // 「authLogin 封装函数 login() 既未被页面调用…」。
+    mutate: (s) => s
+      .replace(
+        /session\.login\(account, credential\)\.then/,
+        "session.setToken(''); request.call('authLogin', {}).then")
+      .replace(
+        /var session = require\('\.\.\/\.\.\/services\/session\.js'\);/,
+        "var session = require('../../services/session.js');\nvar request = require('../../services/request.js');"),
+  },
+  {
+    id: 'R18',
+    end: 'client-mp',
+    rel: 'miniprogram/services/domain.js',
+    title: '端 C：删掉 domain.js 里 getPlan 的 services 出站调用',
+    expectItem: 'endpoint-reachability',
+    mutate: (s) => s.replace(
+      /return request\.call\('getPlan', \{ params: \{ id: id \} \}\)\.then\(function \(r\) \{ return r\.data \|\| \{\}; \}\);/,
+      'return Promise.resolve({});'),
+  },
+
+  // -------------------------------------------------------------------------
+  // 🛑 第 64 条：**装载层**（页面可到达）
+  //
+  //    上面 R17/R18（以及 I9/I10）证明的是「**代码里**有一条从界面到出站的
+  //    调用链」。但实测发现链路还能断在**上一层**：把页面从装载清单里摘掉，
+  //    文件仍在磁盘、调用链完好、`endpoint-reachability` 仍 15/15 绿。
+  //
+  //    这三组注入把三种断法逐一复刻（端 C 声明式 / 端 B 分支式 / 端 A 导航式），
+  //    证明新增的 `page-registry` 判据确实承重 —— 且**两端形态不同**这件事
+  //    必须在用例里体现，否则"一套正则通吃"的假绿不会被抓住。
+  // -------------------------------------------------------------------------
+  {
+    id: 'R19',
+    end: 'client-mp',
+    rel: 'miniprogram/app.json',
+    title: '端 C：把「量表评估」页从 app.json 的 pages 里摘掉（文件仍在磁盘）',
+    expectItem: 'page-registry',
+    // 摘掉声明 ⇒ 页面文件还在、调用链完好，但小程序**永远不会加载它**。
+    mutate: (s) => s.replace(/\s*"pages\/assessment\/assessment",/, ''),
+  },
+  {
+    id: 'R20',
+    end: 'therapist-app',
+    rel: 'src/App.tsx',
+    title: '端 B：把「手环数据」的渲染分支改成走不到的 key（导航有、渲染无）',
+    expectItem: 'page-registry',
+    // 把分支的 key 改成一个 NAV 里不存在的值 ⇒ 两边同时失配。
+    mutate: (s) => s.replace(/(tab === ')band(' \? \()/, '$1bandNotRendered$2'),
+  },
+  {
+    id: 'R21',
+    end: 'admin-web',
+    rel: 'src/App.tsx',
+    title: '端 A：删掉「文书模板」的 NAV 导航项（渲染分支变成走不到的死分支）',
+    expectItem: 'page-registry',
+    mutate: (s) => s.replace(/\s*\{ key: 'docs', label: '文书模板', requires: 'listDocTemplates' \},/, ''),
   },
 ];
 
@@ -390,7 +476,7 @@ process.stdout.write(`还原后三端构建自检：${Object.entries(finalCodes)
   + `${allGreen ? '（全绿 ✓，已按内存备份还原）' : '（异常 ✗）'}${staleNotice}\n`);
 
 if (passed === results.length && allGreen) {
-  process.stdout.write('\nbuild-check 反向验证 PASS —— 四条判据（base-path-wiring / cross-end-protocol / pagination-protocol / error-data-fields）确实有牙齿，且还原干净。\n');
+  process.stdout.write('\nbuild-check 反向验证 PASS —— 六条判据（base-path-wiring / cross-end-protocol / pagination-protocol / error-data-fields / endpoint-reachability / page-registry）确实有牙齿，且还原干净。\n');
   process.exit(0);
 }
 process.stdout.write('\nbuild-check 反向验证 FAIL。\n');

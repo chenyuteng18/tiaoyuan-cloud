@@ -33,9 +33,10 @@ import {
 } from '../contract/access';
 import { CONTRACT_VERSION } from '../contract/endpoints';
 import { me, type Profile } from '../services/session';
+import { listStores, type StoreList } from '../services/domain';
 import { describe } from '../services/errors';
 import { COLOR, FONT, SPACE } from '../ui/tokens';
-import { Badge, Card, Empty, ErrorBar, KV, Page } from '../ui/components';
+import { Badge, buttonGhostStyle, Card, Empty, ErrorBar, KV, labelStyle, Page } from '../ui/components';
 
 export default function WorkbenchPage({
   role,
@@ -48,6 +49,34 @@ export default function WorkbenchPage({
 }) {
   const [live, setLive] = useState<Profile | null>(profile);
   const [err, setErr] = useState<{ text: string; traceId: string; auth: boolean } | null>(null);
+  /*
+   * 🛑 2026-09-30（Task #115 余量收口）新增：A3 合作门店列表。
+   *
+   * 本条此前与另外 15 个端点同型 —— `listStores()` 在 services/domain.ts 里
+   * 封装完毕但**从未被任何页面调用**。放在工作台的理由是职责匹配：
+   * A3 是"我这个身份能看到哪些门店"（受行级 scope 过滤），而工作台正是
+   * "我这个身份能做什么"的呈现面 —— 两者是同一个问题的两侧。
+   *
+   * 🛑 过滤由服务端做（按 A2 的 store_scope 行级范围），本页**不筛**：
+   *    前端再筛一次会造出第二份范围权威，与服务端解算不一致时无从判断谁对（X-1）。
+   */
+  const [stores, setStores] = useState<StoreList | null>(null);
+  const [storesBusy, setStoresBusy] = useState(false);
+  const [storesErr, setStoresErr] = useState<{ text: string; traceId: string } | null>(null);
+
+  async function loadStores() {
+    setStoresBusy(true);
+    setStoresErr(null);
+    try {
+      const s = await listStores(role);
+      setStores(s ?? null);
+    } catch (e) {
+      const d = describe(e);
+      setStoresErr({ text: d.text, traceId: d.traceId });
+    } finally {
+      setStoresBusy(false);
+    }
+  }
 
   // 每次进入工作台都重新读一次 A2 —— 档位是服务端解算结果，本地缓存不作权威。
   useEffect(() => {
@@ -187,6 +216,40 @@ export default function WorkbenchPage({
             />
           ))
         )}
+      </Card>
+
+      <Card
+        title="我的合作门店（A3）"
+        hint="按行级 scope 过滤 —— 过滤由服务端做（store_scope），本页不筛（X-1：前端不造第二份范围权威）。"
+      >
+        {storesErr ? <ErrorBar text={storesErr.text} traceId={storesErr.traceId} /> : null}
+        <button style={buttonGhostStyle} disabled={storesBusy} onClick={loadStores}>
+          {storesBusy ? '读取中…' : '读取合作门店'}
+        </button>
+        <div style={{ marginTop: SPACE.md }}>
+          {stores === null ? (
+            <Empty text="尚未读取。" />
+          ) : stores.items.length === 0 ? (
+            <Empty text="当前范围下没有门店（可能 scope 为 own_store 且未绑定门店）。" />
+          ) : (
+            <>
+              {stores.items.map((s) => (
+                <KV
+                  key={s.store_id}
+                  k={s.name}
+                  v={
+                    <span>
+                      {s.store_id} <Badge text={s.franchise_type} tone="brand" />
+                    </span>
+                  }
+                />
+              ))}
+              <p style={{ ...labelStyle, marginTop: SPACE.sm }}>
+                共 {stores.total} 家（本页第 {stores.page} 页，每页 {stores.page_size} 条）。
+              </p>
+            </>
+          )}
+        </div>
       </Card>
 
       <Card title="契约侧核对（供排查用）" hint="数字由生成物现算；契约一变它自动跟着变。">

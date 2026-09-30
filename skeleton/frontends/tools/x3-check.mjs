@@ -319,6 +319,109 @@ if (therOnly.length > 0) {
 }
 
 // ---------------------------------------------------------------------------
+// ⑧ 【端点触达】29 个端点必须在【业务代码里被以调用形态发出】
+// ---------------------------------------------------------------------------
+// 🛑 本条的诞生（第 63 条 · 2026-09-30 实测）
+// ---------------------------------------------------------------------------
+// 端 A 早有一条同名判据（`tools/a-check.mjs` 的 ⑩），端 B **没有**。
+// 后果实测：端 B 的 29 个端点里 **16 个「封装了但从未接上界面」**
+// （`services/domain.ts` 写了函数，`src/` 全域零调用）——
+// 调解一线打开 APP 看不到建档 / 评估 / 服务与方案，而
+// `tsc --noEmit` / `vite build` / 本脚本既有 7 条判据 / 全部 CI 门禁 **一律绿**。
+// 这不是"少一个判据"的形式问题：**判据的覆盖面缺口本身就是缺陷的藏身处**
+// （第 52 条"太宽⇒假绿"、第 53 条"覆盖面没跟上⇒静默漏检"是同一族的另外两次）。
+//
+// 🛑 判据形态（不判"id 字面量出现过" —— 那会被 `void 'authMe'` / 注释 / 类型声明满足）
+// ---------------------------------------------------------------------------
+// 判**两层调用链**，与端 A 的 ⑩ 同构：
+//   ① 出站层 `services/` 里存在 `call<T>('<id>'` 调用形态（真正出站）；
+//   ② 定义该调用的导出函数**被某个页面/外壳以调用形态使用**（`fn(` 且带实参）。
+// 另加一条**反向纪律**：页面/外壳**不得直接出站**（必须经 services 层）——
+// 它顺带守住"某端点由哪个服务封装"这件事始终可查。
+//
+// 🛑 计数等式（第 53/55 条教训：判据必须证明自己覆盖了全部）
+// ---------------------------------------------------------------------------
+// 断言 `① 命中数 === 生成物端点总数`，并在不成立时**逐条列出未触达的端点**。
+// 缺了这个等式，判据就只能证明"我认识的那些没问题"，不能证明"没有我不认识的"。
+{
+  const CALL_RE = /\bcall\s*(?:<[^(]*?>)?\s*\(\s*['"]([^'"]+)['"]/gs;
+  const SERVICES = join(SRC, 'services');
+  const svcFiles = walk(SERVICES).filter((f) => /\.(ts|tsx)$/.test(f));
+
+  // ① 出站调用形态：call<T>('<id>')（扫 services/ 层全部文件）
+  const called = new Set();
+  const fnOf = new Map(); // 端点 id → 定义它的 services 函数名
+  for (const f of svcFiles) {
+    const code = stripComments(readFileSync(f, 'utf8'));
+    for (const m of code.matchAll(CALL_RE)) called.add(m[1]);
+    const fnRe = /export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(([\s\S]*?)\n\}/g;
+    let fm;
+    while ((fm = fnRe.exec(code))) {
+      const c = new RegExp(CALL_RE.source, 's').exec(fm[2]);
+      if (c && !fnOf.has(c[1])) fnOf.set(c[1], fm[1]);
+    }
+  }
+
+  // ② 页面 / 外壳里以调用形态使用该函数
+  const consumers = walk(SRC).filter((f) => {
+    const rel = relative(SRC, f).replace(/\\/g, '/');
+    return rel.startsWith('pages/') || rel === 'App.tsx';
+  });
+  const consumerCode = consumers.map((f) => ({
+    rel: relative(SRC, f).replace(/\\/g, '/'),
+    code: stripComments(readFileSync(f, 'utf8')),
+  }));
+
+  const noCallForm = entries.filter((e) => !called.has(e.id)).map((e) => e.id);
+  const noFn = entries.filter((e) => !fnOf.has(e.id)).map((e) => e.id);
+  const noUi = [];
+  for (const e of entries) {
+    const fn = fnOf.get(e.id);
+    if (!fn) continue;
+    const used = consumerCode.some((c) => new RegExp(`\\b${escapeRe(fn)}\\s*\\(`).test(c.code));
+    if (!used) noUi.push(`${e.id}（封装函数 ${fn}() 未被任何页面/外壳调用）`);
+  }
+  // 分层纪律：页面/外壳不得直接出站（必须经 services 层）
+  const pageDirectCall = consumerCode
+    .filter((c) => new RegExp(CALL_RE.source, 's').test(c.code))
+    .map((c) => c.rel);
+
+  const bad = [];
+  if (noCallForm.length) {
+    bad.push(`以下端点未以出站调用形态出现（services/ 层里没有 call('<id>')）：` + noCallForm.join(', '));
+  }
+  if (noFn.length) {
+    bad.push(`以下端点没有对应的封装函数（call 出现在函数体外或未封装）：` + noFn.join(', '));
+  }
+  if (noUi.length) {
+    bad.push(`以下端点**封装了但从未接上界面**：\n        ` + noUi.join('\n        ')
+      + '\n        ⇒ "页面覆盖 N 个端点"是可自我声称的；本条要求每个端点都有一条'
+      + '从界面到出站的真实调用链。');
+  }
+  if (pageDirectCall.length) {
+    bad.push(`以下页面/外壳**直接出站**（绕过 services 层）：${pageDirectCall.join(', ')}`
+      + '\n        ⇒ 出站必须收在 services/ 层一处；页面直接 `call(` 会让"某端点被哪个服务封装"'
+      + '不再可查，也会让分层纪律失效。');
+  }
+  // 计数等式：出站调用形态必须覆盖全部端点
+  if (called.size !== entries.length) {
+    bad.push(`出站调用形态覆盖数 ${called.size} ≠ 生成物端点数 ${entries.length}`
+      + '（判据必须证明它认识的东西覆盖了全部 —— 第 53/55 条教训）');
+  }
+
+  if (bad.length) {
+    fail('endpoint-reachability', `端点的界面触达链不完整：\n      ` + bad.join('\n      '));
+  } else {
+    ok('endpoint-reachability',
+      `${entries.length} 个端点全部有完整调用链：`
+      + `services/ 层出站 \`call<T>('<id>')\` ${called.size}/${entries.length} · `
+      + `封装函数 ${fnOf.size}/${entries.length} · `
+      + `均被页面/外壳以调用形态触达（已扫 ${consumerCode.length} 个消费侧文件；`
+      + `页面/外壳直接出站 0 处 —— 分层纪律成立）`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 输出
 // ---------------------------------------------------------------------------
 console.log('== 端 B · X-3 角色级装载自检 ==');
@@ -339,6 +442,11 @@ console.log(`\nX-3 OK  (therapist-app)  角色准入未漂移 · 单一权威面
 /** 剥注释：仅用于"判据不应被注释满足"的场景（本仓第 41/51 条教训）。 */
 function stripComments(t) {
   return t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
+/** 转义正则元字符（⑧ 判"页面是否以调用形态使用了某函数名"时需要）。 */
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function walk(dir) {

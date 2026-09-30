@@ -28,6 +28,9 @@ import WorkbenchPage from './pages/WorkbenchPage';
 import BandPage from './pages/BandPage';
 import CustomerPage from './pages/CustomerPage';
 import MeridianActionsPage from './pages/MeridianActionsPage';
+import IntakePage from './pages/IntakePage';
+import AssessmentPage from './pages/AssessmentPage';
+import ServicePage from './pages/ServicePage';
 import { currentRole, getCachedProfile, logout, type Profile } from './services/session';
 import { getCustomer, type CustomerDetail } from './services/domain';
 import { describe } from './services/errors';
@@ -35,7 +38,7 @@ import { ROLE_LABEL, canCall, firstSoleEndpointId, type AppRole } from './contra
 import { COLOR, FONT, SPACE } from './ui/tokens';
 import { buttonGhostStyle, Card, ErrorBar, inputStyle, labelStyle, Page } from './ui/components';
 
-type Tab = 'workbench' | 'customer' | 'band' | 'sole';
+type Tab = 'workbench' | 'customer' | 'intake' | 'assessment' | 'service' | 'band' | 'sole';
 
 interface NavItem {
   readonly key: Tab;
@@ -61,6 +64,13 @@ interface NavItem {
 const NAV: readonly NavItem[] = Object.freeze([
   { key: 'workbench', label: '工作台', requires: null },
   { key: 'customer', label: '客户详情', requires: 'getCustomer' },
+  // 🛑 2026-09-30（Task #115 余量收口）新增三项：域 B / C / D 的业务入口。
+  //    此前 16 个端点**封装完毕但从没接上界面**（src/ 全域零调用）——
+  //    调解一线打开 APP 看不到建档 / 评估 / 服务，只能去用端 A。
+  //    三个 requires 都是**端点 id 字面量**，由 x3-check 的 ⑦ 判据核验其存在于生成物。
+  { key: 'intake', label: '客户建档', requires: 'createCustomer' },
+  { key: 'assessment', label: '量表评估', requires: 'submitBaselineAssessment' },
+  { key: 'service', label: '服务与方案', requires: 'createVisit' },
   { key: 'band', label: '手环数据', requires: 'getBandTelemetry' },
   // 「专属动作」依赖"本端最窄的一档"里当前存在的第一项（在 access.ts 现算，见其注释）。
   { key: 'sole', label: '专属动作', requires: firstSoleEndpointId() },
@@ -188,6 +198,34 @@ export default function App() {
             <CustomerPage role={role} roleLabel={roleLabel} customer={customer} />
           ) : null}
         </Page>
+      ) : tab === 'intake' ? (
+        <IntakePage
+          role={role}
+          roleLabel={roleLabel}
+          onNeedRelogin={() => {
+            logout();
+            setProfile(null);
+          }}
+        />
+      ) : tab === 'assessment' ? (
+        <AssessmentPage
+          role={role}
+          roleLabel={roleLabel}
+          onNeedRelogin={() => {
+            logout();
+            setProfile(null);
+          }}
+        />
+      ) : tab === 'service' ? (
+        <ServicePage
+          role={role}
+          roleLabel={roleLabel}
+          customerId={customer?.customer_id}
+          onNeedRelogin={() => {
+            logout();
+            setProfile(null);
+          }}
+        />
       ) : tab === 'band' ? (
         customer ? (
           <BandPage role={role} roleLabel={roleLabel} customerId={customer.customer_id} />

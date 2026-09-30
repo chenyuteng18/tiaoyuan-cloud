@@ -122,6 +122,12 @@ const ENDS = {
       'src/pages/LoginPage.tsx',
       'src/pages/WorkbenchPage.tsx',
       'src/pages/CustomerPage.tsx',
+      // 🛑 2026-09-30（Task #115 余量收口）新增三页 —— 此前域 B/C/D 共 16 个端点
+      //    「封装了但没接上界面」。补页之后**必须同步登记在此**，否则
+      //    "文件被删了门禁也不会红"（第 53 条同型的静默漏检）。
+      'src/pages/IntakePage.tsx',
+      'src/pages/AssessmentPage.tsx',
+      'src/pages/ServicePage.tsx',
       'src/pages/BandPage.tsx',
       'src/pages/MeridianActionsPage.tsx',
     ],
@@ -864,6 +870,278 @@ if (cfg.outbound) {
         `${outRel3} 保留错误响应 data；${errRel3} 经 PROTOCOL.ERROR_DATA_FIELDS 取原因名（无字面量）`);
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// ④g 【端点触达】本端全部端点必须在业务代码里被以调用形态发出（第 63 条）
+// ---------------------------------------------------------------------------
+// 🛑 它堵的洞（2026-09-30 实测）
+//    `endpoints.js` 声明本端 15 个 operation，`services/*.js` 里也都有
+//    `request.call('<id>')` —— 但**"服务层写了"≠"界面能用到"**。
+//    端 A 有这条判据（a-check ⑩），端 B 有这条判据（x3-check ⑧），端 C **没有**：
+//    它的 15 个端点从未被任何判据要求过"从界面到出站有一条真实调用链"。
+//    实测端 B 在同一处境下静默漏了 16/29（见 x3-check ⑧ 的注释）。
+//
+// 🛑 端 C 的形态与端 A/B 不同，判据必须跟着变（否则就是第 52 条"太宽⇒假绿"）
+// ---------------------------------------------------------------------------
+//    · 服务层是 **CommonJS**：`function foo(){}` + `module.exports = { foo: foo }`，
+//      不是 `export function foo`；只用端 A/B 的正则**一条都匹配不到**
+//      ⇒ 判据会"通过"但它实际什么都没检查（这本身就是一次假绿，实测踩到）。
+//    · 页面用 `var api = require('../../services/domain.js')` 取得别名，
+//      再 `api.foo(...)` 调用 —— 判据必须**先解析别名**，不能只认函数名。
+//    · 本端存在**编排层**（`band-sync.js`）：`syncOnShow()` 内部依次调用
+//      `reportAvailableDates()` / `uploadRecords()`，而页面只需调用 `syncOnShow`。
+//      ⇒ 判据必须接受"被同一服务模块内的导出函数调用"这第二种触达形态，
+//        否则会把一个**合法的编排设计**判成缺陷（假红）。
+//      两种形态合计仍须覆盖全部端点 —— 计数等式照旧。
+{
+  const MP_ROOT = join(END_ROOT, 'miniprogram');
+  const mpFiles = [];
+  const mpWalk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      if (name === 'node_modules' || name.startsWith('.')) continue;
+      const p = join(dir, name);
+      if (statSync(p).isDirectory()) mpWalk(p);
+      else if (p.endsWith('.js')) mpFiles.push(p);
+    }
+  };
+  if (existsSync(MP_ROOT)) {
+    mpWalk(MP_ROOT);
+    const genSrc = readFileSync(join(MP_ROOT, 'contract', 'endpoints.js'), 'utf8');
+    const mpIds = [...new Set(
+      [...genSrc.matchAll(/\bid\s*:\s*['"]([^'"]+)['"]/g)].map((m) => m[1])
+    )];
+    const CALL = /request\.call\(\s*['"]([^'"]+)['"]/g;
+
+    // ① 出站调用形态 → 所在文件
+    const callFiles = new Map(); // id -> Set(relpath)
+    for (const f of mpFiles) {
+      const code = stripComments2(readFileSync(f, 'utf8'));
+      for (const m of code.matchAll(CALL)) {
+        const rel = relative(MP_ROOT, f).replace(/\\/g, '/');
+        if (!callFiles.has(m[1])) callFiles.set(m[1], new Set());
+        callFiles.get(m[1]).add(rel);
+      }
+    }
+
+    // ② 服务模块导出表：{ 服务模块相对路径: [导出函数名] }
+    const svcExports = new Map();
+    for (const f of mpFiles) {
+      const rel = relative(MP_ROOT, f).replace(/\\/g, '/');
+      if (!rel.startsWith('services/')) continue;
+      const code = readFileSync(f, 'utf8');
+      const m = code.match(/module\.exports\s*=\s*\{([\s\S]*?)\};/);
+      if (!m) continue;
+      const names = [...m[1].matchAll(/([A-Za-z_$][\w$]*)\s*:/g)].map((x) => x[1]);
+      svcExports.set(rel, names);
+    }
+
+    // ③ 消费侧（页面 / 外壳）与其 require 别名
+    const mpConsumers = mpFiles.filter((f) => {
+      const rel = relative(MP_ROOT, f).replace(/\\/g, '/');
+      return rel.startsWith('pages/') || rel === 'app.js';
+    });
+    const consumerText = mpConsumers
+      .map((f) => stripComments2(readFileSync(f, 'utf8')))
+      .join('\n');
+    const aliasOf = new Map(); // 服务模块文件名 -> 页面里的别名
+    for (const f of mpConsumers) {
+      const t = readFileSync(f, 'utf8');
+      for (const m of t.matchAll(/var\s+([A-Za-z_$][\w$]*)\s*=\s*require\(\s*['"]([^'"]+)['"]\s*\)/g)) {
+        aliasOf.set(m[2].split('/').pop(), m[1]);
+      }
+    }
+
+    // ④ 判每个端点的触达链
+    const unattached = [];
+    for (const id of mpIds) {
+      const files = [...(callFiles.get(id) ?? [])];
+      // 出站直接写在页面/外壳里 —— 端 C 无"页面不得直接出站"纪律（编排层在 app.js 里
+      // 触发登录态检查是合法的），故这里只要求"有服务层封装"，不禁止页面直调。
+      if (files.length === 0) {
+        unattached.push(`${id}（无任何 request.call 调用形态 —— services/ 里没人封装它）`);
+        continue;
+      }
+      const svcFile = files.find((f) => f.startsWith('services/'));
+      if (!svcFile) continue; // 仅页面直调：合法，见上
+      const names = svcExports.get(svcFile) ?? [];
+      const src = readFileSync(join(MP_ROOT, svcFile), 'utf8');
+      // 找到"函数体内含该 id 的导出函数"
+      const enclosing = names.filter((n) => {
+        const re = new RegExp(`function\\s+${n}\\s*\\([\\s\\S]*?\\n\\}`);
+        const body = src.match(re);
+        return body && body[0].includes(`'${id}'`);
+      });
+      if (enclosing.length === 0) {
+        unattached.push(`${id}（${svcFile} 的 request.call 未落在任何 module.exports 导出函数体内）`);
+        continue;
+      }
+      const alias = aliasOf.get(svcFile.split('/').pop());
+      const byPage = enclosing.some((n) =>
+        (alias ? new RegExp(`\\b${alias}\\.${n}\\s*\\(`).test(consumerText) : false)
+        || new RegExp(`\\b${n}\\s*\\(`).test(consumerText)
+      );
+      // 编排形态：被同一服务模块内的另一个**已导出**函数调用
+      const byOrchestrator = enclosing.some((n) => {
+        const callRe = new RegExp(`\\b${n}\\s*\\(`);
+        return names.some((outer) => {
+          if (outer === n) return false;
+          const re = new RegExp(`function\\s+${outer}\\s*\\([\\s\\S]*?\\n\\}`);
+          const body = src.match(re);
+          if (!body || !callRe.test(body[0])) return false;
+          // 该编排函数自身也必须被页面触达（否则只是把断链藏深了一层）
+          return (alias ? new RegExp(`\\b${alias}\\.${outer}\\s*\\(`).test(consumerText) : false)
+            || new RegExp(`\\b${outer}\\s*\\(`).test(consumerText);
+        });
+      });
+      if (!byPage && !byOrchestrator) {
+        unattached.push(`${id}（封装函数 ${enclosing.join('/')}() 既未被页面调用，`
+          + '也未被任何"自身已被页面触达"的编排函数调用）');
+      }
+    }
+
+    // 计数等式：出站调用形态的覆盖数必须等于生成物端点数（第 53/55 条教训）
+    const problems = [];
+    if (unattached.length) {
+      problems.push('以下端点的界面触达链不完整：\n        ' + unattached.join('\n        ')
+        + '\n        ⇒ "页面覆盖 N 个端点"是可自我声称的；本条要求每个端点都有一条'
+        + '从界面到出站的真实调用链（页面直调、或经已被页面触达的编排函数）。');
+    }
+    if (callFiles.size !== mpIds.length) {
+      problems.push(`出站调用形态覆盖数 ${callFiles.size} ≠ 生成物端点数 ${mpIds.length}`
+        + '（判据必须证明它认识的东西覆盖了全部 —— 第 53/55 条教训）');
+    }
+    if (problems.length) {
+      fail('endpoint-reachability', problems.join('\n      '));
+    } else {
+      ok('endpoint-reachability',
+        `${mpIds.length} 个端点全部有完整调用链（已扫 ${mpFiles.length} 个 js 文件 · `
+        + `${mpConsumers.length} 个消费侧文件 · 出站调用形态 ${callFiles.size}/${mpIds.length}）`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ④h 【页面可到达】页面必须【能被用户走到】—— 触达判据管不到装载层（第 64 条）
+// ---------------------------------------------------------------------------
+// 🛑 它堵的洞（2026-09-30 受控注入实测，不是理论风险）
+// ---------------------------------------------------------------------------
+//    ④g / ⑧ / ①⓪ 那三条 `endpoint-reachability` 判的是「**代码里**有一条
+//    从界面到出站的调用链」。但调用链成立**不等于页面能打开** ——
+//    中间还隔着一层**装载清单**：
+//      · 端 C：`app.json` 的 `pages`（小程序只会加载清单里的页面）；
+//      · 端 A/B：外壳的 NAV ↔ 渲染分支（导航表里有、渲染里没有 ⇒ 点了没反应）。
+//    受控注入实测（端 C）：把 `pages/assessment/assessment` 从 `app.json` 的
+//    `pages` 里删掉，**文件仍在磁盘、调用链完好** ⇒
+//    `endpoint-reachability` 仍报 `15/15 全部有完整调用链`、`BUILD OK`、exit=0。
+//    ⇒ **"页面覆盖 N 个端点"是可自我声称的，第三层（可到达）此前无人守。**
+//
+// 🛑 与第 63 条的关系
+// ---------------------------------------------------------------------------
+//    第 63 条修的是"封装了但没接上界面"（调用链断在**代码**层）；
+//    本条修的是"接上了界面但界面**打不开**"（链路断在**装载**层）。
+//    同族的第三个接缝：缺陷每往上一层就换一个藏身处。
+//
+// 🛑 三种形态，判据按形态分两路（照抄一套必然假绿 —— 第 52 条）
+// ---------------------------------------------------------------------------
+//    · 端 C 是**声明式**：`app.json.pages` ↔ 磁盘 ↔ tabBar 三方一致；
+//    · 端 A/B 是**代码式**：NAV 的 key ↔ `type Tab` 成员 ↔ 渲染分支三方一致。
+//      两端的渲染写法还不一样（端 A 逐行 `? : null`，端 B 三元链），
+//      故判据只提取 `tab === 'x'` 的 **key 集合**，两种写法都覆盖。
+{
+  const problems = [];
+  let summary = '';
+
+  if (END_ID === 'client-mp') {
+    const MP = join(END_ROOT, 'miniprogram');
+    const ajPath = join(MP, 'app.json');
+    if (!existsSync(ajPath)) {
+      problems.push('app.json 不存在 —— 无装载清单，页面可到达性【未验证】。');
+    } else {
+      const app = JSON.parse(readFileSync(ajPath, 'utf8'));
+      const declared = Array.isArray(app.pages) ? app.pages : [];
+      const tabPaths = (app.tabBar && Array.isArray(app.tabBar.list) ? app.tabBar.list : [])
+        .map((x) => x.pagePath);
+      // 磁盘上的页面 = 每个含同名 .js 的 pages/<name>/ 目录
+      const disk = [];
+      const pdir = join(MP, 'pages');
+      if (existsSync(pdir)) {
+        for (const d of readdirSync(pdir)) {
+          if (existsSync(join(pdir, d, `${d}.js`))) disk.push(`pages/${d}/${d}`);
+        }
+      }
+      const unlisted = disk.filter((p) => !declared.includes(p));
+      const missing = declared.filter((p) => !['.js', '.wxml'].every((e) => existsSync(join(MP, p + e))));
+      const tabBad = tabPaths.filter((p) => !declared.includes(p));
+
+      if (unlisted.length) {
+        problems.push('以下页面在磁盘上存在、但 app.json 未声明（**用户永远打不开**）：'
+          + `\n        ${unlisted.join('\n        ')}`
+          + '\n        ⇒ 文件在、调用链在，但小程序只加载清单里的页面 —— 这一层④g 看不见。');
+      }
+      if (missing.length) {
+        problems.push(`app.json 声明但文件缺失（运行时 404）：${missing.join(', ')}`);
+      }
+      if (tabBad.length) {
+        problems.push(`tabBar 指向未声明的页面（点 tab 即 404）：${tabBad.join(', ')}`);
+      }
+      if (declared.length !== disk.length) {
+        problems.push(`计数等式不成立：app.json 声明 ${declared.length} ≠ 磁盘实有 ${disk.length}`
+          + '（判据必须证明它认识的东西覆盖了全部 —— 第 53/55 条教训）');
+      }
+      summary = `${declared.length} 个页面：app.json 声明 ↔ 磁盘 ↔ tabBar 三方一致`;
+    }
+  } else {
+    const appPath = join(END_ROOT, 'src', 'App.tsx');
+    if (!existsSync(appPath)) {
+      problems.push('src/App.tsx 不存在 —— 无外壳，页面可到达性【未验证】。');
+    } else {
+      const src = stripComments2(readFileSync(appPath, 'utf8'));
+
+      // ① NAV 数组本体（圈定范围，避免把别处的 `key:` 数进来 —— 第 53 条教训）
+      const mNav = src.match(/const\s+NAV\s*(?::[^=]*)?=\s*Object\.freeze\(\s*\[([\s\S]*?)\]\s*\)\s*;/);
+      // ② `type Tab` 联合成员
+      const mTab = src.match(/type\s+Tab\s*=\s*([^;]+);/);
+
+      if (!mNav) {
+        problems.push('未能圈定 NAV 数组本体 —— 判据不认识当前写法，'
+          + '【不得】当作通过（第 52/53 条：判据太宽 ⇒ 假绿）。');
+      } else if (!mTab) {
+        problems.push('未能解析 `type Tab` —— 判据不认识当前写法，【不得】当作通过。');
+      } else {
+        const navKeys = [...mNav[1].matchAll(/key:\s*'([^']+)'/g)].map((m) => m[1]);
+        const tabMembers = [...mTab[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+        // ③ 渲染分支：只取 `tab === 'x'` 的 key 集合（兼容逐行 / 三元链两种写法）
+        const branchKeys = [...src.matchAll(/tab\s*===\s*'([^']+)'/g)].map((m) => m[1]);
+
+        const noRender = navKeys.filter((k) => !branchKeys.includes(k));
+        const noNav = branchKeys.filter((k) => !navKeys.includes(k));
+        const typeOnly = tabMembers.filter((k) => !navKeys.includes(k));
+        const navOnly = navKeys.filter((k) => !tabMembers.includes(k));
+
+        if (noRender.length) {
+          problems.push(`以下导航项**没有对应的渲染分支**（点了页面不变，用户以为坏了）：${noRender.join(', ')}`);
+        }
+        if (noNav.length) {
+          problems.push(`以下渲染分支**没有导航入口**（死分支，永远走不到）：${noNav.join(', ')}`);
+        }
+        if (typeOnly.length) {
+          problems.push(`\`type Tab\` 里有但 NAV 里没有的成员（类型松了口子）：${typeOnly.join(', ')}`);
+        }
+        if (navOnly.length) {
+          problems.push(`NAV 里有但 \`type Tab\` 里没有的成员（类型缺口）：${navOnly.join(', ')}`);
+        }
+        const dupNav = navKeys.filter((k, i) => navKeys.indexOf(k) !== i);
+        if (dupNav.length) problems.push(`NAV 中有重复 key（导航渲染会出现重复项）：${dupNav.join(', ')}`);
+
+        summary = `${navKeys.length} 个导航项：NAV ↔ \`type Tab\` ↔ 渲染分支三方一致`
+          + `（渲染分支命中 ${branchKeys.length} 处）`;
+      }
+    }
+  }
+
+  if (problems.length) fail('page-registry', problems.join('\n      '));
+  else ok('page-registry', summary);
 }
 
 // ---------------------------------------------------------------------------

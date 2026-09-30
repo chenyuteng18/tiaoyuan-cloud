@@ -25,7 +25,7 @@
  * （把"忘了传角色"从静默失效变成编译失败）。
  */
 
-import { pageQuery, DEFAULT_PAGE_SIZE, type PageQuery } from './paging';
+import { pageQuery, DEFAULT_PAGE_SIZE } from './paging';
 import { call } from '../api/client';
 import type { AppRole } from '../contract/access';
 
@@ -226,10 +226,42 @@ export interface ScaleItemBank {
   readonly [k: string]: unknown;
 }
 
+/**
+ * C1 题库查询参数 —— 🛑 **不是分页参数**，故**不得**与 `PageQuery` 交叉。
+ *
+ * 契约 `listScaleItemBanks` 的 parameters 只有 `age_group` / `dimension` / `version`
+ * 三个，**没有** `page` / `page_size`。
+ *
+ * 🛑 本条修正的是一次「死代码掩盖的类型缺陷」（Task #115 余量收口时实测）
+ * ---------------------------------------------------------------------------
+ * 本函数初版签名是 `query: PageQuery & { age_group?: string; dimension?: string }`。
+ * `PageQuery` 的索引签名是 `[k: string]: number | undefined`，与
+ * `{ age_group?: string }` 求交后得到一个**内部矛盾的类型**：
+ * `age_group` 同时要求 `string` 与 `number | undefined`
+ * ⇒ 任何调用点都必然 tsc 报错 —— **该函数在类型层面根本不可调用**。
+ * 它之所以长期没被发现，恰恰因为它从没被任何页面调用过：
+ * 「封装了但没接上界面」不只让功能缺失，还让**函数自身的缺陷也没有曝光面**。
+ * 这与本仓第 52/53 条同族（门禁/判据覆盖不到的地方，缺陷可以长期存活）。
+ */
+export interface ScaleItemBankQuery {
+  /** 契约 required。 */
+  readonly age_group?: string;
+  readonly dimension?: string;
+  readonly version?: string;
+  /**
+   * 索引签名 —— 出站 query 的类型是
+   * `Record<string, string | number | boolean | undefined>`，
+   * 没有它本接口无法作为 query 传入 `call()`（tsc TS2322）。
+   * 值域收窄为 `string | undefined`：本端点的三个参数**全是字符串**，
+   * 收窄比放过更严（若将来契约加了数字参数，tsc 会在这里报出来，而不是静默放过）。
+   */
+  readonly [k: string]: string | undefined;
+}
+
 /** C1 题库拉取（按分龄组 + 维度）。 */
 export function listScaleItemBanks(
   role: AppRole,
-  query: PageQuery & { age_group?: string; dimension?: string } = {}
+  query: ScaleItemBankQuery = {}
 ): Promise<readonly ScaleItemBank[] | undefined> {
   return call<{ items?: readonly ScaleItemBank[] }>('listScaleItemBanks', { role, query })
     .then((r) => r.data?.items);

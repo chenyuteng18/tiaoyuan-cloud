@@ -229,6 +229,45 @@ await injection({
 });
 
 // ---------------------------------------------------------------------------
+// 注入 9：把某端点的**封装函数从界面上摘掉**
+//         ⇒ 期望 endpoint-reachability 报红（第 63 条判据的牙齿证明）
+// ---------------------------------------------------------------------------
+// 🛑 这一组来自本轮实测的真实缺口：端 B 曾有 **16/29** 个端点
+//    「封装了但从未接上界面」，而旧版 x3-check 的 7 条判据**一条都没管这件事**
+//    ⇒ tsc / vite / 全部门禁如实全绿，缺陷静默存活。
+//    本注入复刻那个形态：保留 `services/domain.ts` 里的封装（出站形态仍在），
+//    但把 ServicePage 里对 `createVisit()` 的调用删掉 ⇒ 只剩"封装函数无界面"。
+const SERVICE_PAGE = join(SRC, 'pages', 'ServicePage.tsx');
+await injection({
+  name: 'I9 摘掉 createVisit 的界面调用（封装仍在，仅断链）',
+  path: SERVICE_PAGE,
+  // 把调用点里的函数名换成一个不存在的名字 ⇒ 判据的 `\bcreateVisit\s*\(`
+  // 匹配不到 ⇒ 触发"封装了但未被任何页面调用"这一条。
+  // 🛑 刻意**不**用"注释掉"的方式做注入：本判据会 stripComments2，
+  //    注释掉的调用对它不可见，但那样注入就变成"改了个看不见的东西"，
+  //    无法证明判据真的在执行（第 46 条：注入必须带来可观测差异）。
+  from: 'const v = await createVisit(',
+  to: 'const v = await createVisitInjectedBroken(',
+  expectGate: 'endpoint-reachability',
+});
+
+// ---------------------------------------------------------------------------
+// 注入 10：把 services 层的出站调用删掉（端点彻底不发出）
+//          ⇒ 期望 endpoint-reachability 报红（且必须命中"未以出站调用形态出现"）
+// ---------------------------------------------------------------------------
+// 与 I9 的区别：I9 断的是"界面 ← 封装"这段，本组断的是"封装 ← 出站"这段。
+// 两段都必须各自有牙齿 —— 只守一段会让另一段上的断链继续静默存活
+// （本仓第 60 条"守错了层级"的教训）。
+const DOMAIN_SVC = join(SRC, 'services', 'domain.ts');
+await injection({
+  name: 'I10 删掉 listStores 的 services 出站调用',
+  path: DOMAIN_SVC,
+  from: "return call<StoreList>('listStores', { role, query: pageQuery(page, pageSize) })",
+  to: 'return Promise.resolve(undefined)',
+  expectGate: 'endpoint-reachability',
+});
+
+// ---------------------------------------------------------------------------
 // 汇总
 // ---------------------------------------------------------------------------
 console.log('===== 反向验证结果（每组：注入 → 必须变红 → 还原 → 必须变绿）=====');
