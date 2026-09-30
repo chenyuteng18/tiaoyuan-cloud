@@ -2279,7 +2279,9 @@ cfg:verdict.* 全集（机械读 02_slots_seed.sql 提取）
   - **段级指纹落 `evidence_snapshot`**（九段逐项 + **保序**），使"哪一段口径变了"可**定位到段**而非只知整体变了；早于 S2-8 的行无段级指纹时**如实退化为"定位不到"**（不报空 Map 冒充有值）。
   - **回放闭环**新端点 `GET /verdicts/{id}/replay`（内部自描述端点，`customerFacing` 恒 `false`）：四态 `ReplayOutcome` = `REPRODUCED`（可复现）/ `DRIFTED`（口径已漂移）/ `DIVERGED`（同版本不同分支）/ `INCOMPARABLE_DOMAIN`（域外不可比）。
   - **PRD L856** "模块映射版本并入 `threshold_version` 语义、**不新开字段**"已遵办（见 §5.2 末节登记：模块映射**尚未落库**）。
-  - **仍未实现**：`audit_log` 的 `prev_hash`/`hash` 链**校验端点**（写入侧已有字段，校验端点仍为 TODO，见上一条）。
+  - **~~仍未实现~~ → 已作废（2026-09-30 实测回改）**：原写「`audit_log` 的 `prev_hash`/`hash` 链**校验端点**仍为 TODO」——
+    **该句已滞后**：`AuditChainController` 已有 `@GetMapping("/audit/log-chain")`（第 132 行 `verifyLogChain()`）+ `/audit/log-chain/contract` 自描述端点，C-1 已于 2026-09-27 收口。
+    ⚠️ 本轮**只回改这一句**，不改动本条的其余内容；同类"登记滞后于代码"的处置范式见 §八。
   > 详见 §反向验证「S2-8 溯源回放的注入」与 §七 S2-8 关键文件块。
 - [x] ~~**ADR-12 合规构建期扫描**~~ → **本轮已实现**（`compliance/`）。三扫描面（退款字样 / 负向计数与归因措辞 / 派生字段与派生结论），**命中即构建失败**；绑定 Maven `validate` 阶段，故违规时产物不会被编出来；`.github/workflows/compliance-gate.yml` 作为 CI 门禁。**owner 不可空**由 `compliance/owners.csv` 落地，并以行为断言守护（owner 为空 → 构建失败，即使代码全干净）。**反向验证**：三扫描面各注入一次，由 `compliance/run-reverse-verification.py` 记录三栏证据（注入内容 / 期望失败点 / 实际失败断言原文）；另有 9 项断言（`compliance/tests/compliance_injection_test.py`）与端到端 `mvn` 门禁断言（`compliance/tests/build-gate-injection.py`）。**仍待补**：`owners.csv` 现为**占位角色**（`role:dev-compliance-lead`），真实责任人指派属 T-2 / G6 待办；`client-package/` 为通道骨架，真实小程序产物接入该路径是剩余集成步骤；CI 需在仓库设置中把该 job 设为 required check（工作流本身无法阻断合并）。详见 `compliance/README.md`。
 - [ ] **🛑 `AuditFillAspect` 是【从未接线的死代码】（批次十三实测抓出，已落机械守护 N-17，处置待架构裁定）**：
@@ -2384,7 +2386,10 @@ cfg:verdict.* 全集（机械读 02_slots_seed.sql 提取）
   ⚠️ **口径纠正**：上一轮记忆里的"19 个 `*Ledger` / 142 处调用"是**未剥注释的粗测**，本轮纠正为 **18 个载体 / 139 处调用 / 19 处语句**。
 - [ ] **Silo 升级预留 `tenant.datastore_hint`**：字段已留位，逻辑未实现（ADR-01）。
 - [ ] **`dy-security` 权限矩阵**：`PermissionRegistry` 为骨架预置映射；真实矩阵须来自配置/策略服务，并与 `A2 /auth/me` 档位解算保持一致（声明 ≠ 授权）。
-- [ ] **`band_telemetry` 的 ★ 三张补拉表未建**：F-2 定案后 V3 **只建了 `band_telemetry` 本表**并闭合 `device_id → band(band_id)` FK；配套的 `band_sync_probe` / `band_sync_log` / `band_daily_coverage` 三张手环补拉表**属后续增项**（V3 不建，避免超出 F-2 定案范围）。
+- [x] ~~**`band_telemetry` 的 ★ 三张补拉表未建**~~ → **已作废（2026-09-30 实测回改）**：本行原写「三张手环补拉表属后续增项（V3 不建）」——
+    **该句已滞后**：**V5 第 899 / 946 / 990 行**已分别建 `band_sync_probe` / `band_sync_log` / `band_daily_coverage` 三表（均 `ENABLE`+`FORCE RLS`），
+    **且 A-3（V22，批次二十一）已补齐其写入通路** ⇒ 「未建」与「未开通」**两栏同时不成立**。
+    ⚠️ 本轮**只回改这一行**，不改动其余章节；同类"登记滞后于代码"的处置范式见 §八。
 - [ ] **`band_telemetry.data_source` 取值语言：以契约为准 —— 待裁点已收窄（N-2，2026-09-27）**：现值中文 `('手环','未接入')`，同表 `metric`/`gap_reason`/`sync_state` 均为英文 token。**机械裁定依据**：契约 `BandTelemetryData.data_source` 的 `enum` **逐字冻结为中文** `[手环, 未接入]` 且 `x-visible-to: [client, therapist, meridian, admin]`（客户可见）⇒ 改动它属 §1.4 **MAJOR** 级契约变更，**不能由实现侧自行统一**。故「**以契约为准**」，实现与 V3 的 CHECK 取值集**逐字对齐契约**（由 `UpstreamGapRegistryTest.data_source_language_matches_the_frozen_contract_enum` 机械守护：契约 enum、V3 CHECK、字典登记三处互钉）。
   **待裁点已从「是否统一为英文」收窄为**：**是否值得为"风格统一"做一次 MAJOR 级契约变更**（即先改契约 enum 再改实现与库）——**属契约 owner 裁定，不代拍**。相关登记见字典 §2.17【缺陷登记】块。
 - [ ] **客户端受理通路在契约中缺位（S1-6 抓出的欠账，登记不代拍）**：`clientPaths.js` 原白名单含 `/receipt/list`、`/receipt/detail`，而 **OpenAPI 45 端点中根本不存在这两个路径**。PRD 记录客户回执走**微信订阅消息**、G5 回执状态位**仅经络师端可见**，故契约对此无答案 —— 究竟是**客户端臆造**、还是**契约该补一个客户受理通路**，需**契约 owner + 产品共签**。已从白名单移除（移除不等于裁定；门禁只会拒绝"够到被拒端点"，不会替产品决定"要不要这个端点"）。
