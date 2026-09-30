@@ -165,11 +165,16 @@ console.log('基线：门禁绿 ✓\n');
 //     ⇒ 期望 xkey-values 报红（契约 7 处 vs 生成物 6 处）
 //     —— 这正是"生成器丢元信息"的形态：界面会把它当已冻结功能。
 // ---------------------------------------------------------------------------
+// 🛑 锚点纪律（2026-09-30 实测）：锚点**不得跨过生成器的字段顺序**。
+//    本轮给生成物新增 `requiredQuery` / `requiredBody` 两行（插在 `grantedRoles`
+//    之后），三条老用例的锚点因**把它俩写进 from**而全部失配 —— 表现为
+//    "注入锚点未找到"，读起来像用例坏了，其实是"生成物形状变了"。
+//    ⇒ 锚点一律止于**稳定前缀**（`grantedRoles: …`），要删/改的字段单独成 from 的尾段。
 await injection({
   name: 'I1 删掉 I5 端点的 frontier（模拟"元信息被丢掉"）',
   path: GEN,
-  from: '    id: "listDocTemplateVersions",\n    row: "I5",\n    method: "GET",\n    path: "/doc-templates/{id}/versions",\n    grantedRoles: Object.freeze(["admin"]),\n    frontier: "占位待冻结",',
-  to: '    id: "listDocTemplateVersions",\n    row: "I5",\n    method: "GET",\n    path: "/doc-templates/{id}/versions",\n    grantedRoles: Object.freeze(["admin"]),',
+  from: '    frontier: "占位待冻结",\n  },\n  {\n    id: "createDocTemplateVersion",',
+  to: '  },\n  {\n    id: "createDocTemplateVersion",',
   expectGate: 'xkey-values',
 });
 
@@ -180,8 +185,8 @@ await injection({
 await injection({
   name: 'I2 删掉 F4 端点的 rowScope',
   path: GEN,
-  from: '    row: "F4",\n    method: "GET",\n    path: "/audit/coverage",\n    grantedRoles: Object.freeze(["admin"]),\n    rowScope:',
-  to: '    row: "F4",\n    method: "GET",\n    path: "/audit/coverage",\n    grantedRoles: Object.freeze(["admin"]),\n    xRemovedScope:',
+  from: '    rowScope: "卡片可给门店（仅本店、三数同显）；告警动作归 P1-04、对门店不可见",\n',
+  to: '',
   expectGate: 'xkey-values',
 });
 
@@ -192,8 +197,8 @@ await injection({
 await injection({
   name: 'I3 把 I7 的 superAdminOnly 由 true 改成 false',
   path: GEN,
-  from: '    id: "downloadDocTemplate",\n    row: "I7",\n    method: "GET",\n    path: "/doc-templates/{id}/download",\n    grantedRoles: Object.freeze(["admin"]),\n    superAdminOnly: true,',
-  to: '    id: "downloadDocTemplate",\n    row: "I7",\n    method: "GET",\n    path: "/doc-templates/{id}/download",\n    grantedRoles: Object.freeze(["admin"]),\n    superAdminOnly: false,',
+  from: 'path: "/doc-templates/{id}/download",\n    grantedRoles: Object.freeze(["admin"]),',
+  to: 'path: "/doc-templates/{id}/download",\n    grantedRoles: Object.freeze(["admin"]),\n    superAdminOnly: false,',
   expectGate: 'xkey-values',
 });
 
@@ -415,6 +420,70 @@ await injection({
   to: 'export default function UnsettledPage({ roleLabel }: { roleLabel: string }) {\n'
     + "  void call('authMe', {}); // 注入：页面直接出站（应被 endpoint-reachability 抓住）",
   expectGate: 'endpoint-reachability',
+});
+
+// ---------------------------------------------------------------------------
+// I17 【第 65 条核心回归】把某个必需的"实参"从调用点里摘掉
+//      ⇒ 期望 required-args-wired 报红
+// ---------------------------------------------------------------------------
+// 🛑 为什么这条用例必须是"摘掉实参"而不是"删掉整个调用"：
+//    删掉调用会被 ⑩ `endpoint-reachability` 抓住（那是另一条判据），
+//    于是本条用例的**证据价值为零** —— 它必须证明的是
+//    「**调用还在、就是实参少了一个**」这种形态也能被抓住。
+//    这正是第 65 条缺口的原形：C1 调了、C2 也调了，字段名都在，就是值不对/少一个。
+await injection({
+  name: 'I17 摘掉 C2 的可核实必需实参（scale_id 换成臆造值同义：整项删除）',
+  path: join(SRC, 'pages', 'CustomerConsolePage.tsx'),
+  from: '              scale_id: bankScaleId,\n',
+  to: '',
+  expectGate: 'required-args-wired',
+});
+
+// ---------------------------------------------------------------------------
+// I18 【第 66 条核心回归】把一个长调用点的必需实参放到"固定窗口之外"
+//      ⇒ 期望 required-args-wired **不**误报（即判据已按括号配平取文本）
+// ---------------------------------------------------------------------------
+// 🛑 这条用例与 I17 的方向**相反**，理由是第 66 条是一次"误报"缺陷：
+//    固定窗口太小会把**写对了的**字段判成"缺"。
+//    故本用例是**负向**的：在调用点前面插入一大段噪声，把必需实参推出 400 字符窗口；
+//    判据修好之后它应当**仍然绿**（若判据退化回固定窗口，本用例立刻红）。
+//    ⇒ "判据有牙齿"包含两件事：**该抓的必须抓到**（I17）+ **不该抓的不得抓到**（I18）。
+await injection({
+  name: 'I18 把必需实参推出固定窗口（判据须按括号配平，不得误报）',
+  path: join(SRC, 'pages', 'CustomerConsolePage.tsx'),
+  from: '            await createVerdict(assessId.trim(), {',
+  to: '            await createVerdict(assessId.trim(), {\n'
+    + "              // 注入：把后续必需实参推离调用点 400 字符以外（第 66 条回归；"
+    + "本行是注释、会被 stripComments 剥掉，故改用真实表达式占位）\n"
+    + '              ...(String("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") ? {} : {}),'
+    + '\n',
+  expectGate: undefined,
+  expectExit: 0, // 🛑 负向用例：期望**仍然绿**
+});
+
+// ---------------------------------------------------------------------------
+// I19 【第 67 条核心回归】必需实参经**局部变量**传入时，判据须追到所在块
+//      ⇒ 期望 required-args-wired 不误报
+// ---------------------------------------------------------------------------
+// 🛑 第 67 条的形态：`submitBaselineAssessment(customerId, body, key)` ——
+//    6 个必需字段写在调用点**之外**的 `const body = {...}` 里。
+//    只取调用单元会把"写对了的"判成"全缺"（实测：一次性报出 6 项全缺）。
+//    本用例把该调用改成"传字面量对象"——若判据仍只认局部变量形态，它会**误报**；
+//    判据修好后必须仍绿。⇒ 判据对"实参怎么传"应保持中立。
+await injection({
+  name: 'I19 必需实参经内联字面量传入（判据不得只认局部变量形态）',
+  path: join(SRC, 'pages', 'CustomerConsolePage.tsx'),
+  from: '            await submitBaselineAssessment(customerId, body, newIdempotencyKey());',
+  to: '            await submitBaselineAssessment(customerId, {\n'
+    + '              scale_id: bankScaleId,\n'
+    + '              item_group_id: bankItemGroupId,\n'
+    + '              age_group_locked: ageGroup,\n'
+    + '              dimension_scores: scores,\n'
+    + '              total_score: scores.reduce((a, b) => a + b, 0),\n'
+    + '              measure_operator: measureOperator.trim(),\n'
+    + '            }, newIdempotencyKey());',
+  expectGate: undefined,
+  expectExit: 0, // 🛑 负向用例：期望**仍然绿**
 });
 
 // ---------------------------------------------------------------------------

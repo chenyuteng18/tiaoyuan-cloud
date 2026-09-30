@@ -109,6 +109,21 @@ const entries = [];
     const rulingPending = /rulingPending:\s*"((?:[^"\\]|\\.)*)"/.exec(tail);
     const frontier = /frontier:\s*"((?:[^"\\]|\\.)*)"/.exec(tail);
     const idem = /idempotencyKeySpec:\s*"((?:[^"\\]|\\.)*)"/.exec(tail);
+    const reqQ = /requiredQuery:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(tail);
+    const reqB = /requiredBody:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(tail);
+    // 🛑 三态必须分开（这是本判据自己的一个真实缺陷，2026-09-30 修）：
+    //      · 正则**没匹配**（生成物里根本没有 `requiredQuery:` 这一项）
+    //        ⇒ 传 `undefined` ⇒ 解析为 `null` ⇒ 解析层自检报红；
+    //      · 匹配到了但**空数组** `Object.freeze([])`
+    //        ⇒ 传空串 ⇒ 解析为 `[]` ⇒ 正常（"该端点无必需 query 参数"）；
+    //      · 匹配到了有内容 ⇒ 解析为名字数组。
+    //    初版写成 `parseNames(reqQ ? reqQ[1] : null)` —— 传进去的是 **null**，
+    //    而 `parseNames` 只把 `undefined` 当"未解析"，于是 `null.split` **崩溃**。
+    //    崩溃的后果比误判更隐蔽：门禁不是在"报红"，而是**根本没跑完** ——
+    //    反向验证里会表现为"exit=1 但关键词没命中"，看起来像用例本身坏了（实测 I8）。
+    //    ⇒ 一律传 `=== undefined ? undefined : 捕获组`，把"没匹配"忠实表达为 undefined。
+    const parseNames = (s) =>
+      (s === undefined ? null : s.split(',').map((x) => x.trim().replace(/"/g, '')).filter(Boolean));
     // 🛑 每个 entry 都必须把【③ 里 TRANSOUT 用到的字段名】一个不落地填齐。
     //    本门禁首跑就栽在这：初版只有 `roles`，没有 `grantedRoles`，
     //    于是 TRANSOUT['x-callable-roles'] = 'grantedRoles' 永远取到 undefined，
@@ -128,6 +143,8 @@ const entries = [];
       rulingPending: rulingPending ? rulingPending[1] : null,
       frontier: frontier ? frontier[1] : null,
       idempotencyKeySpec: idem ? idem[1] : null,
+      requiredQuery: parseNames(reqQ === null ? undefined : reqQ[1]),
+      requiredBody: parseNames(reqB === null ? undefined : reqB[1]),
     });
   }
 }
@@ -136,6 +153,18 @@ const entries = [];
 {
   const sample = entries[0] ?? {};
   const unmapped = Object.values(TRANSOUT_FIELDS).filter((f) => !(f in sample));
+  // 🛑 解析层自检还必须覆盖【非 TRANSOUT】的两个新字段：它们不来自 x- 键，
+  //    而来自契约 parameters / requestBody.required。若解析写漏，判据会
+  //    静默看到 null 并一律放过 —— 那正是第 52 条"判据被自己的解析绕过"。
+  const extraMissing = ['requiredQuery', 'requiredBody'].filter((f) => !(f in sample));
+  if (extraMissing.length && entries.length) {
+    fail('parse-fields',
+      `解析层未产出必要字段 ${extraMissing.join(', ')} ⇒ 必需参数判据会静默放过全部端点。`);
+  } else if (sample.requiredQuery === null && entries.length) {
+    fail('parse-fields',
+      'requiredQuery 解析为 null（生成物未转出或解析正则不咬合）——'
+      + '需要的只是"空数组"，null 说明这一层断了。');
+  }
   if (unmapped.length) {
     fail('parse-fields',
       `TRANSOUT 声明要落到生成物字段 ${unmapped.join(', ')}，但解析出的 entry 上不存在这些字段 `
@@ -658,6 +687,169 @@ if (entries.length === 0) {
       + `封装函数 ${fnOf.size}/${entries.length} · `
       + `均被页面/外壳以调用形态触达（已扫 ${consumerCode.length} 个消费侧文件；`
       + `页面/外壳直接出站 0 处 —— 分层纪律成立）`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ⑩b 必需参数被调用点带上（本仓第 65 条）
+// ---------------------------------------------------------------------------
+// 🛑 它防的是哪一类缺陷
+// ---------------------------------------------------------------------------
+// ⑩ `endpoint-reachability` 只回答"端点**有没有**被调用"，**不回答"调用的实参
+// 对不对"**。缺口实测（2026-09-30，本轮读 02 表过程中抓出）：
+//   · C1 `listScaleItemBanks` 的调用点只传 `{ page: 1, page_size: 20 }` ——
+//     而契约 `age_group` 是 **required**，且本端点**根本没有分页参数**；
+//   · C2 `submitBaselineAssessment` 的三个 required 字段填的是
+//     `scale_id: 'baseline'` / `item_group_id: 'default'` /
+//     `age_group_locked: \`${detail.gender}${detail.age}\`` —— 前两个不是 UUID、
+//     第三个不在 8 组枚举内 ⇒ 后端 `ScaleDomain.AgeGroup.parse` 必然抛 400。
+// 而 `tsc --noEmit` / `vite build` / ⑩ 触达判据 / 反向验证**一律绿** ——
+// 因为"实参对不对"此前根本没有任何东西在问。
+//
+// 🛑 判据必须判【实参形态】，不得判"词出现过"（第 52 条）
+// ---------------------------------------------------------------------------
+// 对每个端点，取它的**封装函数体**（⑩ 已解析出端点 id → 函数名）与**全部调用点**，
+// 要求每个 required 名字在**调用形态里真实出现**：要么以对象字面量键出现
+// （`age_group:` / `'age_group':`），要么以具名实参出现。仅"名字在文件里出现过"
+// 不算 —— 那会被一句注释或一个 `void 'age_group'` 满足。
+//
+// 🛑 计数等式（第 53/55 条）
+// ---------------------------------------------------------------------------
+// 判据打印"有 required 的端点数 / 已核对的端点数"，并在解析层自检里断言
+// `requiredQuery` 不为 null —— 否则生成物没转出时本条会**静默放过全部端点**。
+{
+  const CALL_SITES = new Map(); // 端点 id → 该端点的封装函数体 + 全部调用点文本
+  const FN_OF = new Map();      // 端点 id → 定义它的 services 函数名（本块自建，不复用 ⑩ 的块级变量）
+
+  // ① 封装函数体：从 services/ 层取出"定义了这个出站的函数"的完整源码
+  for (const f of walk(join(SRC, 'services')).filter((x) => /\.(ts|tsx)$/.test(x))) {
+    const code = stripComments(readFileSync(f, 'utf8'));
+    const fnRe = /export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(([\s\S]*?)\n\}/g;
+    let fm;
+    while ((fm = fnRe.exec(code))) {
+      const c = new RegExp(/\bcall\s*(?:<[^(]*?>)?\s*\(\s*['"]([^'"]+)['"]/.source, 's').exec(fm[2]);
+      if (!c) continue;
+      if (!FN_OF.has(c[1])) FN_OF.set(c[1], fm[1]);
+      const prev = CALL_SITES.get(c[1]) ?? [];
+      prev.push({ file: relative(SRC, f).replace(/\\/g, '/'), text: fm[0] });
+      CALL_SITES.set(c[1], prev);
+    }
+  }
+
+  // ② 调用点：页面 / 外壳里"以调用形态使用该封装函数"的**完整调用单元**文本
+  //    🛑 为什么不能是"函数名前后各 N 字符"（本仓第 66 条）
+  //    ------------------------------------------------------------------
+  //    初版取前后各 400 字符。实测立刻推翻：端 A `createVerdict(...)` 的调用点
+  //    在此之后长出多个 `...(cond ? {...} : {})` 展开分支，400 字符窗口在
+  //    `risk_flag` 之前就被截断 —— 于是**明明无条件写在调用里的**
+  //    `confidence: {}` / `module_scores: {}` 被判成"缺"。
+  //    ⇒ 固定窗口长度是**隐含假设**：窗口太小会误报（把写了的判成没写），
+  //      窗口太大又会假绿（把隔壁函数的实参算进来）—— 两端都错。
+  //    正确做法：从函数名后的第一个 `(` 起**做括号配平**，取到匹配的 `)` 为止
+  //    —— 那才是这个调用的真实边界，与调用点写多长无关。
+  const consumers2 = walk(SRC).filter((f) => {
+    const rel = relative(SRC, f).replace(/\\/g, '/');
+    return rel.startsWith('pages/') || rel === 'App.tsx';
+  });
+  /** 从 `openIdx`（某个 `(` / `[` / `{` 的位置）起做括号配平，返回配平子串。
+   *  三类括号统一计数 —— 因为这里要配平的是**代码结构**，不是"圆括号表达式"。 */
+  function balancedCall(text, openIdx) {
+    let depth = 0;
+    for (let k = openIdx; k < text.length; k += 1) {
+      const ch = text[k];
+      if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+      else if (ch === ')' || ch === ']' || ch === '}') {
+        depth -= 1;
+        if (depth === 0) return text.slice(openIdx, k + 1);
+      }
+    }
+    // 配平失败（文件被截断/语法残件）⇒ 返回剩余全部，让"实参形态"尽可能被看见；
+    // 此时若真缺参数，判据仍会报 —— 偏向"不放过"而不是"偏向绿"。
+    return text.slice(openIdx);
+  }
+  /** 容纳 `idx` 的**最内层 `{}` 块**（含首尾花括号）。
+   *  🛑 为什么必须有它：`submitBaselineAssessment(customerId, body, key)` 的实参
+   *     是一个**局部变量** `body`，6 个必需字段写在 `const body = {...}` 里 ——
+   *     那在**调用单元之外**。只取调用单元会把"写对了的"判成"全缺"（第 67 条）。 */
+  function enclosingBlock(text, idx) {
+    let depth = 0;
+    let open = -1;
+    for (let k = idx - 1; k >= 0; k -= 1) {
+      const ch = text[k];
+      if (ch === ')' || ch === ']' || ch === '}') depth += 1;
+      else if (ch === '(' || ch === '[' || ch === '{') {
+        if (depth === 0) { open = k; break; }
+        depth -= 1;
+      }
+    }
+    return open < 0 ? '' : balancedCall(text, open);
+  }
+  for (const e of entries) {
+    const fn = FN_OF.get(e.id);
+    if (!fn) continue;
+    const re = new RegExp(`\\b${escapeRe(fn)}\\s*(\\()`, 'g');
+    for (const f of consumers2) {
+      const code = stripComments(readFileSync(f, 'utf8'));
+      let cm;
+      while ((cm = re.exec(code))) {
+        const openIdx = cm.index + cm[0].lastIndexOf('(');
+        const callText = balancedCall(code, openIdx);
+        // 调用单元 + 其所在块（覆盖"实参经局部变量传入"这一合法写法）
+        const blk = enclosingBlock(code, cm.index);
+        const text = blk && blk.length < 2500 ? `${callText}\n${blk}` : callText;
+        const prev = CALL_SITES.get(e.id) ?? [];
+        prev.push({ file: relative(SRC, f).replace(/\\/g, '/'), text });
+        CALL_SITES.set(e.id, prev);
+      }
+    }
+  }
+
+  /** 一个名字是否以"实参形态"出现在调用点文本里（判形态，不判词）。 */
+  function argFormPresent(name, text) {
+    const n = escapeRe(name);
+    return [
+      new RegExp(`(?:^|[\\s,{(])['"]?${n}['"]?\\s*:`),   // 对象字面量键：age_group:
+      // 🛑 具名/位置实参：边界**只能**是 `(` 或 `,`（后面跟可选空白）。
+      //    不得写成 `[\s,(]` —— 那会让**值位置**的同名标识符被误认成实参（第 69 条）：
+      //    注入 `credential__removed: credential,` 后，`credential,` 前面是"空格 + :"，
+      //    被 `[\s,(]` 命中 ⇒ **实参已删而判据仍绿**（实测 R22 漏过）。
+      //    收窄为 `[(,]` 后：值位置（`键: 值`）不再算实参，只有真正的参数位置才算。
+      new RegExp(`(?:^|[(,])\\s*${n}\\s*[,)]`),
+    ].some((r) => r.test(text));
+  }
+
+  const missing = [];
+  let checked = 0;
+  let withRequired = 0;
+  for (const e of entries) {
+    const need = [...(e.requiredQuery ?? []), ...(e.requiredBody ?? [])];
+    if (!need.length) continue;
+    withRequired += 1;
+    const sites = CALL_SITES.get(e.id);
+    if (!sites || !sites.length) continue; // 触达问题由 ⑩ 负责，此处不重复报
+    checked += 1;
+    const all = sites.map((s) => s.text).join('\n');
+    const absent = need.filter((nm) => !argFormPresent(nm, all));
+    if (absent.length) {
+      missing.push(`${e.id}（${e.method} ${e.path}）缺 ${absent.join(', ')}`
+        + `\n        契约 required 共 [${need.join(', ')}]`
+        + `\n        调用点/封装体共 ${sites.length} 处：${sites.map((s) => s.file).join(', ')}`);
+    }
+  }
+
+  if (!withRequired) {
+    fail('required-args-wired',
+      '生成物里没有任何端点带 required 声明 —— 解析层没转出必需参数，本条会静默放过全部端点'
+      + '（第 53 条：判据必须能证明自己的覆盖面）。');
+  } else if (missing.length) {
+    fail('required-args-wired',
+      `以下端点的调用点**没有带上契约 required 参数**（后端必然 400，而 tsc/构建/触达判据一律绿）：\n      `
+      + missing.join('\n      ')
+      + '\n      ⇒ "端点被调用了"不等于"调用是对的"。');
+  } else {
+    ok('required-args-wired',
+      `${withRequired} 个带 required 声明的端点中，${checked} 个有调用点可核对，`
+      + `其调用点/封装体均已带上全部必需参数（判实参形态，非判词出现 —— 第 52 条）`);
   }
 }
 

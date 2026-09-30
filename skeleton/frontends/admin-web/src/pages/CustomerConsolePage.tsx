@@ -56,6 +56,7 @@ import {
   type DailyReport,
   type ScaleItemBank,
   type Verdict,
+  type VerdictRequest,
   type Visit,
 } from '../services/domain';
 import { newIdempotencyKey } from '../api/client';
@@ -123,6 +124,44 @@ export default function CustomerConsolePage({
   const [intakePatch, setIntakePatch] = useState('');
   const [score7, setScore7] = useState<string>('');
 
+  /**
+   * 🛑 C1 的必需参数（契约 `age_group` **required**）+ C1 → C2 的三把钥匙。
+   *
+   * 这三个 state 的存在本身就是一条缺陷的修法（本仓第 65 条），故把成因写在这里：
+   * 契约 `BaselineAssessmentRequest.required` 逐字含 `scale_id` / `item_group_id` /
+   * `age_group_locked`，而 **C1 的 200 响应在契约里根本没有 schema**（只有
+   * `ResultEnvelope`，无 data 形状）、`scale_id` 在契约里**除 C2 入参外 0 次出现**、
+   * `item_group_id` 同样只出现在 C2 —— 即**契约里没有任何端点能产出这两个值**。
+   * 端 B 的做法是：把 C1 返回体里的 keys 原样带入 C2，且 **C1 返回的东西不足以
+   * 凑齐三把钥匙时 `scale_id` 为空 ⇒ 提交按钮保持禁用**（`!picked` 挡），
+   * 于是"钥匙拿不到"表现为**页面明确不给提交**，而不是提交一个编造的值去撞 400。
+   *
+   * 本页此前没有这三项，C2 直接写死 `scale_id: 'baseline'` / `item_group_id: 'default'` /
+   * `age_group_locked: gender+age` 拼串 —— 三者都不是 UUID、`age_group_locked` 也不在
+   * 8 组枚举内 ⇒ **后端 `ScaleDomain.AgeGroup.parse` 与 UUID 解析必然抛 400**，
+   * 而 `tsc` / `vite build` / `a-check` / 反向验证**一律绿**（门禁只问"端点有没有被调用"，
+   * 不问"调用的实参对不对"，见第 65 条）。
+   */
+  const [ageGroup, setAgeGroup] = useState('');
+  const [bankScaleId, setBankScaleId] = useState('');
+  const [bankItemGroupId, setBankItemGroupId] = useState('');
+  /** C2 的必需参数 `measure_operator`（必须是本租户在职 staff 的 ID）。 */
+  const [measureOperator, setMeasureOperator] = useState('');
+
+  /**
+   * 🛑 F1 的三项同源断言 + 两项"缺失合法"字段（本仓第 65 条）
+   *
+   * `same_origin` 三项此前被**硬编码为 true** —— 而契约逐字「任一项缺省 = 不成立 =
+   * 不可比 ⇒ 挂起」。硬编码 true 是伪造"同源"，会让本该挂起的轮次算出"可比"结论。
+   * `risk_flag` / `core_metric_improved` 是契约 `required` 声明与字段语义**互相矛盾**
+   * 的两项（详见 F1 卡片注释），故这里用"空串 = 不发送"的三态表达。
+   */
+  const [sameItemGroup, setSameItemGroup] = useState(false);
+  const [sameRangeMatches, setSameRangeMatches] = useState(false);
+  const [sameMeasurer, setSameMeasurer] = useState(false);
+  const [verdictRiskFlag, setVerdictRiskFlag] = useState('');
+  const [verdictCoreImproved, setVerdictCoreImproved] = useState('');
+
   async function run(label: string, fn: () => Promise<void>) {
     setBusy(true);
     setErr(null);
@@ -150,6 +189,26 @@ export default function CustomerConsolePage({
       {msg ? <div style={{ ...labelStyle, marginBottom: SPACE.md, color: COLOR.ok }}>✓ {msg}</div> : null}
 
       <Card title={`客户 ID：${customerId}`} hint="契约端 A 无「列出客户」端点 ⇒ 无法提供选择器（如实登记的缺口）。">
+        <div style={{ ...labelStyle, marginBottom: SPACE.xs }}>
+          分龄组（age_group，🛑 C1 的契约 required 参数 —— 未选不得发请求）
+        </div>
+        <select
+          style={{ ...selectStyle, marginBottom: SPACE.sm }}
+          value={ageGroup}
+          onChange={(e) => setAgeGroup(e.target.value)}
+        >
+          <option value="">（先选分龄组）</option>
+          {AGE_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
+        <div style={{ ...labelStyle, marginBottom: SPACE.xs }}>
+          测量操作人（measure_operator，🛑 契约 required —— 必须是本租户在职 staff 的 ID）
+        </div>
+        <input
+          style={{ ...inputStyle, marginBottom: SPACE.md }}
+          value={measureOperator}
+          onChange={(e) => setMeasureOperator(e.target.value)}
+          placeholder="staff_id（后端按 FK staff 预检）"
+        />
         <div style={{ display: 'flex', gap: SPACE.sm, flexWrap: 'wrap' }}>
           <button
             style={buttonGhostStyle}
@@ -171,9 +230,15 @@ export default function CustomerConsolePage({
           </button>
           <button
             style={buttonGhostStyle}
-            disabled={busy}
+            disabled={busy || !ageGroup}
             onClick={() => run('读取题库', async () => {
-              setBanks((await listScaleItemBanks({ page: 1, page_size: 20 })) ?? null);
+              const items = await listScaleItemBanks({ age_group: ageGroup });
+              setBanks(items ?? null);
+              // 🛑 把 C1 返回的钥匙带入 C2 —— 取不到就留空，让 C2 的提交按钮保持禁用
+              //    （"钥匙拿不到"必须表现为明确不许提交，而不是提交一个编造的值）。
+              const first = (items ?? [])[0];
+              setBankScaleId(first?.scale_id ?? '');
+              setBankItemGroupId(first?.item_group_id ?? '');
             })}
           >
             C1 题库
@@ -270,12 +335,10 @@ export default function CustomerConsolePage({
       ) : null}
 
       {banks ? (
-        <Card title={`C1 题库（${banks.length} 条）`} hint="按分龄组 + 维度拉取。分龄组 8 档、维度 7 维，均逐字取自契约枚举。">
-          <div style={{ ...labelStyle, marginBottom: SPACE.sm }}>
-            分龄组：{AGE_GROUPS.join(' · ')}
-          </div>
-          <div style={{ ...labelStyle, marginBottom: SPACE.md }}>
-            维度：{DIMENSIONS.join(' · ')}
+        <Card title={`C1 题库（${banks.length} 条）`} hint="按分龄组拉取。分龄组 8 档逐字取自契约枚举 —— 🛑 age_group 是契约 required，未选不得发请求（第 65 条）。">
+          <div style={{ ...labelStyle, marginBottom: SPACE.xs }}>分龄组（age_group，必需）</div>
+          <div style={{ ...labelStyle, marginBottom: SPACE.md, color: COLOR.textMuted }}>
+            契约 8 档：{AGE_GROUPS.join(' · ')}
           </div>
           {banks.length === 0 ? <Empty text="（无题组）" /> : banks.map((b, i) => (
             <KV
@@ -284,11 +347,27 @@ export default function CustomerConsolePage({
               v={`${b.age_group ?? '—'} · ${b.dimension ?? '—'}`}
             />
           ))}
+          <div style={{ ...labelStyle, marginTop: SPACE.md, color: COLOR.textMuted }}>
+            维度（dimension，可选）：{DIMENSIONS.join(' · ')}
+          </div>
         </Card>
       ) : null}
 
-      <Card title="C2 基线评估提交" hint="契约硬约束：dimension_scores 恰好 7 项、total_score 0~112。本页在提交前先挡这两条。">
-        <div style={labelStyle}>7 个维度分（逗号分隔，顺序同契约 DIMENSIONS）</div>
+      <Card
+        title="C2 基线评估提交"
+        hint="契约硬约束：dimension_scores 恰好 7 项、total_score 0~112。三把钥匙由 C1 带入 —— 本页不做第二份权威，也不编造值。"
+      >
+        <div style={{ ...labelStyle, marginBottom: SPACE.xs }}>
+          题组钥匙（🛑 由 C1 返回带入，只读）
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SPACE.xs, marginBottom: SPACE.md }}>
+          <input style={inputStyle} value={bankScaleId} readOnly placeholder="scale_id（先做 C1）" />
+          <input style={inputStyle} value={bankItemGroupId} readOnly placeholder="item_group_id（先做 C1）" />
+          <input style={inputStyle} value={ageGroup} readOnly placeholder="age_group_locked" />
+        </div>
+        <div style={{ ...labelStyle, marginBottom: SPACE.xs }}>
+          7 个维度分（逗号分隔，顺序同契约 DIMENSIONS）
+        </div>
         <input
           style={inputStyle}
           value={score7}
@@ -297,16 +376,18 @@ export default function CustomerConsolePage({
         />
         <button
           style={{ ...buttonGhostStyle, marginTop: SPACE.sm }}
-          disabled={busy}
+          disabled={busy || !bankScaleId || !bankItemGroupId || !ageGroup || !measureOperator.trim() || score7.trim() === ''}
           onClick={() => run('提交基线评估', async () => {
             const scores = score7.split(',').map((s) => Number(s.trim())).filter((n) => !Number.isNaN(n));
             const body: BaselineRequest = {
-              scale_id: 'baseline',
-              item_group_id: 'default',
-              age_group_locked: detail ? `${detail.gender}${detail.age}` : '男33-40',
+              // 🛑 三把钥匙逐字取自 C1 返回 —— 此前这里是 'baseline' / 'default' /
+              //    `${detail.gender}${detail.age}` 三个臆造值，后端必然 400（见 state 处注释）。
+              scale_id: bankScaleId,
+              item_group_id: bankItemGroupId,
+              age_group_locked: ageGroup,
               dimension_scores: scores,
               total_score: scores.reduce((a, b) => a + b, 0),
-              measure_operator: 'console',
+              measure_operator: measureOperator.trim(),
             };
             await submitBaselineAssessment(customerId, body, newIdempotencyKey());
           })}
@@ -513,17 +594,95 @@ export default function CustomerConsolePage({
 
       <Card
         title="F1 判定结论落库"
-        hint="风险位契约逐字：「缺失 ⇒ 未定（不得默认「无」）」—— 本页不提供「默认无」的快捷项。"
+        hint="风险位契约逐字：「缺失 ⇒ 未定（不得默认「无」）」—— 本页不提供「默认无」的快捷项；同源三项同理，不得硬编码为 true。"
       >
+        {/*
+          🛑 本卡片修的是同一处缺陷的两个面（本仓第 65 条）
+          ----------------------------------------------------------------------
+          ① `risk_flag` / `core_metric_improved` 是契约 `CreateVerdictRequest.required`
+             里的字段（grep 实测 L1964-1965 逐字含这两项），而调用点此前**两个都没带**。
+             🔴 但这两项同时带着一条**互相矛盾的**契约断言：
+                · `required` 列了它们；
+                · 字段自身描述却逐字写「🛑 缺失 ⇒ 未定（不得默认「无」—— 那会让 D4
+                  该触发而不触发）」（risk_flag）与「缺失 ⇒ 挂起」（core_metric_improved）；
+                · 后端 `VerdictController.parseRiskOrNull` 逐字「未传 ⇒ null（⇒ 路由落 D5）」
+                  且**无任何校验注解**；`VerdictService` L894-895 把 null 原样落进依据快照。
+             ⇒ 「required」与「缺失合法」不可能同时成立。**这不是前端能在本地拍的**，
+               本页的正确姿势是：**如实提供控件 + 留空即不发送该项**（对齐端 B 的既有范式），
+               并把这条契约内部矛盾**显式登记到界面上**（见下方 note）。
+               补一个假值去满足 `required` 会直接推翻 PRD §7.3 的定调句。
+          ② `same_origin` 三项此前**硬编码为 true**。契约逐字：
+             「同源断言（三项；任一项缺省 = 不成立 = **不可比 ⇒ 挂起**）」。
+             硬编码 true 等于**伪造"这次测量与基线同源"**——那会让一个本该挂起的轮次
+             算出一个"可比"的结论，是最重的一类静默失效。故改为真实复选框。
+        */}
+        <div style={{ ...labelStyle, marginBottom: SPACE.xs }}>
+          同源断言三项（契约：<strong>任一项缺省 = 不成立 = 不可比 ⇒ 挂起</strong> —— 不得硬编码 true）
+        </div>
+        <div style={{ display: 'flex', gap: SPACE.md, flexWrap: 'wrap', marginBottom: SPACE.sm }}>
+          <label style={{ ...labelStyle, margin: 0 }}>
+            <input type="checkbox" checked={sameItemGroup} onChange={(e) => setSameItemGroup(e.target.checked)} /> 同题组
+          </label>
+          <label style={{ ...labelStyle, margin: 0 }}>
+            <input type="checkbox" checked={sameRangeMatches} onChange={(e) => setSameRangeMatches(e.target.checked)} /> 量程相符
+          </label>
+          <label style={{ ...labelStyle, margin: 0 }}>
+            <input type="checkbox" checked={sameMeasurer} onChange={(e) => setSameMeasurer(e.target.checked)} /> 同一测量人
+          </label>
+        </div>
+
+        <div style={{ ...labelStyle, marginBottom: SPACE.xs }}>
+          风险标记（risk_flag）—— 留空 = 「未定」，<strong>不代填「无」</strong>
+        </div>
+        <select
+          style={{ ...selectStyle, marginBottom: SPACE.sm }}
+          value={verdictRiskFlag}
+          onChange={(e) => setVerdictRiskFlag(e.target.value)}
+        >
+          <option value="">（未定 —— 不代填）</option>
+          <option value="无">无</option>
+          <option value="高危">高危</option>
+          <option value="新发">新发</option>
+          <option value="同病">同病</option>
+        </select>
+
+        <div style={{ ...labelStyle, marginBottom: SPACE.xs }}>
+          核心指标是否改善（core_metric_improved）—— 留空 = 缺失 ⇒ 挂起
+        </div>
+        <select
+          style={{ ...selectStyle, marginBottom: SPACE.sm }}
+          value={verdictCoreImproved}
+          onChange={(e) => setVerdictCoreImproved(e.target.value)}
+        >
+          <option value="">（缺失 ⇒ 挂起）</option>
+          <option value="true">是</option>
+          <option value="false">否</option>
+        </select>
+
+        <div style={{ ...labelStyle, marginBottom: SPACE.md, color: COLOR.warn }}>
+          🛑 契约内部矛盾（已登记，待裁）：`CreateVerdictRequest.required` 含
+          `risk_flag` / `core_metric_improved`，但两者的字段描述与后端实现都要求
+          「缺失 ⇒ 未定 / 挂起」。二者不能同时成立 ⇒ 本页留空时**不发送**该项
+          （诚实承载"未提供"），而不是补一个值去满足 `required`。
+        </div>
+
         <button
           style={buttonGhostStyle}
-          disabled={busy}
+          disabled={busy || !assessId.trim()}
           onClick={() => run('提交判定', async () => {
-            await createVerdict(assessId.trim() || 'cycle-1', {
+            await createVerdict(assessId.trim(), {
               customer_id: customerId,
               sequence_no: 1,
-              same_origin: { same_item_group: true, range_matches: true, same_measurer: true },
+              // 🛑 三项取真实勾选值（不再硬编码 true）
+              same_origin: {
+                same_item_group: sameItemGroup,
+                range_matches: sameRangeMatches,
+                same_measurer: sameMeasurer,
+              },
               adherence: { dimensions: {} },
+              // 🛑 留空即不发送 —— 见上方"契约内部矛盾"说明
+              ...(verdictRiskFlag ? { risk_flag: verdictRiskFlag as VerdictRequest['risk_flag'] } : {}),
+              ...(verdictCoreImproved ? { core_metric_improved: verdictCoreImproved === 'true' } : {}),
               confidence: {},
               module_scores: {},
             }, newIdempotencyKey());
@@ -531,6 +690,10 @@ export default function CustomerConsolePage({
         >
           F1 提交（最小形状；同源三项须真实）
         </button>
+        <p style={{ ...labelStyle, marginTop: SPACE.sm, fontSize: FONT.xs }}>
+          `assessId` 现为**必需**（此前 `|| 'cycle-1'` 会把一个编造的周期 ID 发出去 ——
+          契约 F1 的路径参数是 UUID，`'cycle-1'` 必然 400）。未填 ⇒ 按钮禁用。
+        </p>
       </Card>
 
       <Card

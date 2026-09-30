@@ -140,7 +140,10 @@ export default function DocTemplatePage({ roleLabel }: { roleLabel: string }) {
         <UnsettledBar items={notes.create?.unsettled ?? []} />
         <div style={labelStyle}>template_id（I4/I5/I6/I7 用）</div>
         <input style={inputStyle} value={templateId} onChange={(e) => setTemplateId(e.target.value)} />
-        <div style={{ ...labelStyle, marginTop: SPACE.sm }}>version（I6 用）</div>
+        <div style={{ ...labelStyle, marginTop: SPACE.sm }}>
+          version（I6 发布 / <strong>I7 下载**都**用</strong> —— 🛑 I7 的 version 是契约
+          required query 参数，后端 `@RequestParam("version")` 强制，缺则 400）
+        </div>
         <input style={inputStyle} value={version} onChange={(e) => setVersion(e.target.value)} />
         <div style={{ ...labelStyle, marginTop: SPACE.sm }}>
           请求体（JSON —— 契约未声明 requestBody，本页不替契约编字段名）
@@ -234,11 +237,27 @@ export default function DocTemplatePage({ roleLabel }: { roleLabel: string }) {
       <Card title="I7 下载模板（契约：**占位待冻结** + **仅超管**）">
         <UnsettledBar items={notes.download?.unsettled ?? []} />
         <SuperAdminNote />
+        {/*
+          🛑 I7 的 `version` 为什么必须由使用者显式给出（本仓第 65 条）
+          ----------------------------------------------------------------------
+          契约 I7 逐字有 `version: in: query, required: true`，后端
+          `DocFileController.download(..., @RequestParam("version") int version)`
+          是**强制**的 ⇒ 缺它必然 400。
+          而调用点此前只传 `params: { id: templateId }` —— 漏了 version。
+          这正是"端点被调用了 ≠ 调用是对的"：`tsc` / `vite build` / 触达判据 /
+          反向验证**一律绿**，因为门禁此前只问"有没有被调用"。
+          ⇒ 此处沿用上方 I6 的 version 输入框（同一个"版本"事实，不另设第二个输入），
+            并在未填时**禁用按钮** —— 而不是代填 0 去撞一次成功的错版本下载。
+        */}
+        <p style={{ ...labelStyle, marginTop: SPACE.sm }}>
+          本端点复用上方 <code>version</code> 输入框（I6 发布 / I7 下载同用）。
+          {version.trim() === '' ? ' 🛑 当前未填 ⇒ 下方按钮保持禁用。' : ` 当前 version = ${version.trim()}`}
+        </p>
         <button
           style={buttonGhostStyle}
-          disabled={busy}
+          disabled={busy || !templateId.trim() || version.trim() === ''}
           onClick={() => run('I7 下载', async () => {
-            await downloadDocTemplate(templateId.trim());
+            await downloadDocTemplate(templateId.trim(), version.trim());
           })}
         >
           I7 下载

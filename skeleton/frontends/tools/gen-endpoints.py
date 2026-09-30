@@ -134,6 +134,7 @@ def load_operations(end_id: str):
     if not os.path.isfile(path):
         raise SystemExit("MISCONFIGURED: missing cut contract: %s" % path)
     doc = yaml.safe_load(io.open(path, encoding="utf-8").read())
+    schemas = ((doc.get("components") or {}).get("schemas") or {})
     ops = []
     for p, item in (doc.get("paths") or {}).items():
         for method, op in (item or {}).items():
@@ -151,6 +152,35 @@ def load_operations(end_id: str):
                 "summary": summary,
                 "tags": list(op.get("tags") or []),
             }
+            # ---------------- 🛑 必需参数（本仓第 65 条） ----------------
+            # 只转出"调用方**必须**提供"的项：query 里 required=true 的、路径参数
+            # （路径参数天然必需，但调用方由 params 传入，故只登记名字供判据核对），
+            # 以及 requestBody schema 的 required 字段名。
+            #
+            # 为什么必须转出：门禁此前只判"端点有没有被调用"，**不判实参** ⇒
+            # 端 A 的 C1 调用漏了契约 required 的 age_group、C2 给三个必需字段
+            # 填了臆造值，后端必然 400，而 tsc / 构建 / 全部门禁一律绿。
+            # 这与第 54 条同族：契约写下的约束，中间任何一环丢项都不会报错。
+            req_query = []
+            for prm in (op.get("parameters") or []):
+                if not isinstance(prm, dict):
+                    continue
+                if prm.get("in") == "query" and prm.get("required") and prm.get("name"):
+                    req_query.append(str(prm["name"]))
+            entry["requiredQuery"] = sorted(req_query)
+
+            req_body = []
+            body = (op.get("requestBody") or {}).get("content") or {}
+            for media, spec in body.items():
+                sch = (spec or {}).get("schema") or {}
+                ref = sch.get("$ref")
+                if ref:
+                    sch = schemas.get(str(ref).rsplit("/", 1)[-1]) or {}
+                for name in (sch.get("required") or []):
+                    req_body.append(str(name))
+            # 去重且稳定排序（同一字段在多 media type 下重复声明是合法的）
+            entry["requiredBody"] = sorted(set(req_body))
+
             for yaml_key, field, kind in OP_X_KEYS:
                 raw = op.get(yaml_key)
                 if raw is None:
@@ -627,6 +657,10 @@ def render_cjs(target, entries, spec_version, role_expansion, api_base_path, pro
         lines.append("    path: %s," % js_literal(e["path"]))
         lines.append("    grantedRoles: Object.freeze([%s]),"
                      % ", ".join(js_literal(r) for r in e["grantedRoles"]))
+        lines.append("    requiredQuery: Object.freeze([%s]),"
+                     % ", ".join(js_literal(x) for x in e.get("requiredQuery", [])))
+        lines.append("    requiredBody: Object.freeze([%s]),"
+                     % ", ".join(js_literal(x) for x in e.get("requiredBody", [])))
         lines.extend(_opt_lines(e, "    "))
         lines.append("  },")
     lines.append("]);")
@@ -703,6 +737,16 @@ def render_ts(target, entries, spec_version, role_expansion, api_base_path, prot
     lines.append("  readonly frontier?: string;")
     lines.append("  /** 契约 x-idempotency-key：幂等键构成说明。 */")
     lines.append("  readonly idempotencyKeySpec?: string;")
+    lines.append("  /**")
+    lines.append("   * 🛑 契约 required 的 query 参数名（本仓第 65 条）—— 调用点必须带上它们。")
+    lines.append("   *")
+    lines.append("   * 门禁此前只判「端点有没有被调用」，不判「实参对不对」⇒ 调用点可以")
+    lines.append("   * 漏掉必需参数、甚至给必需字段填臆造值，后端必然 400，而")
+    lines.append("   * tsc / 构建 / 全部门禁一律绿。故把它机械转录出来供判据核对。")
+    lines.append("   */")
+    lines.append("  readonly requiredQuery: readonly string[];")
+    lines.append("  /** 🛑 契约 requestBody schema 的 required 字段名（未声明 requestBody 时为空）。 */")
+    lines.append("  readonly requiredBody: readonly string[];")
     lines.append("}")
     lines.append("")
     lines.append("/** 契约角色由哪些 token-role 构成（逐条取自契约 x-roles）。 */")
@@ -731,6 +775,10 @@ def render_ts(target, entries, spec_version, role_expansion, api_base_path, prot
         lines.append("    path: %s," % js_literal(e["path"]))
         lines.append("    grantedRoles: Object.freeze([%s]),"
                      % ", ".join(js_literal(r) for r in e["grantedRoles"]))
+        lines.append("    requiredQuery: Object.freeze([%s]),"
+                     % ", ".join(js_literal(x) for x in e.get("requiredQuery", [])))
+        lines.append("    requiredBody: Object.freeze([%s]),"
+                     % ", ".join(js_literal(x) for x in e.get("requiredBody", [])))
         lines.extend(_opt_lines(e, "    "))
         lines.append("  },")
     lines.append("]);")

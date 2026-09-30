@@ -392,6 +392,42 @@ const CASES = [
     expectItem: 'page-registry',
     mutate: (s) => s.replace(/\s*\{ key: 'docs', label: '文书模板', requires: 'listDocTemplates' \},/, ''),
   },
+
+  // -------------------------------------------------------------------------
+  // 🛑 第 65/68 条：**必需参数**（"端点被调用了" ≠ "调用是对的"）
+  //
+  //    既有判据只回答"端点有没有被调用"。实测端 A 的 C1/C2 调用点
+  //    字段名都在、值全是编造的 ⇒ 后端必然 400，而 tsc/构建/触达判据**一律绿**。
+  //    下面两组把两种形态逐一复刻，证明新判据承重。
+  //    🛑 两组方向**相反**：R22 是"该抓的必须抓到"，R23 是"不该抓的不得抓到"
+  //       —— 后者防的是判据退化成"一律放过动态合并"（那会是第 52 条假绿）。
+  // -------------------------------------------------------------------------
+  {
+    id: 'R22',
+    end: 'client-mp',
+    rel: 'miniprogram/services/session.js',
+    title: '端 C：摘掉 authLogin 的必需实参 credential（调用仍在、实参少一个）',
+    expectItem: 'required-args-wired',
+    // 🛑 必须是"摘实参"而不是"删调用"：删调用会被 endpoint-reachability 抓住，
+    //    那样本用例证明不了"调用还在、就是实参少一个"这个形态（第 65 条原形）。
+    mutate: (s) => {
+      const anchor = 'credential: credential,';
+      if (!s.includes(anchor)) return s;
+      return s.replace(anchor, 'credential__removed: credential,');
+    },
+  },
+  {
+    id: 'R23',
+    end: 'client-mp',
+    rel: 'miniprogram/services/band-sync.js',
+    title: '端 C：把动态合并的成员访问证据抹掉（判据须报红，不得一律放过）',
+    expectItem: 'required-args-wired',
+    // 🛑 本组守的是第 68 条的**边界**：E2 的 `metric` 是靠
+    //    `Object.assign({ device_id }, rec)` + `rec.metric` 证成的。
+    //    若把全文里的 `.metric` 成员访问一并抹掉，判据就**无法证明**
+    //    它提供了 metric ⇒ 必须报红。这防的是"改成一律放过动态合并"的假绿。
+    mutate: (s) => s.replace(/rec\.metric/g, 'rec.metricRemoved'),
+  },
 ];
 
 // ---------------------------------------------------------------------------

@@ -81,6 +81,8 @@ const ENDPOINTS = Object.freeze([
     method: "POST",
     path: "/auth/login",
     grantedRoles: Object.freeze(["client"]),
+    requiredQuery: Object.freeze([]),
+    requiredBody: Object.freeze(["account", "client_end", "credential"]),
   },
   {
     id: "authMe",
@@ -88,6 +90,8 @@ const ENDPOINTS = Object.freeze([
     method: "GET",
     path: "/auth/me",
     grantedRoles: Object.freeze(["client"]),
+    requiredQuery: Object.freeze([]),
+    requiredBody: Object.freeze([]),
   },
   {
     id: "reportBandAvailableDates",
@@ -95,6 +99,8 @@ const ENDPOINTS = Object.freeze([
     method: "POST",
     path: "/band/available-dates",
     grantedRoles: Object.freeze(["client"]),
+    requiredQuery: Object.freeze([]),
+    requiredBody: Object.freeze(["device_id", "history_type", "probed_at", "valid_history_dates"]),
   },
   {
     id: "reportBandSyncBatch",
@@ -102,6 +108,8 @@ const ENDPOINTS = Object.freeze([
     method: "POST",
     path: "/band/sync-batches",
     grantedRoles: Object.freeze(["client"]),
+    requiredQuery: Object.freeze([]),
+    requiredBody: Object.freeze(["batch_no", "customer_id", "device_id", "state", "synced_at", "trigger"]),
   },
   {
     id: "upsertBandTelemetry",
@@ -109,6 +117,8 @@ const ENDPOINTS = Object.freeze([
     method: "POST",
     path: "/band/telemetry",
     grantedRoles: Object.freeze(["client"]),
+    requiredQuery: Object.freeze([]),
+    requiredBody: Object.freeze(["device_id", "metric"]),
   },
   {
     id: "getCustomer",
@@ -116,6 +126,8 @@ const ENDPOINTS = Object.freeze([
     method: "GET",
     path: "/customers/{id}",
     grantedRoles: Object.freeze(["client"]),
+    requiredQuery: Object.freeze([]),
+    requiredBody: Object.freeze([]),
   },
   {
     id: "getAssessment",
@@ -123,6 +135,8 @@ const ENDPOINTS = Object.freeze([
     method: "GET",
     path: "/customers/{id}/assessments/{assessment_id}",
     grantedRoles: Object.freeze(["client"]),
+    requiredQuery: Object.freeze([]),
+    requiredBody: Object.freeze([]),
   },
   {
     id: "getBandSyncStatus",
@@ -130,6 +144,8 @@ const ENDPOINTS = Object.freeze([
     method: "GET",
     path: "/customers/{id}/band/sync-status",
     grantedRoles: Object.freeze(["client"]),
+    requiredQuery: Object.freeze([]),
+    requiredBody: Object.freeze([]),
   },
   {
     id: "getBandTelemetry",
@@ -137,6 +153,8 @@ const ENDPOINTS = Object.freeze([
     method: "GET",
     path: "/customers/{id}/band/telemetry",
     grantedRoles: Object.freeze(["client"]),
+    requiredQuery: Object.freeze([]),
+    requiredBody: Object.freeze([]),
   },
   {
     id: "listDailyReports",
@@ -144,6 +162,8 @@ const ENDPOINTS = Object.freeze([
     method: "GET",
     path: "/customers/{id}/daily-reports",
     grantedRoles: Object.freeze(["client"]),
+    requiredQuery: Object.freeze([]),
+    requiredBody: Object.freeze([]),
   },
   {
     id: "submitDailyReport",
@@ -151,6 +171,8 @@ const ENDPOINTS = Object.freeze([
     method: "POST",
     path: "/customers/{id}/daily-reports",
     grantedRoles: Object.freeze(["client"]),
+    requiredQuery: Object.freeze([]),
+    requiredBody: Object.freeze(["answers_json", "date", "source"]),
   },
   {
     id: "getIntakeProfile",
@@ -158,6 +180,8 @@ const ENDPOINTS = Object.freeze([
     method: "GET",
     path: "/customers/{id}/intake-profile",
     grantedRoles: Object.freeze(["client"]),
+    requiredQuery: Object.freeze([]),
+    requiredBody: Object.freeze([]),
   },
   {
     id: "listVisits",
@@ -165,6 +189,8 @@ const ENDPOINTS = Object.freeze([
     method: "GET",
     path: "/customers/{id}/visits",
     grantedRoles: Object.freeze(["client"]),
+    requiredQuery: Object.freeze([]),
+    requiredBody: Object.freeze([]),
   },
   {
     id: "getPlan",
@@ -172,6 +198,8 @@ const ENDPOINTS = Object.freeze([
     method: "GET",
     path: "/plans/{id}",
     grantedRoles: Object.freeze(["client"]),
+    requiredQuery: Object.freeze([]),
+    requiredBody: Object.freeze([]),
   },
   {
     id: "listScaleItemBanks",
@@ -179,6 +207,8 @@ const ENDPOINTS = Object.freeze([
     method: "GET",
     path: "/scale-item-banks",
     grantedRoles: Object.freeze(["client"]),
+    requiredQuery: Object.freeze(["age_group"]),
+    requiredBody: Object.freeze([]),
   },
 ]);
 

@@ -66,15 +66,30 @@ const genText = readFileSync(GEN, 'utf8');
 // ---------------------------------------------------------------------------
 const entries = [];
 {
-  const re = /\{\s*id:\s*"([^"]+)",\s*row:\s*"([^"]+)",\s*method:\s*"([^"]+)",\s*path:\s*"([^"]+)",\s*grantedRoles:\s*Object\.freeze\(\[([^\]]*)\]\)/g;
+  // 🛑 解析必须**逐条抓取整块**（含 `requiredQuery` / `requiredBody`），
+  //    不能用"匹配到 grantedRoles 就收"的写法 —— 后者会漏掉块内的必需参数字段，
+  //    于是 ⑨ 判据看到 `undefined` 并**静默放过全部端点**（第 52 条：判据被自己的解析绕过）。
+  const re = /\{\s*id:\s*"([^"]+)",\s*row:\s*"([^"]+)",\s*method:\s*"([^"]+)",\s*path:\s*"([^"]+)",([\s\S]*?)\n  \}/g;
   let m;
   while ((m = re.exec(genText))) {
+    const tail = m[5];
+    const roles = (/grantedRoles:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(tail)?.[1] ?? '')
+      .split(',').map((s) => s.trim().replace(/"/g, '')).filter(Boolean);
+    const reqQ = /requiredQuery:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(tail);
+    const reqB = /requiredBody:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(tail);
+    // 🛑 三态分开：正则**没匹配** ⇒ undefined ⇒ null（解析层自检会报红）；
+    //    匹配到空数组 ⇒ 空串 ⇒ []（该端点无必需参数）。写 `x ? x[1] : null`
+    //    会在没匹配时传 null 而 `null.split` 崩溃（实测于端 A，第 66 条同批）。
+    const parseNames = (s) =>
+      (s === undefined ? null : s.split(',').map((x) => x.trim().replace(/"/g, '')).filter(Boolean));
     entries.push({
       id: m[1],
       row: m[2],
       method: m[3],
       path: m[4],
-      roles: m[5].split(',').map((s) => s.trim().replace(/"/g, '')).filter(Boolean),
+      roles,
+      requiredQuery: parseNames(reqQ === null ? undefined : reqQ[1]),
+      requiredBody: parseNames(reqB === null ? undefined : reqB[1]),
     });
   }
 }
@@ -82,6 +97,18 @@ if (entries.length === 0) {
   fail('parse', '生成物里没解析到任何端点 —— 生成物格式变了或文件被手改');
 } else {
   ok('parse', `生成物解析到 ${entries.length} 个端点`);
+}
+// 🛑 解析层自检（第 53 条）：必需参数字段必须真的解析出来了，
+//    否则 ⑨ 判据会对全部端点静默放行 —— 那是"看不见的绿"。
+{
+  const miss = entries.filter((e) => e.requiredQuery === null || e.requiredBody === null);
+  if (miss.length) {
+    fail('parse-fields',
+      `${miss.length} 个端点未解析出 requiredQuery/requiredBody ⇒ ⑨ 必需参数判据会静默放过它们。`
+      + `例：${miss[0].id}`);
+  } else {
+    ok('parse-fields', `全部 ${entries.length} 个端点均解析出 requiredQuery / requiredBody`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -418,6 +445,133 @@ if (therOnly.length > 0) {
       + `封装函数 ${fnOf.size}/${entries.length} · `
       + `均被页面/外壳以调用形态触达（已扫 ${consumerCode.length} 个消费侧文件；`
       + `页面/外壳直接出站 0 处 —— 分层纪律成立）`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ⑨ 【必需参数被调用点带上】本仓第 65 条 —— 端 B 侧
+// ---------------------------------------------------------------------------
+// 🛑 为什么端 B 也要有这一条（而不是"端 A 有了就够"）
+// ---------------------------------------------------------------------------
+// 第 63/64/65 条的共同形态是**同一缺陷在另一端的第二份副本**，而两端门禁
+// 各自只审自己那一端。本轮的实测正是如此：端 B 的 C1/C2 调用点是**对的**
+// （C1 带 age_group、C2 三把钥匙只读带入），端 A 是错的 —— 若只在端 A 加判据，
+// 端 B 那套正确写法的**回归**（将来被改坏）就没人看见。
+// 故判据必须在三端**各有一份**，且各自按本端语言/结构实现（不得照抄）。
+//
+// 🛑 判据判【实参形态】，且必须处理两种合法传参写法（第 66/67 条）
+// ---------------------------------------------------------------------------
+//   · 调用单元：从函数名后的 `(` 起做括号配平 —— 不得用固定字符窗口
+//     （窗口过小会把写对了的判成缺，实测于端 A）；
+//   · 局部变量：实参是 `const body = {...}` 时，字段在**调用单元之外** ⇒
+//     必须一并取"容纳该调用的最内层 `{}` 块"（实测：只取调用单元会把 6 项全判缺）。
+{
+  const SERVICES_DIR = join(SRC, 'services'); // 本块自建（⑧ 的 SERVICES 是它的块级变量，不可跨块引用）
+  // 🛑 同样自建 CALL_RE：⑧ 的 CALL_RE 也是其块级变量。
+  //    跨块引用块级 const 会直接 ReferenceError —— 本仓已踩过（端 A 的 fnOf 同型）。
+  const CALL_RE_LOCAL = /\bcall\s*(?:<[^(]*?>)?\s*\(\s*['"]([^'"]+)['"]/;
+  const CALL_SITES = new Map();
+  const FN = new Map();
+  for (const f of walk(SERVICES_DIR).filter((x) => /\.(ts|tsx)$/.test(x))) {
+    const code = stripComments(readFileSync(f, 'utf8'));
+    const fnRe = /export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(([\s\S]*?)\n\}/g;
+    let fm;
+    while ((fm = fnRe.exec(code))) {
+      const c = new RegExp(CALL_RE_LOCAL.source, 's').exec(fm[2]);
+      if (!c) continue;
+      if (!FN.has(c[1])) FN.set(c[1], fm[1]);
+      const prev = CALL_SITES.get(c[1]) ?? [];
+      prev.push({ file: relative(SRC, f).replace(/\\/g, '/'), text: fm[0] });
+      CALL_SITES.set(c[1], prev);
+    }
+  }
+  const consumers2 = walk(SRC).filter((f) => {
+    const rel = relative(SRC, f).replace(/\\/g, '/');
+    return rel.startsWith('pages/') || rel === 'App.tsx';
+  });
+  function balance(text, openIdx) {
+    let d = 0;
+    for (let k = openIdx; k < text.length; k += 1) {
+      const ch = text[k];
+      if (ch === '(' || ch === '[' || ch === '{') d += 1;
+      else if (ch === ')' || ch === ']' || ch === '}') {
+        d -= 1;
+        if (d === 0) return text.slice(openIdx, k + 1);
+      }
+    }
+    return text.slice(openIdx);
+  }
+  function enclosing(text, idx) {
+    let d = 0;
+    let open = -1;
+    for (let k = idx - 1; k >= 0; k -= 1) {
+      const ch = text[k];
+      if (ch === ')' || ch === ']' || ch === '}') d += 1;
+      else if (ch === '(' || ch === '[' || ch === '{') {
+        if (d === 0) { open = k; break; }
+        d -= 1;
+      }
+    }
+    return open < 0 ? '' : balance(text, open);
+  }
+  for (const e of entries) {
+    const fn = FN.get(e.id);
+    if (!fn) continue;
+    const re = new RegExp(`\\b${escapeRe(fn)}\\s*(\\()`, 'g');
+    for (const f of consumers2) {
+      const code = stripComments(readFileSync(f, 'utf8'));
+      let cm;
+      while ((cm = re.exec(code))) {
+        const openIdx = cm.index + cm[0].lastIndexOf('(');
+        const callText = balance(code, openIdx);
+        const blk = enclosing(code, cm.index);
+        const text = blk && blk.length < 2500 ? `${callText}\n${blk}` : callText;
+        const prev = CALL_SITES.get(e.id) ?? [];
+        prev.push({ file: relative(SRC, f).replace(/\\/g, '/'), text });
+        CALL_SITES.set(e.id, prev);
+      }
+    }
+  }
+  function argPresent(name, text) {
+    const n = escapeRe(name);
+    return [
+      new RegExp(`(?:^|[\\s,{(])['"]?${n}['"]?\\s*:`),
+      // 🛑 具名/位置实参的边界**只能**是 `(` 或 `,` —— 不得用 `[\s,(]`（第 69 条）：
+      //    后者会把值位置的同名标识符误认成实参，使"实参已删"仍判绿。
+      new RegExp(`(?:^|[(,])\\s*${n}\\s*[,)]`),
+    ].some((r) => r.test(text));
+  }
+
+  const absent = [];
+  let withReq = 0;
+  let checked = 0;
+  for (const e of entries) {
+    const need = [...(e.requiredQuery ?? []), ...(e.requiredBody ?? [])];
+    if (!need.length) continue;
+    withReq += 1;
+    const sites = CALL_SITES.get(e.id);
+    if (!sites || !sites.length) continue; // 触达问题由 ⑧ 负责
+    checked += 1;
+    const all = sites.map((s) => s.text).join('\n');
+    const miss = need.filter((n) => !argPresent(n, all));
+    if (miss.length) {
+      absent.push(`${e.id}（${e.method} ${e.path}）缺 ${miss.join(', ')}`
+        + `\n        契约 required 共 [${need.join(', ')}]`
+        + `\n        调用点/封装体共 ${sites.length} 处：${sites.map((s) => s.file).join(', ')}`);
+    }
+  }
+  if (!withReq) {
+    fail('required-args-wired',
+      '生成物里没有任何端点带 required 声明 —— 解析层没转出必需参数，本条会静默放过全部端点。');
+  } else if (absent.length) {
+    fail('required-args-wired',
+      `以下端点的调用点**没有带上契约 required 参数**（后端必然 400，而 tsc/构建/触达判据一律绿）：\n      `
+      + absent.join('\n      ')
+      + '\n      ⇒ "端点被调用了"不等于"调用是对的"。');
+  } else {
+    ok('required-args-wired',
+      `${withReq} 个带 required 声明的端点中，${checked} 个有调用点可核对，`
+      + `均已带上全部必需参数（判实参形态；含"经局部变量传入"与"括号配平"两种合法写法）`);
   }
 }
 

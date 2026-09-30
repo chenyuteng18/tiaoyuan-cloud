@@ -1145,6 +1145,171 @@ if (cfg.outbound) {
 }
 
 // ---------------------------------------------------------------------------
+// ④i 【必需参数被调用点带上】本仓第 65 条 —— 端 C 侧
+// ---------------------------------------------------------------------------
+// 🛑 端 C 的形态与端 A/B **都不同**，判据必须独立实现（第 52 条：照抄⇒太宽⇒假绿）
+// ---------------------------------------------------------------------------
+//   · 生成物是 **CommonJS**（`ENDPOINTS = Object.freeze([...])`）。④g 的解析
+//     只抓 `id:` 一项，**不抓块内其它字段** ⇒ 必须另起一段逐块解析。
+//   · 服务层是 CJS：`function foo(){ return request.call('id', {...}); }`，
+//     而**不是** `export function foo` ⇒ 端 A/B 的 `export function` 正则
+//     在这里一条都匹配不到；匹配不到 ⇒ 判据"通过"但实际什么都没查（假绿）。
+//   · 出站不是 `call(` 而是 `request.call(` —— 同样不能照抄。
+// 🛑 判实参形态 + 两种合法传参写法（第 66/67 条）：
+//     ① 调用单元（从 `request.call(` 的 `(` 起括号配平；固定窗口会误报）；
+//     ② 容纳调用的最内层块（实参经局部变量传入时字段在调用单元之外）。
+{
+  const MP_ROOT2 = join(END_ROOT, 'miniprogram');
+  if (existsSync(MP_ROOT2)) {
+    const genSrc2 = readFileSync(join(MP_ROOT2, 'contract', 'endpoints.js'), 'utf8');
+    // 逐块解析（含 requiredQuery / requiredBody）
+    const allBlocks = genSrc2.match(/\{\s*id:\s*['"]([^'"]+)['"],[\s\S]*?\n  \}/g) ?? [];
+    const names2 = (s) => (s ?? '').split(',').map((x) => x.trim().replace(/['"]/g, '')).filter(Boolean);
+    const ents = [];
+    for (const b of allBlocks) {
+      const idM = /\bid:\s*['"]([^'"]+)['"]/.exec(b);
+      const methodM = /\bmethod:\s*['"]([^'"]+)['"]/.exec(b);
+      const pathM = /\bpath:\s*['"]([^'"]+)['"]/.exec(b);
+      const q = /requiredQuery:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(b);
+      const bo = /requiredBody:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(b);
+      ents.push({
+        id: idM ? idM[1] : '',
+        method: methodM ? methodM[1] : '',
+        path: pathM ? pathM[1] : '',
+        requiredQuery: q === null ? null : names2(q[1]),
+        requiredBody: bo === null ? null : names2(bo[1]),
+      });
+    }
+    const needParse = ents.filter((e) => e.id);
+    const parseMiss = needParse.filter((e) => e.requiredQuery === null || e.requiredBody === null);
+    if (!needParse.length) {
+      fail('required-args-wired',
+        '端 C 生成物里没解析到任何端点块 —— 解析与文件形状脱钩，本条会静默放过全部端点。');
+    } else if (parseMiss.length) {
+      fail('required-args-wired',
+        `${parseMiss.length} 个端点未解析出 requiredQuery/requiredBody（例：${parseMiss[0].id}）`
+        + ' ⇒ 本条会静默放过它们。');
+    } else {
+      const CJS_FILES = [];
+      const w2 = (dir) => {
+        for (const name of readdirSync(dir)) {
+          if (name === 'node_modules' || name.startsWith('.')) continue;
+          const p = join(dir, name);
+          if (statSync(p).isDirectory()) w2(p);
+          else if (p.endsWith('.js')) CJS_FILES.push(p);
+        }
+      };
+      w2(MP_ROOT2);
+      const SITES = new Map();
+      const bal2 = (text, openIdx) => {
+        let d = 0;
+        for (let k = openIdx; k < text.length; k += 1) {
+          const ch = text[k];
+          if (ch === '(' || ch === '[' || ch === '{') d += 1;
+          else if (ch === ')' || ch === ']' || ch === '}') {
+            d -= 1;
+            if (d === 0) return text.slice(openIdx, k + 1);
+          }
+        }
+        return text.slice(openIdx);
+      };
+      const enc2 = (text, idx) => {
+        let d = 0;
+        let open = -1;
+        for (let k = idx - 1; k >= 0; k -= 1) {
+          const ch = text[k];
+          if (ch === ')' || ch === ']' || ch === '}') d += 1;
+          else if (ch === '(' || ch === '[' || ch === '{') {
+            if (d === 0) { open = k; break; }
+            d -= 1;
+          }
+        }
+        return open < 0 ? '' : bal2(text, open);
+      };
+      for (const f of CJS_FILES) {
+        const code = stripComments2(readFileSync(f, 'utf8'));
+        const re = /request\.call\s*\(\s*['"]([^'"]+)['"]/g;
+        let m;
+        while ((m = re.exec(code))) {
+          const openIdx = code.indexOf('(', m.index);
+          const callText = bal2(code, openIdx);
+          const blk = enc2(code, m.index);
+          const text = blk && blk.length < 2500 ? `${callText}\n${blk}` : callText;
+          const prev = SITES.get(m[1]) ?? [];
+          prev.push({ file: relative(MP_ROOT2, f).replace(/\\/g, '/'), text });
+          SITES.set(m[1], prev);
+        }
+      }
+      // 🛑 第三种合法形态：请求体是**动态合并**出来的（第 68 条）
+      //    E2 的调用点写 `Object.assign({ device_id: deviceId }, rec)` ——
+      //    `metric` 不在字面量里，而在运行时对象 `rec` 上（它的来源见同函数内
+      //    `'t-' + deviceId + '-' + rec.metric + '-' + rec.date`）。
+      //    ⇒ 只认"字面量键"会把一个**写对了的**调用判成缺（实测：本条首跑即误报）。
+      //    🛑 但不得因此一律放过：只有当文本里**能找到该字段的成员访问证据**
+      //       （`\.metric`）且**确有动态合并**（`Object.assign(` 或 `...x`）时才认。
+      //       二者缺一即仍报红 —— 例如 `Object.assign({}, rec)` 而全文没出现过
+      //       `.metric` 时，我们**无法证明**它提供了 metric，那就得报。
+      //    🛑 认了多少个这样的端点要在通过信息里**公开计数**，不静默（第 53 条）。
+      const dynamicMerge = (text) => /Object\.assign\s*\(/.test(text) || /\.\.\.\s*[A-Za-z_$]/.test(text);
+      const argIn2 = (name, text) => {
+        const n = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const literal = [
+          new RegExp(`(?:^|[\\s,{(])['"]?${n}['"]?\\s*:`),
+          // 🛑 位置/具名实参的边界**只能**是 `(` 或 `,` —— 不得用 `[\s,(]`（第 69 条）：
+          //    后者会把值位置的同名标识符误认成实参，使"实参已删"仍判绿（实测 R22 漏过）。
+          new RegExp(`(?:^|[(,])\\s*${n}\\s*[,)]`),
+        ].some((r) => r.test(text));
+        if (literal) return true;
+        return dynamicMerge(text) && new RegExp(`\\.${n}\\b`).test(text);
+      };
+      const miss2 = [];
+      let withReq2 = 0;
+      let checked2 = 0;
+      let dynRelied = 0; // 靠"动态合并 + 成员访问证据"认账的端点数（公开计数）
+      for (const e of needParse) {
+        const need = [...(e.requiredQuery ?? []), ...(e.requiredBody ?? [])];
+        if (!need.length) continue;
+        withReq2 += 1;
+        const sites = SITES.get(e.id);
+        if (!sites || !sites.length) continue; // 触达问题由 ④g 负责
+        checked2 += 1;
+        const all = sites.map((s) => s.text).join('\n');
+        const absent = need.filter((n) => !argIn2(n, all));
+        if (!absent.length) {
+          // 是否**只能**靠动态合并认定（即至少一个字段没有字面量证据）
+          const anyNoLiteral = need.some((n) => {
+            const nn = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return !(new RegExp(`(?:^|[\\s,{(])['"]?${nn}['"]?\\s*:`).test(all)
+              || new RegExp(`(?:^|[\\s,(])${nn}\\s*[,)]`).test(all));
+          });
+          if (anyNoLiteral) dynRelied += 1;
+          continue;
+        }
+        miss2.push(`${e.id}（${e.method} ${e.path}）缺 ${absent.join(', ')}`
+          + `\n        契约 required 共 [${need.join(', ')}]`
+          + `\n        调用点共 ${sites.length} 处：${sites.map((s) => s.file).join(', ')}`);
+      }
+      if (!withReq2) {
+        fail('required-args-wired',
+          '端 C 生成物里没有端点带 required 声明 —— 本条会静默放过全部端点。');
+      } else if (miss2.length) {
+        fail('required-args-wired',
+          '以下端点的调用点**没有带上契约 required 参数**'
+          + '（后端必然 400，而构建/触达判据一律绿）：\n      '
+          + miss2.join('\n      ')
+          + '\n      ⇒ "端点被调用了"不等于"调用是对的"。');
+      } else {
+        ok('required-args-wired',
+          `端 C：${withReq2} 个带 required 声明的端点中，${checked2} 个有调用点可核对，`
+          + `均已带上全部必需参数（CJS 形态 · 判实参形态 · 含括号配平与所在块两种写法；`
+          + `其中 ${dynRelied} 个是**动态合并**形态（Object.assign/展开），`
+          + `已按"存在该字段的成员访问证据"逐项核实 —— 不是跳过不查）`);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // ⑤ 真实构建（端 A / 端 B）
 // ---------------------------------------------------------------------------
 if (cfg.realBuild && cfg.realBuild.length) {

@@ -211,9 +211,45 @@ export interface ScaleItemBank {
   readonly [k: string]: unknown;
 }
 
+/**
+ * C1 题库查询参数 —— 🛑 **不是分页参数**，故**不得**与 `PageQuery` 交叉。
+ *
+ * 契约 `listScaleItemBanks` 的 parameters 只有 `age_group` / `dimension` / `version`
+ * 三个，**没有** `page` / `page_size`。
+ *
+ * 🛑 本条修正的是一次「同一缺陷在另一端的第二份副本」（本仓第 63 条同族）
+ * ---------------------------------------------------------------------------
+ * 端 B 已把它的同名函数从 `PageQuery & {...}` 改为本接口；端 A 的这一份
+ * **被漏掉了** —— 端 B 修完、端 A 照旧，而两端各自的门禁都只审各自那一端，
+ * 没有任何东西会问"同一个缺陷还有没有别的宿主"。
+ *
+ * `PageQuery` 的索引签名是 `[k: string]: number | undefined`，与
+ * `{ age_group?: string }` 求交后得到**内部矛盾的类型**：
+ * `age_group` 同时要求 `string` 与 `number | undefined` ⇒ 任何带上
+ * `age_group: <string>` 的调用点都必然 `TS2345`（本次修复时 tsc 实测报出）。
+ *
+ * 🛑 它此前**没被发现**，是因为 C1 的调用点从来没传过 `age_group` ——
+ * 缺参数与坏类型互相掩护：正因为没人传，才没人撞上这个类型错误。
+ * 「必需参数没被带上」和「参数类型不可调用」是同一个空洞的两个面。
+ */
+export interface ScaleItemBankQuery {
+  /** 契约 required。 */
+  readonly age_group?: string;
+  readonly dimension?: string;
+  readonly version?: string;
+  /**
+   * 索引签名 —— 出站 query 的类型是
+   * `Record<string, string | number | boolean | undefined>`，
+   * 没有它本接口无法作为 query 传入 `call()`（tsc TS2322）。
+   * 值域收窄为 `string | undefined`：本端点的三个参数**全是字符串**，
+   * 收窄比放过更严（若将来契约加了数字参数，tsc 会在这里报出来，而不是静默放过）。
+   */
+  readonly [k: string]: string | undefined;
+}
+
 /** C1 题库拉取（按分龄组 + 维度）。 */
 export function listScaleItemBanks(
-  query: PageQuery & { age_group?: string; dimension?: string } = {}
+  query: ScaleItemBankQuery = {}
 ): Promise<readonly ScaleItemBank[] | undefined> {
   return call<{ items?: readonly ScaleItemBank[] }>('listScaleItemBanks', { query })
     .then((r) => r.data?.items);
@@ -817,8 +853,26 @@ export function publishDocTemplateVersion(
  * ⇒ 本函数是端 A **唯一**带超管约束的端点。界面必须同时显示两个标注。
  *   非超管调用是服务端 403；界面**不应**依据本地判断放行。
  */
-export function downloadDocTemplate(templateId: string): Promise<unknown> {
-  return call('downloadDocTemplate', { params: { id: templateId } }).then((r) => r.data);
+export function downloadDocTemplate(
+  templateId: string,
+  version: string | number
+): Promise<unknown> {
+  // 🛑 `version` 是契约 I7 的 **required** query 参数，且后端
+  //    `DocFileController.download(..., @RequestParam("version") int version)` 是**强制**的
+  //    —— 缺它必然 400。它不是"可选的版本号"，而是"下载哪一版原件"这个事实本身。
+  //    本函数此前把它整个漏掉（本仓第 65 条）：`tsc --noEmit` / `vite build` / 触达判据 /
+  //    反向验证**一律绿** —— 因为那些门禁只问"端点**有没有**被调用"，
+  //    **不问"调用的实参对不对"**。
+  const v = typeof version === 'number' ? version : Number(version.trim());
+  if (!Number.isFinite(v)) {
+    // 🛑 不代填 0、不猜版本号 —— 版本是不可推断的事实（契约 `type: integer`）。
+    //    代填会让"下载了错的那一版"表现为一次成功的下载（最坏的一类静默失效）。
+    throw new Error('downloadDocTemplate: version 必须是整数（契约 I7 required 参数）。');
+  }
+  return call('downloadDocTemplate', {
+    params: { id: templateId },
+    query: { version: v },
+  }).then((r) => r.data);
 }
 
 // ===========================================================================
