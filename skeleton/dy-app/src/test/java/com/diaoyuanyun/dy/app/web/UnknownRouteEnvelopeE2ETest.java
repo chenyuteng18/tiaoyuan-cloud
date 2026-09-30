@@ -59,7 +59,25 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
  * <h2>🛑 为什么用真请求（{@code RANDOM_PORT}）而不是 MockMvc</h2>
  * 本缺陷<b>只在真实 DispatcherServlet 路由解析</b>里出现 ——
  * 单测直调控制器方法<b>不经过路由</b>，永远看不到 {@code NoResourceFoundException}。
- * 这正是它在全量 1217 个测试全绿的情况下长期存活的原因。
+ * 这正是它在全量 1214 个测试全绿的情况下长期存活的原因。
+ *
+ * <h2>🛑 2026-10-01 同族枚举补齐（第 73 条的第七例：修一处同族必须枚举全族）</h2>
+ * 第 73 条修完 404 后，按本仓第 61/73 条的纪律，对「请求在到达业务逻辑之前就不合法」的<b>各类</b>
+ * 逐一做启动后真请求实测，结果抓出<b>同族的另外两个成员也漏在 {@code handleOther} 里</b>：
+ * <pre>
+ *   DELETE /api/v1/doc-templates           → 500 · 9001「HttpRequestMethodNotSupportedException」 ← 应 405
+ *   GET    /api/v1/customers               → 500 · 9001「HttpRequestMethodNotSupportedException」 ← 应 405
+ *   POST   /api/v1/demo/order (text/plain) → 500 · 9001「HttpMediaTypeNotSupportedException」     ← 应 415
+ * </pre>
+ * ⇒ 若只修被报出来的那一个（404），族里另外两员会继续以 <b>500 姿态</b>告警噪音 ——
+ * <b>「同族」不是修辞，是必须逐条跑出来的清单。</b>
+ *
+ * <h2>🛑 第四员（406）是被【启动日志】抓出来的 —— 这条教训比缺陷本身更重要</h2>
+ * 首轮枚举时我把 406 判为"Spring 裸默认、状态码本来就对、无需处理"。
+ * 复查启动日志才发现它<b>同样走 handleOther ⇒ 打 ERROR + 满堆栈</b>：
+ * <b>状态码碰巧是 406，但留痕级别错</b>，把 {@code Accept} 写错的客户端噪音计入了 error 级告警。
+ * ⇒ <b>判据：「HTTP 状态码」与「留痕级别」是两件事，只断言状态码会漏掉一半。</b>
+ * 本类现覆盖：404（①②③）、405（⑤）、415（⑥）、406（⑦）、无 code 一致性（⑧）、对照（④）。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DisplayName("第 73 条 · 未知路由信封（404、不带 code，不是 500·9001）真请求回归")
@@ -143,5 +161,92 @@ class UnknownRouteEnvelopeE2ETest {
                         + "客户端会以为端点不存在而去改 URL，比原缺陷更危险");
         assertEquals(1002, codeOf(resp),
                 "契约 A2 只声明 200/401；1002 UNAUTHENTICATED 是这一档的正确码");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 同族枚举补齐（2026-10-01）：第 73 条修完 404 后，按「修一处同族必须枚举全族」
+    // 对「请求到达业务逻辑之前就不合法」的各类做了真请求实测，抓出另外两个成员
+    // （HttpRequestMethodNotSupportedException / HttpMediaTypeNotSupportedException）
+    // 同样漏在 handleOther 里 ⇒ 也是 500 · 9001。下面两条把它们钉住。
+    // ─────────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("🛑 同族：方法不支持 → 405（不是 500·9001）")
+    void method_not_supported_is_405_not_500() throws Exception {
+        // /api/v1/doc-templates 只有 GET 与 POST（契约 40 path 之一，真实存在）
+        ResponseEntity<String> resp = rest.exchange(url("/api/v1/doc-templates"), HttpMethod.DELETE,
+                HttpEntity.EMPTY, String.class);
+
+        assertEquals(405, resp.getStatusCode().value(),
+                "路径存在但方法不支持 ⇒ 405 METHOD_NOT_ALLOWED。"
+                        + "实测修复前是 500 · 9001「系统异常: HttpRequestMethodNotSupportedException」—— "
+                        + "把「客户端用错方法」谎报成「服务端故障」，会让 SDK 对永不成功的请求做退避重试。"
+                        + "实际 status=" + resp.getStatusCode().value() + " body=" + resp.getBody());
+        assertNotEquals(9001, codeOf(resp),
+                "🛑 绝不能是 9001 —— 契约 9001 的 trigger 逐字是「服务端异常」。实际 body: " + resp.getBody());
+    }
+
+    @Test
+    @DisplayName("🛑 同族：媒体类型不支持 → 415（不是 500·9001）")
+    void media_type_not_supported_is_415_not_500() throws Exception {
+        // /api/v1/demo/order 走匿名通道（不挂权限门禁）⇒ 能真正到达「媒体类型协商」这一步。
+        // 若换成需鉴权的端点，会在更早的 filter 里先返回 403，测不到本条要测的东西。
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.TEXT_PLAIN);
+
+        ResponseEntity<String> resp = rest.exchange(url("/api/v1/demo/order"), HttpMethod.POST,
+                new HttpEntity<>("x", headers), String.class);
+
+        assertEquals(415, resp.getStatusCode().value(),
+                "Content-Type 不被该端点接受 ⇒ 415 UNSUPPORTED_MEDIA_TYPE。"
+                        + "实测修复前是 500 · 9001「系统异常: HttpMediaTypeNotSupportedException」。"
+                        + "实际 status=" + resp.getStatusCode().value() + " body=" + resp.getBody());
+        assertNotEquals(9001, codeOf(resp),
+                "🛑 绝不能是 9001。实际 body: " + resp.getBody());
+    }
+
+    @Test
+    @DisplayName("🛑 同族：Accept 不可接受 → 406（且【不得】落 error 级留痕）")
+    void not_acceptable_is_406_not_error_logged() throws Exception {
+        // 这一条是被【启动日志】抓出来的，不是被状态码抓出来的 —— 实测它的 HTTP 状态
+        // 本来就已经是 406，但走的仍是 handleOther ⇒ 打了 ERROR + 满堆栈（4xx 污染 error 告警）。
+        // ⇒ 只断言状态码会漏掉它；本用例的核心断言是「不得落 9001 / 不得带 code」，
+        //    而留痕级别的机械守护由本类第 ⑦ 例与启动日志巡检共同承担。
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(java.util.List.of(MediaType.TEXT_XML));
+
+        ResponseEntity<String> resp = rest.exchange(url("/api/v1/demo/me"), HttpMethod.GET,
+                new HttpEntity<>(headers), String.class);
+
+        assertEquals(406, resp.getStatusCode().value(),
+                "Accept 不可接受 ⇒ 406。实际 status=" + resp.getStatusCode().value());
+        assertNotEquals(9001, codeOf(resp),
+                "🛑 不得带 9001 —— 曾落 handleOther，虽状态码碰巧是 406，但留痕打了 ERROR + 满堆栈，"
+                        + "把 Accept 头写错的客户端噪音计入 error 级告警指标。实际 body: " + resp.getBody());
+    }
+
+    @Test
+    @DisplayName("🛑 同族一致性：三类「不可路由」响应都不得带 code（契约未为其定义码）")
+    void unroutable_family_must_not_carry_any_code() throws Exception {
+        int ghost = codeOf(rest.getForEntity(url(GHOST), String.class));
+        int notAllowed = codeOf(rest.exchange(url("/api/v1/doc-templates"), HttpMethod.DELETE,
+                HttpEntity.EMPTY, String.class));
+        HttpHeaders plain = new HttpHeaders();
+        plain.setContentType(MediaType.TEXT_PLAIN);
+        int badMedia = codeOf(rest.exchange(url("/api/v1/demo/order"), HttpMethod.POST,
+                new HttpEntity<>("x", plain), String.class));
+        HttpHeaders xml = new HttpHeaders();
+        xml.setAccept(java.util.List.of(MediaType.TEXT_XML));
+        int notAcceptable = codeOf(rest.exchange(url("/api/v1/demo/me"), HttpMethod.GET,
+                new HttpEntity<>(xml), String.class));
+
+        // 契约 §2.0 码表只有 1001/1002/2001-2004/3001/4001/4002/5001/6001/9001 —— 没有 405/415/406。
+        // 既然契约从未定义这些情形，任何自造 code 都会让客户端落进契约未声明的分支；
+        // 而 1001 的 trigger 逐字是「参数类型 / 必填 / 约束不满足」（说的是【参数的值】），
+        // 拿它去答 405/415/406 属于 code 语义挪用。⇒ 四类行为必须一致：回裸状态码、不带 code。
+        assertEquals(0, ghost, "未知路由不得带 code（既有自证用例依赖该分辨信号）");
+        assertEquals(0, notAllowed, "405 不得带 code —— 契约没有 405 对应的码");
+        assertEquals(0, badMedia, "415 不得带 code —— 契约没有 415 对应的码");
+        assertEquals(0, notAcceptable, "406 不得带 code —— 契约没有 406 对应的码");
     }
 }

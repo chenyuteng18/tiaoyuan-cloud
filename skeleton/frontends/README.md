@@ -1252,7 +1252,7 @@ query: PageQuery & { age_group?: string; dimension?: string } = {}
 - 后端全量回归 `BUILD SUCCESS` / **`TOTAL 1214 failures=0 errors=0 skipped=0`**
   （逐模块 `10/39/48/58/37/37/29/956`；本轮改动全在 `frontends/`，未触碰 Java 源码）
   > ⚠️ **此处为第 61 条当时的实测值（历史留痕，不随最新改动回改）**。
-  > 后续锚点见 §8.26：第 73 条新增 `UnknownRouteEnvelopeE2ETest`（4 例）后为 **`TOTAL 1218`**（dy-app 956 → 960）。
+  > 后续锚点见 §8.26：第 73 条新增 `UnknownRouteEnvelopeE2ETest`（**8 例**：404×3 + 405 + 415 + 406 + 无 code 一致性 + 对照）后为 **`TOTAL 1222`**（dy-app 956 → 964）。
 
 ### 8.18 判据只判「端点有没有被调用」、不判「调用的实参对不对」（第 65 条）
 
@@ -1760,17 +1760,31 @@ const visibleNav = NAV.filter((n) => n.requires === null || canCall(n.requires, 
   ② 本仓 `RefundWritePathMatrixE2ETest$SelfProof#the_self_proof_discriminates_a_nonexistent_path`
   **逐字断言「不存在的路径【不得】返回 code=3001」** —— 那条自证用例正是靠「未知路径无 code」区分
   「端点根本没实现」与「业务层查无此单」；给出 3001 会让它丧失分辨力（第 55 条）。
-- **新增真请求 E2E`UnknownRouteEnvelopeE2ETest`（4 例）**：① GET 未知路径 ⇒ `404` 且**非 9001**；
-  ② POST 未知路径 ⇒ 同上（不因方法不同而漂移）；③ **边界**：未知路径**不得**带 `code=3001`（把上述分辨信号反过来钉住）；
-  ④ 对照：`/auth/me` 无 token ⇒ 必须 `401·1002`，**不得**被误判 404。
+- **🛑 同族枚举补齐（本条最重要的增量）**：修完 404 后按「修一处同族必须枚举全族」逐条实测，
+  又抓出同族的**三个**成员，它们此前**同样以 `500 · 9001` 作答**：
+  **(1) 405** `HttpRequestMethodNotSupportedException`（实测 `DELETE /api/v1/doc-templates`）；
+  **(2) 415** `HttpMediaTypeNotSupportedException`（实测 `POST /api/v1/demo/order` 带 `text/plain`；
+  **必须用匿名端点 `/demo/*` 才测得出来** —— 换成需鉴权端点会先在 filter 返回 403，测不到本体）；
+  **(3) 406** `HttpMediaTypeNotAcceptableException` —— **它的 HTTP 状态码本来就是 406（看起来完全正确），
+  但留痕打了 `ERROR` + 满堆栈**（走的仍是 `handleOther`）。
+  ⇒ **修法**：四类合并进 `handleUnroutableRequest`，**全部回裸状态码、不带 code、`warn` 留痕**
+  （判据：契约 §2.0 码表只有 10 个码，**没有 405/415/406**；`1001` 的 trigger 逐字是「参数类型/必填/约束不满足」，
+  说的是**参数的值** ⇒ 拿它答 405/415/406 属 **code 语义挪用**）。
+- **新增真请求 E2E`UnknownRouteEnvelopeE2ETest`（8 例）**：① GET 未知路径 ⇒ `404` 且**非 9001**；
+  ② POST 未知路径 ⇒ 同上（不因方法不同而漂移）；③ **边界**：未知路径**不得**带 `code=3001`（把分辨信号反过来钉住）；
+  ④ 对照：`/auth/me` 无 token ⇒ 必须 `401·1002`，**不得**被误判 404；
+  ⑤ 405（方法不支持）⑥ 415（媒体类型不支持）⑦ 406（Accept 不可接受）⑧ 四类**一律不带 code**的一致性。
   第 ④ 例是反向守护 —— 把「未认证」谎报成「路径不存在」会比原缺陷更危险。
-- **反向验证（闭环）**：整段删除 `NoResourceFoundException` 分支 ⇒ 重装 `dy-web` 后
-  `Tests run: 4, Failures: 2` · `BUILD FAILURE`（第 ④ 例仍绿，符合预期）；还原 ⇒ **4/4 绿**。
+- **反向验证（闭环）**：删掉注解里的 405/415 两类型（方法体保留）⇒ 重装 `dy-web` 后
+  `Tests run: 7, Failures: 3` · `BUILD FAILURE`，**逐字复现 `500 · 9001`**；还原 ⇒ **8/8 绿**。
 - **回归**：`RefundWritePathMatrixE2ETest$SelfProof` **3/3 绿**（本条修复未破坏既有自证设计）；
-  `DocFileE2ETest` **10/10**；修复后真请求 `GET/POST` 未知路径均 **`404`（body 为空、无 code）**，
-  且 health `200` · A2 `401·1002` · A3 `403·2001` 全部通过。
-- 后端全量回归 `BUILD SUCCESS` / **`TOTAL 1218 failures=0 errors=0 skipped=0`**
-  （逐模块 `10/39/48/58/37/37/29/960`；dy-app `956 → 960` = 本条新增 4 例）
+  `DocFileE2ETest` **10/10**；修复后真请求 `404`/`405`/`415`/`406` **全部为裸状态码、body 为空**，
+  `未捕获异常 = 0` · `请求不可路由 = 5`，且 health `200` · A2 `401·1002` · A3 `403·2001` 全部通过。
+- 🛑 **本条最硬的一条教训（406 抓出方式）**：**「处理是否正确」要看「HTTP 状态码」与「留痕级别」两件事**。
+  406 的**状态码本来就对**，只有留痕级别错 —— 我首轮枚举时正是因此把它写成「Spring 裸默认、无需处理」，
+  **是复查启动日志（`grep 未捕获异常`）才把它抓出来**。⇒ 只看状态码，会把「半个正确」看成「全对」。
+- 后端全量回归 `BUILD SUCCESS` / **`TOTAL 1222 failures=0 errors=0 skipped=0`**
+  （逐模块 `10/39/48/58/37/37/29/964`；dy-app `956 → 964` = 本条新增 **8 例**）
 - 🛑 **过程性教训**：首轮 `build-reverse-check.mjs` 前台超时被 SIGTERM 掐断，**脚本残留了注入物**，
   隔一轮再跑报「基线不是绿的」——**看起来完全像真实缺陷**，我据此「修复」了 `domain.ts`，
   而 `git show HEAD:<path>` 显示 **HEAD 里本来就是 `pageQuery`**。

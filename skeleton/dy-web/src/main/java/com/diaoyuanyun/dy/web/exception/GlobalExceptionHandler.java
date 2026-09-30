@@ -12,6 +12,9 @@ import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -135,14 +138,93 @@ public class GlobalExceptionHandler {
      * 「4xx 是预期路径，不打堆栈、不进 error 噪音」的分级纪律。
      * 虽然本分支不回 body，但 {@code TraceIdFilter} 已把 {@code X-Trace-Id} 写进响应头，
      * 且本方法落 {@code warn}（含 uri 与 trace_id）⇒ 排查链完整（body 无 code 是本仓的设计预期，不是遗漏）。
+     *
+     * <h2>🛑 2026-10-01（同族枚举补齐）：为什么这个方法里住着 <b>三个</b> 异常类型</h2>
+     * 第 73 条修完 {@link NoResourceFoundException} 之后，按本仓第 61/73 条的纪律
+     * <b>「修一处同族时必须枚举全族」</b>，对「请求在到达业务逻辑之前就不合法」的各类做了启动后真请求实测，
+     * 结果抓出<b>同族的另外两个成员也漏在 {@link #handleOther} 里</b>（都是 {@code 500 · 9001}）：
+     * <pre>
+     *   DELETE /api/v1/doc-templates          → 500 · 9001「系统异常: HttpRequestMethodNotSupportedException」  ← 应为 405
+     *   GET    /api/v1/customers              → 500 · 9001「系统异常: HttpRequestMethodNotSupportedException」  ← 应为 405
+     *   POST   /api/v1/demo/order (text/plain)→ 500 · 9001「系统异常: HttpMediaTypeNotSupportedException」      ← 应为 415
+     * </pre>
+     * 三者共享<b>同一个语义</b>：<b>请求本身（路径 / 方法 / 媒体类型）与任何端点都不匹配</b> ——
+     * 完全不涉及服务端故障，也完全不涉及业务资源是否存在。故合在一个方法里，
+     * 与 {@link #handleUnreadableRequest} 把「请求体/参数不合法」三类合在一个方法的理由同源：
+     * <b>分开写会让「该报 4xx」在几处各自表述，将来一处被改成 500 时其余仍绿。</b>
+     *
+     * <h2>🛑 为什么这三类都【不带】code（与 {@link #handleUnreadableRequest} 的 400·1001 相反）</h2>
+     * 判据不是"是不是 4xx"，而是<b>契约有没有为该情形定义过 code</b>：
+     * <ul>
+     *   <li>契约 §2.0 的码表只有 {@code 1001/1002/2001-2004/3001/4001/4002/5001/6001/9001} 十个 ——
+     *       <b>没有 405、也没有 415</b>。既然契约从未定义「方法不支持」「媒体类型不支持」这两个情形，
+     *       回一个自造 code 会让客户端落进<b>契约未声明的分支</b>；
+     *       而 {@code 1001 VALIDATION_FAILED} 的 trigger 逐字是「参数类型 / 必填 / <b>约束</b>不满足」——
+     *       它说的是<b>参数的值</b>不满足约束，不是"请求的方法/媒体类型不匹配"，
+     *       用它去答 405/415 属于 <b>code 语义挪用</b>（正是第 73 条修的那类错误码语义反了的翻版）。</li>
+     *   <li>⇒ 与 {@link NoResourceFoundException} 同款：<b>回裸状态码、不带 body</b>。
+     *       这不只是"更严谨"：本仓 {@code RefundWritePathMatrixE2ETest$SelfProof} 依赖
+     *       「非契约端点的失败响应<b>无 code</b>」作为分辨信号（见上），三者行为一致才不会互相干扰。</li>
+     * </ul>
+     * 留痕取 {@code warn}（同 {@link #handleUnreadableRequest}：这是预期路径，不是故障，不打堆栈）。
+     *
+     * <h2>实测已枚举到的「同族全体」与各自归属（2026-10-01，启动后真请求逐条探测）</h2>
+     * <pre>
+     *   NoResourceFoundException              → 404（本方法）      路径不存在
+     *   HttpRequestMethodNotSupportedException→ 405（本方法）      方法不支持
+     *   HttpMediaTypeNotSupportedException    → 415（本方法）      媒体类型不支持
+     *   HttpMediaTypeNotAcceptableException   → 406（本方法）      Accept 不可接受
+     *   HttpMessageNotReadableException       → 400 · 1001（已在 handleUnreadableRequest）
+     *   MethodArgumentTypeMismatchException   → 400 · 1001（同上）
+     *   MissingServletRequestParameterException→ 400 · 1001（同上）
+     * </pre>
+     * ⇒ <b>族里已无遗漏成员</b>。这条"枚举清单"本身即判据：将来若有人新增异常处理而漏了某类，
+     * 应把它补进这张表，而不是让它继续落回 {@link #handleOther} 变成 500。
+     *
+     * <h2>🛑 第四员（406）是被【日志】抓出来的，不是被状态码抓出来的 —— 这条教训最值得记</h2>
+     * 首次枚举时我把它写成"Spring 裸默认、实测已是裸 406、无 code，<b>无需处理</b>"，
+     * 依据是 <b>HTTP 状态码看起来对</b>（实测确实是 406、且无 code）。<b>这个推断是错的。</b>
+     * 复查启动日志才发现它<b>同样走了 {@link #handleOther}</b>：
+     * <pre>
+     *   ERROR ... 未捕获异常 ... HttpMediaTypeNotAcceptableException: No acceptable representation
+     *   at ...AbstractMessageConverterMethodProcessor.writeWithMessageConverters(...)
+     * </pre>
+     * 即：<b>状态码碰巧是 406，但留痕打了 {@code ERROR} + 满堆栈</b> ——
+     * 这违反了本类「4xx 是预期路径，不打堆栈、不进 error 噪音」的分级纪律，
+     * 会把 {@code Accept} 头写错的客户端噪音计入 error 级告警指标（与 404/405/415 是<b>同一个坏后果</b>）。
+     * <b>⇒ 判据：处理是否正确，要看「HTTP 状态码」和「留痕级别」两件事，不能只看状态码。</b>
+     * 状态码对而留痕级别错，是"半个正确" —— 而"半个正确"在只看状态码的冒烟里长得和"全对"一模一样。
+     * （本仓第 73 条的方法论同一句：<b>只看你想看的那个信号，就会漏掉没看的那一半。</b>）
      */
-    @ExceptionHandler(NoResourceFoundException.class)
-    public ResponseEntity<Void> handleNoResource(NoResourceFoundException ex, HttpServletRequest request) {
+    @ExceptionHandler({
+            NoResourceFoundException.class,
+            HttpRequestMethodNotSupportedException.class,
+            HttpMediaTypeNotSupportedException.class,
+            HttpMediaTypeNotAcceptableException.class})
+    public ResponseEntity<Void> handleUnroutableRequest(Exception ex, HttpServletRequest request) {
         String traceId = MDC.get("traceId");
-        log.warn("路由不存在 trace_id={} uri={} method={}",
-                traceId, request.getRequestURI(), request.getMethod());
-        // 🛑 刻意不回 body：未知路由不是契约端点，「无 code」是本仓自证用例依赖的分辨信号。
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        HttpStatus status;
+        String kind;
+        if (ex instanceof NoResourceFoundException) {
+            status = HttpStatus.NOT_FOUND;
+            kind = "路由不存在";
+        } else if (ex instanceof HttpRequestMethodNotSupportedException methodEx) {
+            status = HttpStatus.METHOD_NOT_ALLOWED;
+            kind = "方法不支持: " + methodEx.getMethod() + "（允许: " + methodEx.getSupportedHttpMethods() + "）";
+        } else if (ex instanceof HttpMediaTypeNotSupportedException) {
+            status = HttpStatus.UNSUPPORTED_MEDIA_TYPE;
+            kind = "媒体类型不支持";
+        } else {
+            status = HttpStatus.NOT_ACCEPTABLE;
+            kind = "Accept 不可接受";
+        }
+        // URL 笔误 / 客户端用错方法 / Content-Type / Accept 都是【预期路径】(客户端 bug / 扫描器噪音)，不是服务端故障。
+        log.warn("请求不可路由({}) trace_id={} uri={} method={} type={} {}",
+                status.value(), traceId, request.getRequestURI(), request.getMethod(),
+                ex.getClass().getSimpleName(), kind);
+        // 🛑 刻意不回 body：这三类都不是契约端点行为，且契约未为它们定义 code。
+        //    回 {code:9001} 会把「请求不合法」谎报成「服务端故障」；回自造 code 会让客户端落进契约未声明分支。
+        return ResponseEntity.status(status).build();
     }
 
     @ExceptionHandler(Exception.class)
