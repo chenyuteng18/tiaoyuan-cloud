@@ -428,6 +428,22 @@ const CASES = [
     //    它提供了 metric ⇒ 必须报红。这防的是"改成一律放过动态合并"的假绿。
     mutate: (s) => s.replace(/rec\.metric/g, 'rec.metricRemoved'),
   },
+  {
+    id: 'R24',
+    end: 'client-mp',
+    rel: 'miniprogram/services/domain.js',
+    title: '端 C：把 C1 的必需 query 参数 age_group 挪出 query 载体（载体错位）',
+    expectItem: 'required-args-carrier',
+    // 🛑 与 R22 的区别：R22 摘实参（缺名），R24 保留实参但**装错载体**。
+    //    原块是 `var query = { age_group: ageGroup }`，载体为局部变量 query。
+    //    注入后 query 载体变空、age_group 被挪到另一个变量（模拟"装错位置"）——
+    //    名字仍在文件里（⑩b 绿），但 in:query 取值失败 ⇒ 后端必然 400。
+    mutate: (s) => {
+      const anchor = 'var query = { age_group: ageGroup };';
+      if (!s.includes(anchor)) return s;
+      return s.replace(anchor, 'var query = {}; var misplaced_age_group = ageGroup;');
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -512,7 +528,7 @@ process.stdout.write(`还原后三端构建自检：${Object.entries(finalCodes)
   + `${allGreen ? '（全绿 ✓，已按内存备份还原）' : '（异常 ✗）'}${staleNotice}\n`);
 
 if (passed === results.length && allGreen) {
-  process.stdout.write('\nbuild-check 反向验证 PASS —— 六条判据（base-path-wiring / cross-end-protocol / pagination-protocol / error-data-fields / endpoint-reachability / page-registry）确实有牙齿，且还原干净。\n');
+  process.stdout.write('\nbuild-check 反向验证 PASS —— 八条判据（base-path-wiring / cross-end-protocol / pagination-protocol / error-data-fields / endpoint-reachability / page-registry / required-args-wired / required-args-carrier）确实有牙齿，且还原干净。\n');
   process.exit(0);
 }
 process.stdout.write('\nbuild-check 反向验证 FAIL。\n');

@@ -233,8 +233,16 @@ export interface ScaleItemBank {
  * 「必需参数没被带上」和「参数类型不可调用」是同一个空洞的两个面。
  */
 export interface ScaleItemBankQuery {
-  /** 契约 required。 */
-  readonly age_group?: string;
+  /**
+   * 契约 `required`（本仓第 70 条 · 判据的第九种失效形态：只判「名字在不在」，不判「落在哪个载体」）。
+   *
+   * 🛑 **不得写成 `age_group?: string`** —— 那会让契约 required 在**类型层**降级为可选：
+   *    调用点漏传时 `tsc` 一声不响，缺陷唯一的曝光面（编译期）被自己抹平。
+   *    这与 `query: ScaleItemBankQuery = {}` 那个默认值是**同一个空洞的两面** ——
+   *    「载体可省」与「字段可省」只要有一个成立，required 就形同不存在。
+   *    （第 70 条实证：把 `version` 从 `query` 挪到 `params` 后，全部门禁仍是绿的。）
+   */
+  readonly age_group: string;
   readonly dimension?: string;
   readonly version?: string;
   /**
@@ -247,9 +255,11 @@ export interface ScaleItemBankQuery {
   readonly [k: string]: string | undefined;
 }
 
-/** C1 题库拉取（按分龄组 + 维度）。 */
+/** C1 题库拉取（按分龄组 + 维度）。
+ *  🛑 `query` 形参**不得带默认值 `= {}`**（第 70 条）：载体形参可省 ⇒ 调用点可以
+ *     一个参数都不传，而契约 `listScaleItemBanks` 的 `age_group` 是 required。 */
 export function listScaleItemBanks(
-  query: ScaleItemBankQuery = {}
+  query: ScaleItemBankQuery
 ): Promise<readonly ScaleItemBank[] | undefined> {
   return call<{ items?: readonly ScaleItemBank[] }>('listScaleItemBanks', { query })
     .then((r) => r.data?.items);

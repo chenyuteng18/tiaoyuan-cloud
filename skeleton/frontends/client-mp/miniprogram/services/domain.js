@@ -51,8 +51,23 @@ function getAssessment(customerId, assessmentId) {
   }).then(function (r) { return r.data || {}; });
 }
 
-/** 量表题库。age_group 为必填（契约 required），由客户档案带出。 */
+/**
+ * 量表题库。
+ *
+ * 🛑 `age_group` 是契约 `required`（本仓第 70 条）——
+ *    本函数**不得**给载体形参默认值、**必须**在运行时守卫 required。
+ *    原实现 `function listScaleItemBanks(ageGroup, dimension, version)` 允许零参调用：
+ *    `listScaleItemBanks()` ⇒ `query = { age_group: undefined }` ⇒ 后端 400，
+ *    而所有门禁一律绿（**端 B 的同一函数此前已修，端 C 这份被漏掉** —— 第 63 条同族）。
+ *
+ * 🛑 为什么"页面有守卫"不够：`scale-bank.js` 的 `if (!this.data.ageGroup) return`
+ *    只保护了**一个**调用点。封装层是**共享入口**，守卫必须立在入口上 ——
+ *    否则第二个调用点（或将来任何直接调用）会绕过页面守卫，静默发出空 `age_group`。
+ */
 function listScaleItemBanks(ageGroup, dimension, version) {
+  if (!ageGroup || !String(ageGroup).trim()) {
+    throw new Error('listScaleItemBanks: age_group 必填（契约 C1 required 参数）。');
+  }
   var query = { age_group: ageGroup };
   if (dimension) query.dimension = dimension;
   if (version) query.version = version;

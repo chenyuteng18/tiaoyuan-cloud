@@ -285,6 +285,22 @@ await injection({
 });
 
 // ---------------------------------------------------------------------------
+// I12 【第 70 条核心回归 · 载体错位】必需参数从**对的载体**挪到**错的载体**
+//      ⇒ 期望 required-args-carrier 报红
+// ---------------------------------------------------------------------------
+// 🛑 与 I11 的区别：I11 摘掉实参（缺名），I12 保留实参但装错载体。
+//    端 B 的 C1 query 载体是 `{ query }` 简写（形参透传），故改从**调用点**注入：
+//    把 `age_group` 从 query 挪进 params —— 后端按 in:query 取 `age_group` ⇒ 必然 400，
+//    而名字仍在调用点文本里（⑨ required-args-wired 绿）。
+await injection({
+  name: 'I12 把 C1 的必需 query 参数 age_group 挪进 params 载体（载体错位）',
+  path: join(SRC, 'services', 'domain.ts'),
+  from: '  return call<{ items?: readonly ScaleItemBank[] }>(\'listScaleItemBanks\', { role, query })',
+  to: '  return call<{ items?: readonly ScaleItemBank[] }>(\'listScaleItemBanks\', { role, query: {}, params: { age_group: query.age_group } })',
+  expectGate: 'required-args-carrier',
+});
+
+// ---------------------------------------------------------------------------
 // 汇总
 // ---------------------------------------------------------------------------
 console.log('===== 反向验证结果（每组：注入 → 必须变红 → 还原 → 必须变绿）=====');

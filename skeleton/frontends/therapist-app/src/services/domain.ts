@@ -244,8 +244,14 @@ export interface ScaleItemBank {
  * 这与本仓第 52/53 条同族（门禁/判据覆盖不到的地方，缺陷可以长期存活）。
  */
 export interface ScaleItemBankQuery {
-  /** 契约 required。 */
-  readonly age_group?: string;
+  /**
+   * 契约 `required`（本仓第 70 条 · 判据的第九种失效形态）。
+   *
+   * 🛑 本字段原为 `age_group?: string` —— 与端 A 的同一份副本（第 63 条同族：同一个
+   *    缺陷在另一端的第二份拷贝，而两端门禁各审各端，没有东西会问「还有没有别的宿主」）。
+   *    可选声明 + 载体形参默认值 `= {}` ⇒ 契约 required 在编译期被抹掉。
+   */
+  readonly age_group: string;
   readonly dimension?: string;
   readonly version?: string;
   /**
@@ -258,10 +264,11 @@ export interface ScaleItemBankQuery {
   readonly [k: string]: string | undefined;
 }
 
-/** C1 题库拉取（按分龄组 + 维度）。 */
+/** C1 题库拉取（按分龄组 + 维度）。
+ *  🛑 `query` 形参**不得带默认值 `= {}`**（第 70 条）。 */
 export function listScaleItemBanks(
   role: AppRole,
-  query: ScaleItemBankQuery = {}
+  query: ScaleItemBankQuery
 ): Promise<readonly ScaleItemBank[] | undefined> {
   return call<{ items?: readonly ScaleItemBank[] }>('listScaleItemBanks', { role, query })
     .then((r) => r.data?.items);

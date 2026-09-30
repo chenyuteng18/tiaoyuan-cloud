@@ -128,6 +128,15 @@ function syncOnShow(args) {
       return { uploaded: false, reason: COLLECTOR_NOT_SELECTED, probe: probe };
     });
   }
+  // 🛑 `customer_id` 是 `reportBandSyncBatch` 的**契约 required**（本仓第 70 条）。
+  //    原先只守了 deviceId —— 于是"设备有、客户没有"这一次同步会带着
+  //    `customer_id: undefined` 出站，后端 400，而所有门禁一律绿。
+  //    守卫**放在 hasCollector() 早退之后**：未注入采集器时本就不产生上报，
+  //    既有的「能力未接入 = COLLECTOR_NOT_SELECTED」语义必须原样保留，
+  //    不得被这个新守卫抢先改写。
+  if (!a.customerId) {
+    return Promise.resolve({ uploaded: false, reason: 'NO_CUSTOMER', probe: null });
+  }
 
   var trigger = a.cold ? 'on_show_cold' : 'on_show_hot';
   var batchNo = 'mp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);

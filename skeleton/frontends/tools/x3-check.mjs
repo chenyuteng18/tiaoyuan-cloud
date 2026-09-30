@@ -542,6 +542,68 @@ if (therOnly.length > 0) {
     ].some((r) => r.test(text));
   }
 
+  /** 在**出站对象块**上找 `key`（query/body）载体（第 70 条：只判「名字在不在」不判「落在哪个载体」）。
+   *  🛑 必须在出站块上找，不得在整段封装体上找 —— 否则 `body: ScreeningRequest`
+   *     这种**函数签名的类型注解**会被当载体，制造假阳性。 */
+  function carrierOf(blk, key) {
+    if (!blk) return null;
+    const m = new RegExp(`(?:^|[\\s,{(])${escapeRe(key)}\\s*(:?)`).exec(blk);
+    if (!m) return null;
+    if (!m[1]) return { kind: 'shorthand' };
+    const after = blk.slice(m.index + m[0].length);
+    if (after.trimStart().startsWith('{')) {
+      const oi = blk.indexOf('{', m.index + m[0].length);
+      return { kind: 'literal', text: balance(blk, oi) };
+    }
+    return { kind: 'expr' };
+  }
+  function outboundBlocks(text, id) {
+    const out = [];
+    const re = new RegExp(`call\\s*(?:<[^(]*?>)?\\s*\\(\\s*['"]${escapeRe(id)}['"]`, 'g');
+    let m;
+    while ((m = re.exec(text))) {
+      const bi = text.indexOf('{', m.index + m[0].length - 1);
+      if (bi >= 0) out.push(balance(text, bi));
+    }
+    return out;
+  }
+  const misplaced = [];
+  let carrierNamed = 0;
+  let carrierSkipped = 0;
+  for (const e of entries) {
+    const needQ = e.requiredQuery ?? [];
+    const needB = e.requiredBody ?? [];
+    if (!needQ.length && !needB.length) continue;
+    const sites = CALL_SITES.get(e.id);
+    if (!sites || !sites.length) continue;
+    const blocks = sites.flatMap((s) => outboundBlocks(s.text, e.id));
+    if (!blocks.length) continue;
+    for (const [key, names] of [['query', needQ], ['body', needB]]) {
+      if (!names.length) continue;
+      const cs = blocks.map((b) => carrierOf(b, key)).filter((c) => c !== null);
+      if (!cs.length) {
+        misplaced.push(`${e.id}：契约声明了 ${key} 载体上的 required [${names.join(', ')}]，`
+          + `但出站块里**根本没有 ${key} 载体**（${sites.map((s) => s.file).join(', ')}）`);
+        continue;
+      }
+      for (const c of cs) {
+        if (c.kind !== 'literal') { carrierSkipped += 1; continue; }
+        if (/\.\.\./.test(c.text) || /[A-Za-z_$][\w$]*\s*\(/.test(c.text)) { carrierSkipped += 1; continue; }
+        const nm = names.filter((n) => {
+          const e2 = escapeRe(n);
+          return !new RegExp(`(?:^|[\\s,{(])['"]?${e2}['"]?\\s*:`).test(c.text)
+            && !new RegExp(`(?:^|[{,])\\s*${e2}\\s*[,}]`).test(c.text);
+        });
+        if (nm.length) {
+          misplaced.push(`${e.id} 的 ${key} 载体里**没有** ${nm.join(', ')}（${sites.map((s) => s.file).join(', ')}）`
+            + `\n        ${key} 载体 = ${c.text.replace(/\s+/g, ' ').slice(0, 120)}`);
+        } else {
+          carrierNamed += 1;
+        }
+      }
+    }
+  }
+
   const absent = [];
   let withReq = 0;
   let checked = 0;
@@ -560,6 +622,19 @@ if (therOnly.length > 0) {
         + `\n        调用点/封装体共 ${sites.length} 处：${sites.map((s) => s.file).join(', ')}`);
     }
   }
+  if (misplaced.length) {
+    fail('required-args-carrier',
+      '以下端点的必需参数**落在了错误的载体**（或该有载体的地方没有载体）——'
+      + '后端按 in:query / in:body 取值，装错位置等价于没带，且全部门禁一律绿：\n      '
+      + misplaced.join('\n      ')
+      + '\n      ⇒ "参数名出现了"不等于"参数落在对的位置"（第 70 条）。');
+  } else {
+    ok('required-args-carrier',
+      `载体归属已核对：${carrierNamed} 处载体块逐名命中；`
+      + `${carrierSkipped} 处为载体简写/表达式或含展开（{ body } / query: pageQuery(…) / …body）`
+      + '—— 前两类由 ⑨ 实参形态与类型层共同兜底，如实计数不静默放过。');
+  }
+
   if (!withReq) {
     fail('required-args-wired',
       '生成物里没有任何端点带 required 声明 —— 解析层没转出必需参数，本条会静默放过全部端点。');

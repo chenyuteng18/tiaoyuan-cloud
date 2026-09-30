@@ -1289,6 +1289,95 @@ if (cfg.outbound) {
           + `\n        契约 required 共 [${need.join(', ')}]`
           + `\n        调用点共 ${sites.length} 处：${sites.map((s) => s.file).join(', ')}`);
       }
+      // ④i-2 载体归属（第 70 条：只判「名字在不在」不判「落在哪个载体」）
+      //   端 C 的 query 载体是**局部变量透传**（`{ query: query }`），body 承载
+      //   字面量块（`{ device_id: deviceId, ... }`）—— 两者都要核：
+      //   · 局部变量载体 ⇒ 追其 `var query = {...}` 初值块逐名核；
+      //   · 字面量载体   ⇒ 就地逐名核；
+      //   · 动态合并（Object.assign/展开）⇒ 如实计为"未逐名核"，绝不静默放过。
+      const carrierOf2 = (blk, key, src) => {
+        if (!blk) return null;
+        const m = new RegExp(`(?:^|[\\s,{(])${key}\\s*(:?)`).exec(blk);
+        if (!m) return null;
+        if (!m[1]) return { kind: 'shorthand' };
+        const after = blk.slice(m.index + m[0].length);
+        if (after.trimStart().startsWith('{')) {
+          const oi = blk.indexOf('{', m.index + m[0].length);
+          return { kind: 'literal', text: bal2(blk, oi) };
+        }
+        const im = /^([A-Za-z_$][\w$]*)/.exec(after.trimStart());
+        if (im && src) {
+          const dm = new RegExp(`(?:var|let|const)\\s+${im[1]}\\s*=\\s*`).exec(src);
+          if (dm) {
+            const oi = src.indexOf('{', dm.index + dm[0].length - 1);
+            if (oi >= 0) return { kind: 'literal', text: bal2(src, oi), via: im[1] };
+          }
+        }
+        return { kind: 'expr' };
+      };
+      const outboundBlocks2 = (text, id) => {
+        const out = [];
+        const re = new RegExp(`request\\.call\\s*\\(\\s*['"]${id}['"]`, 'g');
+        let m;
+        while ((m = re.exec(text))) {
+          const bi = text.indexOf('{', m.index + m[0].length - 1);
+          if (bi >= 0) out.push(bal2(text, bi));
+        }
+        return out;
+      };
+      const misplaced2 = [];
+      let carrierNamed2 = 0;
+      let carrierSkipped2 = 0;
+      for (const e of needParse) {
+        const needQ = e.requiredQuery ?? [];
+        const needB = e.requiredBody ?? [];
+        if (!needQ.length && !needB.length) continue;
+        const sites = SITES.get(e.id);
+        if (!sites || !sites.length) continue;
+        for (const s of sites) {
+          const src = readFileSync(join(MP_ROOT2, s.file), 'utf8');
+          const blocks = outboundBlocks2(s.text, e.id);
+          if (!blocks.length) continue;
+          for (const [key, names] of [['query', needQ], ['body', needB]]) {
+            if (!names.length) continue;
+            const cs = blocks.map((b) => carrierOf2(b, key, src)).filter((c) => c !== null);
+            if (!cs.length) {
+              misplaced2.push(`${e.id}：契约声明了 ${key} 载体上的 required [${names.join(', ')}]，`
+                + `但出站块里**根本没有 ${key} 载体**（${s.file}）`);
+              continue;
+            }
+            for (const c of cs) {
+              if (c.kind !== 'literal') { carrierSkipped2 += 1; continue; }
+              if (/\.\.\./.test(c.text) || /Object\.assign/.test(c.text)) { carrierSkipped2 += 1; continue; }
+              const nm = names.filter((n) => {
+                const e2 = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                return !new RegExp(`(?:^|[\\s,{(])['"]?${e2}['"]?\\s*:`).test(c.text)
+                  && !new RegExp(`(?:^|[{,])\\s*${e2}\\s*[,}]`).test(c.text);
+              });
+              if (nm.length) {
+                misplaced2.push(`${e.id} 的 ${key} 载体里**没有** ${nm.join(', ')}（${s.file}）`
+                  + `\n        ${key} 载体${c.via ? `（经局部变量 ${c.via}）` : ''} = `
+                  + c.text.replace(/\s+/g, ' ').slice(0, 120));
+              } else {
+                carrierNamed2 += 1;
+              }
+            }
+          }
+        }
+      }
+      if (misplaced2.length) {
+        fail('required-args-carrier',
+          '以下端点的必需参数**落在了错误的载体**（或该有载体的地方没有载体）——'
+          + '后端按 in:query / in:body 取值，装错位置等价于没带，且构建/触达判据一律绿：\n      '
+          + misplaced2.join('\n      ')
+          + '\n      ⇒ "参数名出现了"不等于"参数落在对的位置"（第 70 条）。');
+      } else {
+        ok('required-args-carrier',
+          `端 C 载体归属已核对：${carrierNamed2} 处载体块逐名命中（含局部变量载体回溯）；`
+          + `${carrierSkipped2} 处为动态合并/表达式载体（Object.assign / …x），`
+          + '如实计数不静默放过。');
+      }
+
       if (!withReq2) {
         fail('required-args-wired',
           '端 C 生成物里没有端点带 required 声明 —— 本条会静默放过全部端点。');
