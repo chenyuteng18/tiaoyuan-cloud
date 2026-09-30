@@ -111,6 +111,8 @@ const entries = [];
     const idem = /idempotencyKeySpec:\s*"((?:[^"\\]|\\.)*)"/.exec(tail);
     const reqQ = /requiredQuery:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(tail);
     const reqB = /requiredBody:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(tail);
+    // 🛑 第 71 条：path 参数（URL 占位符）。与 reqQ/reqB 同式的三态处理。
+    const reqP = /requiredPath:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(tail);
     // 🛑 三态必须分开（这是本判据自己的一个真实缺陷，2026-09-30 修）：
     //      · 正则**没匹配**（生成物里根本没有 `requiredQuery:` 这一项）
     //        ⇒ 传 `undefined` ⇒ 解析为 `null` ⇒ 解析层自检报红；
@@ -145,6 +147,7 @@ const entries = [];
       idempotencyKeySpec: idem ? idem[1] : null,
       requiredQuery: parseNames(reqQ === null ? undefined : reqQ[1]),
       requiredBody: parseNames(reqB === null ? undefined : reqB[1]),
+      requiredPath: parseNames(reqP === null ? undefined : reqP[1]),
     });
   }
 }
@@ -156,7 +159,7 @@ const entries = [];
   // 🛑 解析层自检还必须覆盖【非 TRANSOUT】的两个新字段：它们不来自 x- 键，
   //    而来自契约 parameters / requestBody.required。若解析写漏，判据会
   //    静默看到 null 并一律放过 —— 那正是第 52 条"判据被自己的解析绕过"。
-  const extraMissing = ['requiredQuery', 'requiredBody'].filter((f) => !(f in sample));
+  const extraMissing = ['requiredQuery', 'requiredBody', 'requiredPath'].filter((f) => !(f in sample));
   if (extraMissing.length && entries.length) {
     fail('parse-fields',
       `解析层未产出必要字段 ${extraMissing.join(', ')} ⇒ 必需参数判据会静默放过全部端点。`);
@@ -164,6 +167,11 @@ const entries = [];
     fail('parse-fields',
       'requiredQuery 解析为 null（生成物未转出或解析正则不咬合）——'
       + '需要的只是"空数组"，null 说明这一层断了。');
+  } else if (sample.requiredPath === null && entries.length) {
+    // 🛑 第 71 条：path 参数此前**从未转录**，这条自检就是防它再次静默消失。
+    fail('parse-fields',
+      'requiredPath 解析为 null（生成物未转出 path 参数或解析正则不咬合）——'
+      + 'path 占位符漏传会拼出字面量 `{id}`，且全部门禁绿。');
   }
   if (unmapped.length) {
     fail('parse-fields',
@@ -822,7 +830,10 @@ if (entries.length === 0) {
   let checked = 0;
   let withRequired = 0;
   for (const e of entries) {
-    const need = [...(e.requiredQuery ?? []), ...(e.requiredBody ?? [])];
+    // 🛑 第 71 条：path 参数（URL 占位符 `{id}`）也是必需实参，此前**从未被转录**
+    //    （契约用 `$ref` 复用命名参数 23 处 + 内联 `in: path`，生成器两种都跳过）
+    //    ⇒ 漏传会拼出字面量 `{id}` 发到服务端，而全部门禁绿。此处一并核对。
+    const need = [...(e.requiredQuery ?? []), ...(e.requiredBody ?? []), ...(e.requiredPath ?? [])];
     if (!need.length) continue;
     withRequired += 1;
     const sites = CALL_SITES.get(e.id);
@@ -884,7 +895,8 @@ if (entries.length === 0) {
   for (const e of entries) {
     const needQ = e.requiredQuery ?? [];
     const needB = e.requiredBody ?? [];
-    if (!needQ.length && !needB.length) continue;
+    const needP = e.requiredPath ?? [];
+    if (!needQ.length && !needB.length && !needP.length) continue;
     const sites = CALL_SITES.get(e.id);
     if (!sites || !sites.length) continue;
     // 所有出站块（封装体 + 调用点里可能出现的直接出站）
@@ -895,7 +907,7 @@ if (entries.length === 0) {
       carrierNoBlock += 1;
       continue;
     }
-    for (const [key, names] of [['query', needQ], ['body', needB]]) {
+    for (const [key, names] of [['query', needQ], ['body', needB], ['params', needP]]) {
       if (!names.length) continue;
       const cs = blocks.map((b) => carrierOf(b, key)).filter((c) => c !== null);
       if (!cs.length) {

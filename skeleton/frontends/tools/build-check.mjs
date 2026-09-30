@@ -1172,22 +1172,25 @@ if (cfg.outbound) {
       const pathM = /\bpath:\s*['"]([^'"]+)['"]/.exec(b);
       const q = /requiredQuery:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(b);
       const bo = /requiredBody:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(b);
+      // 🛑 第 71 条：path 参数（URL 占位符 `{id}`）此前从未被转录。
+      const pa = /requiredPath:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(b);
       ents.push({
         id: idM ? idM[1] : '',
         method: methodM ? methodM[1] : '',
         path: pathM ? pathM[1] : '',
         requiredQuery: q === null ? null : names2(q[1]),
         requiredBody: bo === null ? null : names2(bo[1]),
+        requiredPath: pa === null ? null : names2(pa[1]),
       });
     }
     const needParse = ents.filter((e) => e.id);
-    const parseMiss = needParse.filter((e) => e.requiredQuery === null || e.requiredBody === null);
+    const parseMiss = needParse.filter((e) => e.requiredQuery === null || e.requiredBody === null || e.requiredPath === null);
     if (!needParse.length) {
       fail('required-args-wired',
         '端 C 生成物里没解析到任何端点块 —— 解析与文件形状脱钩，本条会静默放过全部端点。');
     } else if (parseMiss.length) {
       fail('required-args-wired',
-        `${parseMiss.length} 个端点未解析出 requiredQuery/requiredBody（例：${parseMiss[0].id}）`
+        `${parseMiss.length} 个端点未解析出 requiredQuery/requiredBody/requiredPath（例：${parseMiss[0].id}）`
         + ' ⇒ 本条会静默放过它们。');
     } else {
       const CJS_FILES = [];
@@ -1267,7 +1270,7 @@ if (cfg.outbound) {
       let checked2 = 0;
       let dynRelied = 0; // 靠"动态合并 + 成员访问证据"认账的端点数（公开计数）
       for (const e of needParse) {
-        const need = [...(e.requiredQuery ?? []), ...(e.requiredBody ?? [])];
+        const need = [...(e.requiredQuery ?? []), ...(e.requiredBody ?? []), ...(e.requiredPath ?? [])];
         if (!need.length) continue;
         withReq2 += 1;
         const sites = SITES.get(e.id);
@@ -1331,14 +1334,15 @@ if (cfg.outbound) {
       for (const e of needParse) {
         const needQ = e.requiredQuery ?? [];
         const needB = e.requiredBody ?? [];
-        if (!needQ.length && !needB.length) continue;
+        const needP = e.requiredPath ?? [];
+        if (!needQ.length && !needB.length && !needP.length) continue;
         const sites = SITES.get(e.id);
         if (!sites || !sites.length) continue;
         for (const s of sites) {
           const src = readFileSync(join(MP_ROOT2, s.file), 'utf8');
           const blocks = outboundBlocks2(s.text, e.id);
           if (!blocks.length) continue;
-          for (const [key, names] of [['query', needQ], ['body', needB]]) {
+          for (const [key, names] of [['query', needQ], ['body', needB], ['params', needP]]) {
             if (!names.length) continue;
             const cs = blocks.map((b) => carrierOf2(b, key, src)).filter((c) => c !== null);
             if (!cs.length) {

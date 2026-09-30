@@ -135,6 +135,22 @@ def load_operations(end_id: str):
         raise SystemExit("MISCONFIGURED: missing cut contract: %s" % path)
     doc = yaml.safe_load(io.open(path, encoding="utf-8").read())
     schemas = ((doc.get("components") or {}).get("schemas") or {})
+    # 🛑 命名参数表（本仓第 71 条）：契约用 `$ref: '#/components/parameters/XxxId'`
+    #    复用参数定义（实测被引用 23 次，含 `CustomerId` / `DocTemplateId` 两个
+    #    required **path** 参数）。此前的 `prm.get("in")` 在 `$ref` 字典上返回 None
+    #    ⇒ 这 23 处**全部静默跳过** —— 契约 P2 明写 "path 参数恒 required，
+    #    即 `{id}` 占位符必须在 URL 里被替换"，而生成物与判据从未见过它们。
+    named_params = ((doc.get("components") or {}).get("parameters") or {})
+
+    def resolve_param(prm):
+        """解引用 `$ref` 参数（本仓第 71 条）。解析失败即返回空 dict（安全跳过）。"""
+        if not isinstance(prm, dict):
+            return {}
+        ref = prm.get("$ref")
+        if ref:
+            return named_params.get(str(ref).rsplit("/", 1)[-1]) or {}
+        return prm
+
     ops = []
     for p, item in (doc.get("paths") or {}).items():
         for method, op in (item or {}).items():
@@ -152,22 +168,52 @@ def load_operations(end_id: str):
                 "summary": summary,
                 "tags": list(op.get("tags") or []),
             }
-            # ---------------- 🛑 必需参数（本仓第 65 条） ----------------
-            # 只转出"调用方**必须**提供"的项：query 里 required=true 的、路径参数
-            # （路径参数天然必需，但调用方由 params 传入，故只登记名字供判据核对），
-            # 以及 requestBody schema 的 required 字段名。
+            # ---------------- 🛑 必需参数（本仓第 65 条 · 第 71 条补 path） ----------------
+            # 只转出"调用方**必须**提供"的项：
+            #   · query 里 required=true 的（第 65 条）；
+            #   · **path 占位符**（第 71 条）—— 契约 P2：path 参数恒 required，`{id}`
+            #     必须在 URL 里被替换；调用方由 `params` 传入，漏传会拼出 `{id}` 字面量；
+            #   · requestBody schema 的 required 字段名。
             #
+            # 🛑 两条曾被静默跳过的形态（第 71 条）：
+            #   ① `$ref: '#/components/parameters/XxxId'` —— 逐字引用命名参数，
+            #      原代码 `prm.get("in")` 对 `$ref` 字典返回 None ⇒ **23 处全跳过**；
+            #   ② 内联 `in: path` —— 原代码只认 `in: query` ⇒ 全部跳过。
+            #   （注意注释与代码曾经不符：L156-157 声称"路径参数…只登记名字供判据核对"，
+            #     而代码从未实现 —— 意图写进注释、没有判据会发现这个落差。）
             # 为什么必须转出：门禁此前只判"端点有没有被调用"，**不判实参** ⇒
             # 端 A 的 C1 调用漏了契约 required 的 age_group、C2 给三个必需字段
             # 填了臆造值，后端必然 400，而 tsc / 构建 / 全部门禁一律绿。
             # 这与第 54 条同族：契约写下的约束，中间任何一环丢项都不会报错。
             req_query = []
-            for prm in (op.get("parameters") or []):
-                if not isinstance(prm, dict):
+            req_path = []
+            for raw_prm in (op.get("parameters") or []):
+                prm = resolve_param(raw_prm)
+                if not prm or not prm.get("name"):
                     continue
-                if prm.get("in") == "query" and prm.get("required") and prm.get("name"):
+                where = prm.get("in")
+                if where == "query" and prm.get("required"):
                     req_query.append(str(prm["name"]))
+                elif where == "path":
+                    # path 参数按 OpenAPI 规范恒为必需；即便作者漏写 required 也登记，
+                    # 因为 `{name}` 占位符本身就在 URL 里（判据以占位符为准）。
+                    req_path.append(str(prm["name"]))
             entry["requiredQuery"] = sorted(req_query)
+            entry["requiredPath"] = sorted(req_path)
+
+            # 🛑 生成器自己的自检（本仓第 71 条）：URL 占位符集合必须**恰好等于**
+            #    转录出来的 path 参数集合。二者不等的两种情形都曾是真实缺陷：
+            #      · 占位符多、req_path 少 ⇒ 逐字复现第 71 条（`$ref` / 内联
+            #        `in: path` 被静默跳过）⇒ 漏传会在 URL 里留下字面量 `{id}`；
+            #      · req_path 多、占位符少 ⇒ 契约自身不一致（参数声明了却没写进 path）。
+            #    有了这条断言，"生成器漏认一种形态"就不可能再静默通过。
+            ph = sorted(set(re.findall(r"\{(\w+)\}", str(p))))
+            if ph != sorted(set(req_path)):
+                raise SystemExit(
+                    "MISCONFIGURED: %s %s 的 URL 占位符 %s 与转录出的 path 参数 %s 不一致"
+                    "（本仓第 71 条：生成器漏认 path 参数形态会让漏传静默通过）"
+                    % (m, p, ph, sorted(set(req_path)))
+                )
 
             req_body = []
             body = (op.get("requestBody") or {}).get("content") or {}
@@ -661,6 +707,8 @@ def render_cjs(target, entries, spec_version, role_expansion, api_base_path, pro
                      % ", ".join(js_literal(x) for x in e.get("requiredQuery", [])))
         lines.append("    requiredBody: Object.freeze([%s]),"
                      % ", ".join(js_literal(x) for x in e.get("requiredBody", [])))
+        lines.append("    requiredPath: Object.freeze([%s]),"
+                     % ", ".join(js_literal(x) for x in e.get("requiredPath", [])))
         lines.extend(_opt_lines(e, "    "))
         lines.append("  },")
     lines.append("]);")
@@ -745,6 +793,19 @@ def render_ts(target, entries, spec_version, role_expansion, api_base_path, prot
     lines.append("   * tsc / 构建 / 全部门禁一律绿。故把它机械转录出来供判据核对。")
     lines.append("   */")
     lines.append("  readonly requiredQuery: readonly string[];")
+    lines.append("  /**")
+    lines.append("   * 🛑 契约 **path 参数**名（本仓第 71 条）—— URL 里的 `{id}` 占位符。")
+    lines.append("   *")
+    lines.append("   * 漏传的后果是**静默**的：`fillPath()` 只替换 params 里出现过的键、")
+    lines.append("   * 不做残留检查 ⇒ 会把字面量 `{id}` 拼进 URL 发出去（后端路由不匹配）。")
+    lines.append("   * 契约 P2 逐字：path 参数恒 required，即 `{id}` 占位符必须在 URL 里被替换。")
+    lines.append("   *")
+    lines.append("   * 🛑 为什么此前一直没被转录（两种形态各有一份静默）：")
+    lines.append("   *   ① 契约用 `$ref: '#/components/parameters/XxxId'` 复用命名参数（23 处）")
+    lines.append("   *      ⇒ `prm.get(\"in\")` 对 `$ref` 字典返回 None ⇒ 全部跳过；")
+    lines.append("   *   ② 内联 `in: path` ⇒ 原代码只认 `in: query` ⇒ 全部跳过。")
+    lines.append("   */")
+    lines.append("  readonly requiredPath: readonly string[];")
     lines.append("  /** 🛑 契约 requestBody schema 的 required 字段名（未声明 requestBody 时为空）。 */")
     lines.append("  readonly requiredBody: readonly string[];")
     lines.append("}")
@@ -779,6 +840,8 @@ def render_ts(target, entries, spec_version, role_expansion, api_base_path, prot
                      % ", ".join(js_literal(x) for x in e.get("requiredQuery", [])))
         lines.append("    requiredBody: Object.freeze([%s]),"
                      % ", ".join(js_literal(x) for x in e.get("requiredBody", [])))
+        lines.append("    requiredPath: Object.freeze([%s]),"
+                     % ", ".join(js_literal(x) for x in e.get("requiredPath", [])))
         lines.extend(_opt_lines(e, "    "))
         lines.append("  },")
     lines.append("]);")

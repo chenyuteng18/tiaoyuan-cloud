@@ -301,6 +301,20 @@ await injection({
 });
 
 // ---------------------------------------------------------------------------
+// I13 【第 71 条核心回归 · path 参数漏传】URL 占位符 `{id}` 的实参被摘掉
+//      ⇒ 期望 required-args-wired 报红
+// ---------------------------------------------------------------------------
+// 🛑 path 参数此前从未被转录（契约 `$ref` 复用命名参数 23 处 + 内联 `in: path`
+//    两种形态生成器都跳过）⇒ 漏传会拼出字面量 `{id}` 发出，而全部门禁绿。
+await injection({
+  name: 'I13 摘掉 getRefund 的 path 占位符实参 id（URL 会拼出字面量 {id}）',
+  path: join(SRC, 'services', 'domain.ts'),
+  from: "  return call<Refund>('getRefund', { role, params: { id: refundId } }).then((r) => r.data);",
+  to: "  return call<Refund>('getRefund', { role, params: {} }).then((r) => r.data);",
+  expectGate: 'required-args-wired',
+});
+
+// ---------------------------------------------------------------------------
 // 汇总
 // ---------------------------------------------------------------------------
 console.log('===== 反向验证结果（每组：注入 → 必须变红 → 还原 → 必须变绿）=====');

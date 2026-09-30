@@ -83,6 +83,7 @@ const ENDPOINTS = Object.freeze([
     grantedRoles: Object.freeze(["client"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze(["account", "client_end", "credential"]),
+    requiredPath: Object.freeze([]),
   },
   {
     id: "authMe",
@@ -92,6 +93,7 @@ const ENDPOINTS = Object.freeze([
     grantedRoles: Object.freeze(["client"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze([]),
   },
   {
     id: "reportBandAvailableDates",
@@ -101,6 +103,7 @@ const ENDPOINTS = Object.freeze([
     grantedRoles: Object.freeze(["client"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze(["device_id", "history_type", "probed_at", "valid_history_dates"]),
+    requiredPath: Object.freeze([]),
   },
   {
     id: "reportBandSyncBatch",
@@ -110,6 +113,7 @@ const ENDPOINTS = Object.freeze([
     grantedRoles: Object.freeze(["client"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze(["batch_no", "customer_id", "device_id", "state", "synced_at", "trigger"]),
+    requiredPath: Object.freeze([]),
   },
   {
     id: "upsertBandTelemetry",
@@ -119,6 +123,7 @@ const ENDPOINTS = Object.freeze([
     grantedRoles: Object.freeze(["client"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze(["device_id", "metric"]),
+    requiredPath: Object.freeze([]),
   },
   {
     id: "getCustomer",
@@ -128,6 +133,7 @@ const ENDPOINTS = Object.freeze([
     grantedRoles: Object.freeze(["client"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "getAssessment",
@@ -137,6 +143,7 @@ const ENDPOINTS = Object.freeze([
     grantedRoles: Object.freeze(["client"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["assessment_id", "id"]),
   },
   {
     id: "getBandSyncStatus",
@@ -146,6 +153,7 @@ const ENDPOINTS = Object.freeze([
     grantedRoles: Object.freeze(["client"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "getBandTelemetry",
@@ -155,6 +163,7 @@ const ENDPOINTS = Object.freeze([
     grantedRoles: Object.freeze(["client"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "listDailyReports",
@@ -164,6 +173,7 @@ const ENDPOINTS = Object.freeze([
     grantedRoles: Object.freeze(["client"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "submitDailyReport",
@@ -173,6 +183,7 @@ const ENDPOINTS = Object.freeze([
     grantedRoles: Object.freeze(["client"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze(["answers_json", "date", "source"]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "getIntakeProfile",
@@ -182,6 +193,7 @@ const ENDPOINTS = Object.freeze([
     grantedRoles: Object.freeze(["client"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "listVisits",
@@ -191,6 +203,7 @@ const ENDPOINTS = Object.freeze([
     grantedRoles: Object.freeze(["client"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "getPlan",
@@ -200,6 +213,7 @@ const ENDPOINTS = Object.freeze([
     grantedRoles: Object.freeze(["client"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "listScaleItemBanks",
@@ -209,6 +223,7 @@ const ENDPOINTS = Object.freeze([
     grantedRoles: Object.freeze(["client"]),
     requiredQuery: Object.freeze(["age_group"]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze([]),
   },
 ]);
 

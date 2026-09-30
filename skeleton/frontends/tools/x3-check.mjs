@@ -77,6 +77,8 @@ const entries = [];
       .split(',').map((s) => s.trim().replace(/"/g, '')).filter(Boolean);
     const reqQ = /requiredQuery:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(tail);
     const reqB = /requiredBody:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(tail);
+    // 🛑 第 71 条：path 参数（URL 占位符 `{id}`）此前从未被转录。
+    const reqP = /requiredPath:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(tail);
     // 🛑 三态分开：正则**没匹配** ⇒ undefined ⇒ null（解析层自检会报红）；
     //    匹配到空数组 ⇒ 空串 ⇒ []（该端点无必需参数）。写 `x ? x[1] : null`
     //    会在没匹配时传 null 而 `null.split` 崩溃（实测于端 A，第 66 条同批）。
@@ -90,6 +92,7 @@ const entries = [];
       roles,
       requiredQuery: parseNames(reqQ === null ? undefined : reqQ[1]),
       requiredBody: parseNames(reqB === null ? undefined : reqB[1]),
+      requiredPath: parseNames(reqP === null ? undefined : reqP[1]),
     });
   }
 }
@@ -101,13 +104,13 @@ if (entries.length === 0) {
 // 🛑 解析层自检（第 53 条）：必需参数字段必须真的解析出来了，
 //    否则 ⑨ 判据会对全部端点静默放行 —— 那是"看不见的绿"。
 {
-  const miss = entries.filter((e) => e.requiredQuery === null || e.requiredBody === null);
+  const miss = entries.filter((e) => e.requiredQuery === null || e.requiredBody === null || e.requiredPath === null);
   if (miss.length) {
     fail('parse-fields',
-      `${miss.length} 个端点未解析出 requiredQuery/requiredBody ⇒ ⑨ 必需参数判据会静默放过它们。`
+      `${miss.length} 个端点未解析出 requiredQuery/requiredBody/requiredPath ⇒ ⑨ 必需参数判据会静默放过它们。`
       + `例：${miss[0].id}`);
   } else {
-    ok('parse-fields', `全部 ${entries.length} 个端点均解析出 requiredQuery / requiredBody`);
+    ok('parse-fields', `全部 ${entries.length} 个端点均解析出 requiredQuery / requiredBody / requiredPath`);
   }
 }
 
@@ -573,12 +576,13 @@ if (therOnly.length > 0) {
   for (const e of entries) {
     const needQ = e.requiredQuery ?? [];
     const needB = e.requiredBody ?? [];
-    if (!needQ.length && !needB.length) continue;
+    const needP = e.requiredPath ?? [];
+    if (!needQ.length && !needB.length && !needP.length) continue;
     const sites = CALL_SITES.get(e.id);
     if (!sites || !sites.length) continue;
     const blocks = sites.flatMap((s) => outboundBlocks(s.text, e.id));
     if (!blocks.length) continue;
-    for (const [key, names] of [['query', needQ], ['body', needB]]) {
+    for (const [key, names] of [['query', needQ], ['body', needB], ['params', needP]]) {
       if (!names.length) continue;
       const cs = blocks.map((b) => carrierOf(b, key)).filter((c) => c !== null);
       if (!cs.length) {
@@ -608,7 +612,7 @@ if (therOnly.length > 0) {
   let withReq = 0;
   let checked = 0;
   for (const e of entries) {
-    const need = [...(e.requiredQuery ?? []), ...(e.requiredBody ?? [])];
+    const need = [...(e.requiredQuery ?? []), ...(e.requiredBody ?? []), ...(e.requiredPath ?? [])];
     if (!need.length) continue;
     withReq += 1;
     const sites = CALL_SITES.get(e.id);

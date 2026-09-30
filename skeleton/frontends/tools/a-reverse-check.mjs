@@ -504,6 +504,23 @@ await injection({
 });
 
 // ---------------------------------------------------------------------------
+// I21 【第 71 条核心回归 · path 参数漏传】把 URL 占位符 `{id}` 的实参从 params 摘掉
+//      ⇒ 期望 required-args-wired 报红
+// ---------------------------------------------------------------------------
+// 🛑 为什么单独立一条：path 参数此前**从未被转录**（契约用 `$ref` 复用命名参数 23 处
+//    + 内联 `in: path`，生成器两种形态都跳过）⇒ 30 个端点里的 path 占位符
+//    在过去**没有任何判据见过**。漏传的后果是静默的：`fillPath()` 只替换 params 里
+//    出现过的键、不做残留检查 ⇒ 会把字面量 `{id}` 拼进 URL 发出去（后端路由不匹配）。
+//    本用例把 `getCustomer` 的 `params: { id: customerId }` 换成 `params: {}`。
+await injection({
+  name: 'I21 摘掉 getCustomer 的 path 占位符实参 id（URL 会拼出字面量 {id}）',
+  path: join(SRC, 'services', 'domain.ts'),
+  from: "  return call<CustomerDetail>('getCustomer', { params: { id: customerId } }).then((r) => r.data);",
+  to: "  return call<CustomerDetail>('getCustomer', { params: {} }).then((r) => r.data);",
+  expectGate: 'required-args-wired',
+});
+
+// ---------------------------------------------------------------------------
 // 汇总
 // ---------------------------------------------------------------------------
 console.log('===== 端 A 反向验证（每组：注入 → 必须变红 → 还原 → 必须变绿）=====');

@@ -444,6 +444,21 @@ const CASES = [
       return s.replace(anchor, 'var query = {}; var misplaced_age_group = ageGroup;');
     },
   },
+  {
+    id: 'R25',
+    end: 'client-mp',
+    rel: 'miniprogram/services/domain.js',
+    title: '端 C：摘掉 getCustomer 的 path 占位符实参 id（URL 会拼出字面量 {id}）',
+    expectItem: 'required-args-wired',
+    // 🛑 第 71 条：path 参数（URL 占位符）此前**从未被转录**（契约用 `$ref` 复用
+    //    命名参数 23 处 + 内联 `in: path`，生成器两种都跳过）⇒ 判定"URL 里有没有
+    //    被替换"这件事过去没有任何判据在管。漏传会拼出字面量 `{id}` 发出去。
+    mutate: (s) => {
+      const anchor = "request.call('getCustomer', { params: { id: id } })";
+      if (!s.includes(anchor)) return s;
+      return s.replace(anchor, "request.call('getCustomer', { params: {} })");
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------

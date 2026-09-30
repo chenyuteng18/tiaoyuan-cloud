@@ -133,6 +133,19 @@ export interface Endpoint {
    * tsc / 构建 / 全部门禁一律绿。故把它机械转录出来供判据核对。
    */
   readonly requiredQuery: readonly string[];
+  /**
+   * 🛑 契约 **path 参数**名（本仓第 71 条）—— URL 里的 `{id}` 占位符。
+   *
+   * 漏传的后果是**静默**的：`fillPath()` 只替换 params 里出现过的键、
+   * 不做残留检查 ⇒ 会把字面量 `{id}` 拼进 URL 发出去（后端路由不匹配）。
+   * 契约 P2 逐字：path 参数恒 required，即 `{id}` 占位符必须在 URL 里被替换。
+   *
+   * 🛑 为什么此前一直没被转录（两种形态各有一份静默）：
+   *   ① 契约用 `$ref: '#/components/parameters/XxxId'` 复用命名参数（23 处）
+   *      ⇒ `prm.get("in")` 对 `$ref` 字典返回 None ⇒ 全部跳过；
+   *   ② 内联 `in: path` ⇒ 原代码只认 `in: query` ⇒ 全部跳过。
+   */
+  readonly requiredPath: readonly string[];
   /** 🛑 契约 requestBody schema 的 required 字段名（未声明 requestBody 时为空）。 */
   readonly requiredBody: readonly string[];
 }
@@ -172,6 +185,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze(["account", "client_end", "credential"]),
+    requiredPath: Object.freeze([]),
   },
   {
     id: "authMe",
@@ -181,6 +195,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze([]),
   },
   {
     id: "createCustomer",
@@ -190,6 +205,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze(["age", "gender", "name", "phone", "screening_id"]),
+    requiredPath: Object.freeze([]),
   },
   {
     id: "getCustomer",
@@ -199,6 +215,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "submitBaselineAssessment",
@@ -208,6 +225,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze(["age_group_locked", "dimension_scores", "item_group_id", "measure_operator", "scale_id", "total_score"]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "getAssessment",
@@ -217,6 +235,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["assessment_id", "id"]),
   },
   {
     id: "getBandDerived",
@@ -226,6 +245,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "getBandTelemetry",
@@ -235,6 +255,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "signConsent",
@@ -244,6 +265,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "submitCycleAssessment",
@@ -253,6 +275,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze(["adherence", "cycle_id", "module_scores", "sequence_no"]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "listDailyReports",
@@ -262,6 +285,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "submitDailyReport",
@@ -271,6 +295,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze(["answers_json", "date", "source"]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "getIntakeProfile",
@@ -280,6 +305,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "patchIntakeProfile",
@@ -289,6 +315,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "listVerdicts",
@@ -298,6 +325,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "listVisits",
@@ -307,6 +335,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "createVisit",
@@ -316,6 +345,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "createVerdict",
@@ -325,6 +355,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze(["adherence", "confidence", "core_metric_improved", "customer_id", "module_scores", "risk_flag", "same_origin", "sequence_no"]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "createDeviceDispatch",
@@ -334,6 +365,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze([]),
   },
   {
     id: "createPlan",
@@ -343,6 +375,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze([]),
   },
   {
     id: "getPlan",
@@ -352,6 +385,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "reviewPlan",
@@ -361,6 +395,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "createRefund",
@@ -370,6 +405,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze(["customer_id", "entry", "reason_code", "refund_route", "requested_at"]),
+    requiredPath: Object.freeze([]),
   },
   {
     id: "getRefund",
@@ -379,6 +415,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "createRefundReceipt",
@@ -388,6 +425,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "createRetention",
@@ -397,6 +435,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze(["id"]),
   },
   {
     id: "listScaleItemBanks",
@@ -406,6 +445,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze(["age_group"]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze([]),
   },
   {
     id: "createScreeningRecord",
@@ -415,6 +455,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze(["customer_id", "items_json", "operator_id"]),
+    requiredPath: Object.freeze([]),
   },
   {
     id: "listStores",
@@ -424,6 +465,7 @@ export const ENDPOINTS: readonly Endpoint[] = Object.freeze([
     grantedRoles: Object.freeze(["therapist", "meridian"]),
     requiredQuery: Object.freeze([]),
     requiredBody: Object.freeze([]),
+    requiredPath: Object.freeze([]),
   },
 ]);
 
