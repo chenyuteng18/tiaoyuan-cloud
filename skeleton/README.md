@@ -2384,15 +2384,15 @@ cfg:verdict.* 全集（机械读 02_slots_seed.sql 提取）
   ② 若保留切面 —— 是否要求它成为**必由之路**（而非可选标注）？
   ③ 裁定前是否先补一例**"切点真的匹配到某处"**的断言（现 `RlsSessionAspectTest` 5 例只直接调 `applyTenantSession()`）？
   ⚠️ **口径纠正**：上一轮记忆里的"19 个 `*Ledger` / 142 处调用"是**未剥注释的粗测**，本轮纠正为 **18 个载体 / 139 处调用 / 19 处语句**。
-- [ ] **Silo 升级预留 `tenant.datastore_hint`**：字段已留位，逻辑未实现（ADR-01）。
+- [x] **Silo 升级预留 `tenant.datastore_hint`**：字段已留位，逻辑未实现（ADR-01）。　🛑 **2026-10-01 实测回写**：**登记备查（非待办）** —— 该字段是 ADR-01 的**升级预留位**，属「已按设计留位、待 Silo 级客户出现时才实现」，**不是遗漏**。本轮不改动其实现状态。
 - [ ] **`dy-security` 权限矩阵**：`PermissionRegistry` 为骨架预置映射；真实矩阵须来自配置/策略服务，并与 `A2 /auth/me` 档位解算保持一致（声明 ≠ 授权）。
 - [x] ~~**`band_telemetry` 的 ★ 三张补拉表未建**~~ → **已作废（2026-09-30 实测回改）**：本行原写「三张手环补拉表属后续增项（V3 不建）」——
     **该句已滞后**：**V5 第 899 / 946 / 990 行**已分别建 `band_sync_probe` / `band_sync_log` / `band_daily_coverage` 三表（均 `ENABLE`+`FORCE RLS`），
     **且 A-3（V22，批次二十一）已补齐其写入通路** ⇒ 「未建」与「未开通」**两栏同时不成立**。
     ⚠️ 本轮**只回改这一行**，不改动其余章节；同类"登记滞后于代码"的处置范式见 §八。
-- [ ] **`band_telemetry.data_source` 取值语言：以契约为准 —— 待裁点已收窄（N-2，2026-09-27）**：现值中文 `('手环','未接入')`，同表 `metric`/`gap_reason`/`sync_state` 均为英文 token。**机械裁定依据**：契约 `BandTelemetryData.data_source` 的 `enum` **逐字冻结为中文** `[手环, 未接入]` 且 `x-visible-to: [client, therapist, meridian, admin]`（客户可见）⇒ 改动它属 §1.4 **MAJOR** 级契约变更，**不能由实现侧自行统一**。故「**以契约为准**」，实现与 V3 的 CHECK 取值集**逐字对齐契约**（由 `UpstreamGapRegistryTest.data_source_language_matches_the_frozen_contract_enum` 机械守护：契约 enum、V3 CHECK、字典登记三处互钉）。
+- [x] **`band_telemetry.data_source` 取值语言：以契约为准 —— 待裁点已收窄（N-2，2026-09-27）**：现值中文 `('手环','未接入')`，同表 `metric`/`gap_reason`/`sync_state` 均为英文 token。**机械裁定依据**：契约 `BandTelemetryData.data_source` 的 `enum` **逐字冻结为中文** `[手环, 未接入]` 且 `x-visible-to: [client, therapist, meridian, admin]`（客户可见）⇒ 改动它属 §1.4 **MAJOR** 级契约变更，**不能由实现侧自行统一**。故「**以契约为准**」，实现与 V3 的 CHECK 取值集**逐字对齐契约**（由 `UpstreamGapRegistryTest.data_source_language_matches_the_frozen_contract_enum` 机械守护：契约 enum、V3 CHECK、字典登记三处互钉）。　🛑 **2026-10-01 实测回写**：**已裁定并落地** —— 结论是「**以契约为准**」，实现与 V3 的 CHECK 取值集**逐字对齐契约**中文字面；由 `UpstreamGapRegistryTest.data_source_language_matches_the_frozen_contract_enum` 机械守护（契约 enum × V3 CHECK × 字典登记**三处互钉**）。⚠️ 仅剩「是否值得为风格统一做一次 MAJOR 级契约变更」属契约 owner 裁定。
   **待裁点已从「是否统一为英文」收窄为**：**是否值得为"风格统一"做一次 MAJOR 级契约变更**（即先改契约 enum 再改实现与库）——**属契约 owner 裁定，不代拍**。相关登记见字典 §2.17【缺陷登记】块。
-- [ ] **客户端受理通路在契约中缺位（S1-6 抓出的欠账，登记不代拍）**：`clientPaths.js` 原白名单含 `/receipt/list`、`/receipt/detail`，而 **OpenAPI 45 端点中根本不存在这两个路径**。PRD 记录客户回执走**微信订阅消息**、G5 回执状态位**仅经络师端可见**，故契约对此无答案 —— 究竟是**客户端臆造**、还是**契约该补一个客户受理通路**，需**契约 owner + 产品共签**。已从白名单移除（移除不等于裁定；门禁只会拒绝"够到被拒端点"，不会替产品决定"要不要这个端点"）。
+- [x] **客户端受理通路在契约中缺位（S1-6 抓出的欠账，登记不代拍）**：`clientPaths.js` 原白名单含 `/receipt/list`、`/receipt/detail`，而 **OpenAPI 45 端点中根本不存在这两个路径**。PRD 记录客户回执走**微信订阅消息**、G5 回执状态位**仅经络师端可见**，故契约对此无答案 —— 究竟是**客户端臆造**、还是**契约该补一个客户受理通路**，需**契约 owner + 产品共签**。已从白名单移除（移除不等于裁定；门禁只会拒绝"够到被拒端点"，不会替产品决定"要不要这个端点"）。　🛑 **2026-10-01 实测回写**：**已按"不臆造"处置完成** —— `/receipt/list`、`/receipt/detail` **已从 `clientPaths.js` 白名单移除**，门禁不再放行未知端点。⚠️「契约该不该补一个客户受理通路」仍属**契约 owner + 产品共签**，本行保留该裁定边界，**不写成「已收口」**。
 - [ ] **`CLIENT_BAND_DISPLAY_DAYS = 14` 与 E5「N 取运行时探测值、禁硬编码天数」的关系待裁**：客户端包内存在硬编码显示窗口 14 天，而 E5 契约要求 N 取**运行时探测值**。显示窗口是否属于"营业口径"而非"探测口径"、是否应改为读 E5 返回值，**未裁**。
 - [ ] **可见性矩阵 ①② 组的「概念性命名」待契约 owner 复核（S1-8 登记，不代拍）**：矩阵 ①② 两组用的是**概念名**而非契约字段名 —— ② 组 `captured_days` / `link_state` 既非契约 property 也非 enum 取值（契约表达为 `collected_days` / `synced_date` / `data_source`）；① 组六个名字全是 `metric` enum 的**取值**（`sleep` vs `sleep_minutes`）。S1-8 **刻意不把这类差异判为违规**（对正确内容叫狼的门禁会被关掉），只作信息列出。但"概念性分组是否应改写为逐字字段名"是**命名口径裁定**，需契约 owner 决定；另矩阵 `_note` 的语义准确性亦需一并复核。
 - [x] ~~**`generator-matrix.yaml` 每端存在 DEAD 行（S1-8 清点，不代拍）**~~ → **已收口（2026-09-28 · 批次十八 · B-4）**：
@@ -2411,7 +2411,7 @@ cfg:verdict.* 全集（机械读 02_slots_seed.sql 提取）
   🛑 **数字口径变更（如实登记）**：therapist-app 的 role-disjoint 由原登记 **15** 变为 **16** ——
   因 H1 从"被声明排除"改为"纯 role-disjoint"。原 15 是"永不生效且未声明"的子集计数，
   16 是**完整划分**下的计数；两者都对，但**含义不同**，此处一并写明以免后人复算时对不上。
-- [ ] **`client_error_codes` 未覆盖 1001 / 2003 / 2004（合法，登记备查）**：客户端错误文案表覆盖 9 个码，契约 12 个。差额中多数是**刻意不渲染给客户**的码（如内部错误），故 S1-8 FACE 2 只做**单向**检验（文案里的码必须真实存在），**不要求覆盖全部契约码** —— 覆盖与否属产品文案口径，非门禁职责。
+- [x] **`client_error_codes` 未覆盖 1001 / 2003 / 2004（合法，登记备查）**：客户端错误文案表覆盖 9 个码，契约 12 个。差额中多数是**刻意不渲染给客户**的码（如内部错误），故 S1-8 FACE 2 只做**单向**检验（文案里的码必须真实存在），**不要求覆盖全部契约码** —— 覆盖与否属产品文案口径，非门禁职责。　🛑 **2026-10-01 实测回写**：**合法状态，非待办** —— 本行原文已逐字声明「差额中多数是刻意不渲染给客户的码」，故 S1-8 FACE 2 只做**单向**检验。**覆盖与否属产品文案口径，非门禁职责** ⇒ 登记备查。
 - [x] ~~**`dy-crypto` 目前无调用方 ⇒ 加密未生效**~~ → **B-1 已收口（2026-09-26）**：dy-app 已依赖 dy-crypto，加密链路在**真库 + 真密钥栈 + 真 HTTP** 上端到端跑通。落地清单：
 
   | 件 | 内容 |
@@ -2445,8 +2445,8 @@ cfg:verdict.* 全集（机械读 02_slots_seed.sql 提取）
 
 **S2 退款域（契约域 G）新增欠账**（`S2-6` 登记，均**不代拍**）：
 
-- [ ] **`store_customer_service` 角色无端（契约侧缺口，已落机械守护，N-5，2026-09-27）**：`RefundAudienceRole` 含 `STORE_CUSTOMER_SERVICE`，而契约 `x-callable-roles` **全部 45 端点中无该角色**。已用 `PermissionCodeRegistrationGateTest` 钉住"它不持有任何 `refund:*`"（纵深防御），**本轮再补契约侧守护**：`UpstreamGapRegistryTest.store_customer_service_has_no_endpoint_in_the_contract` —— ① 契约 `x-roles` 对该角色登记为**双 `null`**（`token-role: null, end: null`，即"不使用本系统、没有账号"）；② 可见性矩阵**四组全 false**；③ **45 个 operationId 均无该角色**。但"该角色是否应在契约中拥有端点"属**契约 owner 裁定**。相关：用户记忆中的 **P0-19 未决问题** —— 门店/客服与区域督导的退款文案可见性待拍板。
-- [ ] **契约 §2.0 缺「未知角色」错误码（契约侧缺口，已落机械守护，N-6，2026-09-27）**：`OrgLevel.fromRole` / 角色解算对**未登记角色** fail-closed 抛错，但契约 12 个错误码中**无"未知角色"码**，只能复用 `VISIBILITY_DENIED(2001)`。而 `TENANT_MISMATCH(2003)` 是**跨租户**语义 —— 两者**排查方向完全不同**（一个是"角色没登记"，一个是"租户不匹配"）。本轮已在 E2E 断言失败信息里写明该区分，**再补契约侧守护**：`UpstreamGapRegistryTest.contract_error_code_table_has_no_unknown_role_code` —— 读契约**顶层 `x-error-codes`**（不是 `components.schemas`，这是首版误判点），断言表恰为**冻结 12 条**、**无"未知角色"码**、含 `2001`/`2003`。**契约是否应补一个码**待裁定（属契约 owner）。
+- [x] **`store_customer_service` 角色无端（契约侧缺口，已落机械守护，N-5，2026-09-27）**：`RefundAudienceRole` 含 `STORE_CUSTOMER_SERVICE`，而契约 `x-callable-roles` **全部 45 端点中无该角色**。已用 `PermissionCodeRegistrationGateTest` 钉住"它不持有任何 `refund:*`"（纵深防御），**本轮再补契约侧守护**：`UpstreamGapRegistryTest.store_customer_service_has_no_endpoint_in_the_contract` —— ① 契约 `x-roles` 对该角色登记为**双 `null`**（`token-role: null, end: null`，即"不使用本系统、没有账号"）；② 可见性矩阵**四组全 false**；③ **45 个 operationId 均无该角色**。但"该角色是否应在契约中拥有端点"属**契约 owner 裁定**。相关：用户记忆中的 **P0-19 未决问题** —— 门店/客服与区域督导的退款文案可见性待拍板。　🛑 **2026-10-01 实测回写**：**已落机械守护** —— `UpstreamGapRegistryTest.store_customer_service_has_no_endpoint_in_the_contract` 三向钉住（`x-roles` 双 null · 可见性矩阵四组全 false · 45 operationId 均无该角色）。⚠️「该角色是否应在契约中拥有端点」属**契约 owner 裁定**，且与 **P0-19**（门店/客服与区域督导退款文案可见性）**同一未决问题**。
+- [x] **契约 §2.0 缺「未知角色」错误码（契约侧缺口，已落机械守护，N-6，2026-09-27）**：`OrgLevel.fromRole` / 角色解算对**未登记角色** fail-closed 抛错，但契约 12 个错误码中**无"未知角色"码**，只能复用 `VISIBILITY_DENIED(2001)`。而 `TENANT_MISMATCH(2003)` 是**跨租户**语义 —— 两者**排查方向完全不同**（一个是"角色没登记"，一个是"租户不匹配"）。本轮已在 E2E 断言失败信息里写明该区分，**再补契约侧守护**：`UpstreamGapRegistryTest.contract_error_code_table_has_no_unknown_role_code` —— 读契约**顶层 `x-error-codes`**（不是 `components.schemas`，这是首版误判点），断言表恰为**冻结 12 条**、**无"未知角色"码**、含 `2001`/`2003`。**契约是否应补一个码**待裁定（属契约 owner）。　🛑 **2026-10-01 实测回写**：**已落机械守护** —— `UpstreamGapRegistryTest.contract_error_code_table_has_no_unknown_role_code` 断言契约顶层 `x-error-codes` 恰为**冻结 12 条**、无「未知角色」码、含 `2001`/`2003`。⚠️「契约是否应补一个码」属**契约 owner 裁定**。
 - [x] ~~**G1/G3/G5 的写路径真请求断言只覆盖 `meridian`**~~ → **C-3 已收口（2026-09-27 · 批次十一）**：`RefundWritePathMatrixE2ETest`（16 例）把矩阵补齐为 **4 角色 × 3 写端点**，且**角色集不手抄** —— 从契约 `x-callable-roles` × `x-roles.token-role` 机械展开（`admin → manager/area/hq`，`token-role: null` 的无端角色显式跳过），并加「展开结果 = 显式期望值」自证：契约改了角色集、矩阵会**自动去测新角色**（手抄时代那行根本不会跑到）。反向验证：往契约 G1 注入 `therapist` ⇒ 矩阵自动去测并抓出 `403`；恢复后 16/16 绿。**读方向（G2）4 角色矩阵**亦在同套件内。**原登记"只由码级门禁保证"已不成立**，本行原登记滞后。
 - [x] ~~**`RefundWorkOrderLedger` 的真库读写隔离与乐观并发断言**：~~`UPDATE ... AND outcome = ? AND outcome <> '归档'` 是**唯一改写路径**，其乐观并发（版本冲突 4001/4002）尚无真库断言~~ → **C-4 已收口（2026-09-27）**，见下方专节。
   - **`refund_receipt` / `refund_offline_notice` 的字段级真库约束**：
@@ -2489,7 +2489,7 @@ cfg:verdict.* 全集（机械读 02_slots_seed.sql 提取）
   `adherence_gate.min = 0.8` ≡ `#4` 的 `0.80`（判定链读的是 #4）；`range` 与 `#35 cfg:scale.range_rule` **逐字相同**；
   `module_total_max = 16` 同 `#33`。⇒ **同一业务数字在一处以上被声明**，当前重合、未来有分歧风险。
   是否收敛（删冗余 / 改为引用 / 明确"#30 仅对内文档"）属 **config owner 裁定**；本台账只指出同值事实。
-- [ ] **46 槽中有 28 槽"声明了但生产代码未消费"（批次十首次全量清点 → 批次十一复核更新）**：
+- [x] **46 槽中有 28 槽"声明了但生产代码未消费"（批次十首次全量清点 → 批次十一复核更新）**：　🛑 **2026-10-01 实测回写**：**本行已自证为"登记备查"** —— 其正文逐字写明「**原登记点名的两条"真缺陷候选"已全部收口**」（`#21` 已接线 · `#30` 属命名口径非代码缺陷），余下 28 槽「属**预期的分期落地**（所属域尚未开工）」。台账由 `ConfigSlotConsumptionLedgerTest` 机械核对（18 ∪ 28 = 46 互斥且并为全集）。⚠️ 其声明的**诚实边界**仍成立：静态扫描不判"引用是否真的走了运行时路径"。
   实测消费面 = **18 已消费 ∪ 28 未消费 = 46**（`ConfigSlotConsumptionLedgerTest` 机械核对；批次十一把 `#21`/`#22` 由未消费移入已消费，故 16/30 → **18/28**）。
   大部分"未消费"属**预期的分期落地**（如 #14~#17 告警阈值、#31 回溯验收、#34/#37/#39 题库规则 ——
   其所属域尚未开工）；**原登记点名的两条"真缺陷候选"已全部收口**（`#21` 已接线见上；`#30` 见下，属命名口径登记、非代码缺陷）。
