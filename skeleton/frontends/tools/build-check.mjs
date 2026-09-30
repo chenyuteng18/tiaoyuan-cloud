@@ -40,6 +40,37 @@ const FRONTENDS = resolve(HERE, '..');
 const SKELETON_ROOT = resolve(FRONTENDS, '..');
 const COMPLIANCE = join(SKELETON_ROOT, 'compliance');
 
+/**
+ * 🛑 `vite build` 的 argv（端 A / 端 B 共用）—— 为什么不直接写 `['build']`：
+ *
+ * vite 默认在构建前**清空 outDir**（`emptyOutDir` 默认 true），实现方式是
+ * `fs.rmSync(dist/assets, {recursive:true})`。而本机运行环境装了一层
+ * **安全删除守卫**（node-safe-delete-shim），它对"单轮累计删除文件数超过阈值"
+ * 的动作直接抛错：
+ *
+ *     [safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED]
+ *     {"count":627,"threshold":50,"scope":"turn","targets":["...\dist\assets"]}
+ *
+ * 后果分两层，两层都是**判据自身的缺陷**，而不是源码缺陷：
+ *   ① **条件性假红**：`real-build` 会随"本轮已经删了多少文件"这个**与代码无关的
+ *      变量**在绿/红之间跳 —— 与第 59 条（会随机变红的断言）同族，区别是本条的
+ *      随机源是**环境状态**而非随机数据；
+ *   ② **报错指向被检对象**：失败信息是一条 `dist/assets` 路径 + 一段 shim 栈，
+ *      读起来像"产物目录有问题"，真因（宿主的删除守卫）完全看不出 —— 与第 24 条
+ *      （检验工具把自己的残骸当成了被检对象）同族。
+ *
+ * 故本判据显式传 `--emptyOutDir=false`：产物的正确性不依赖"先清空"——
+ * vite 产物文件名带内容哈希，重新构建会**覆盖**同名文件并按新图重写
+ * `index.html`，残留的旧哈希文件不被引用、不影响结论。少一次批量删除，
+ * 判据就与环境状态解耦了。
+ *
+ * 🛑 注意这**不是**"放宽判据"：`vite build` 仍真实执行、仍必须 exit=0，
+ *    只是不让它去删一个与被检语义无关的目录。
+ */
+function viteBuildArgv() {
+  return ['build', '--emptyOutDir=false'];
+}
+
 /** 三端的差异，全部收敛在这里。 */
 const ENDS = {
   'client-mp': {
@@ -105,7 +136,7 @@ const ENDS = {
     envFile: 'src/env/index.ts',
     realBuild: [
       { name: 'tsc --noEmit', bin: 'node_modules/typescript/bin/tsc', argv: ['--noEmit'] },
-      { name: 'vite build', bin: 'node_modules/vite/bin/vite.js', argv: ['build'] },
+      { name: 'vite build', bin: 'node_modules/vite/bin/vite.js', argv: viteBuildArgv() },
     ],
   },
   'admin-web': {
@@ -149,7 +180,7 @@ const ENDS = {
     envFile: 'src/env/index.ts',
     realBuild: [
       { name: 'tsc --noEmit', bin: 'node_modules/typescript/bin/tsc', argv: ['--noEmit'] },
-      { name: 'vite build', bin: 'node_modules/vite/bin/vite.js', argv: ['build'] },
+      { name: 'vite build', bin: 'node_modules/vite/bin/vite.js', argv: viteBuildArgv() },
     ],
   },
 };
@@ -634,6 +665,15 @@ if (cfg.outbound) {
         badGen.push(`PAGINATION.${key} 缺失或 ≠ 契约值 ${lit}`);
       }
     }
+    // 🛑 ERROR_DATA_FIELDS（第 61 条）：拒绝响应的 data 载荷字段名。
+    //    「值漂移」与「键缺失」都要报 —— 只判存在会让改值静默通过（第 52 条）。
+    const expectedErrFields = [['2002', 'missing_items'], ['2001', 'denied_fields']];
+    for (const [code, field] of expectedErrFields) {
+      const re = new RegExp(`\\b${code}\\s*:\\s*"${field}"\\s*[,}]`);
+      if (!re.test(genSrc2)) {
+        badGen.push(`ERROR_DATA_FIELDS[${code}] 缺失或 ≠ 契约值 "${field}"`);
+      }
+    }
     if (badGen.length) {
       fail('cross-end-protocol',
         `${genRel2} 的 PROTOCOL 常量组与契约 x-api-protocol 不一致:\n      ${badGen.join('\n      ')}\n`
@@ -750,6 +790,80 @@ if (cfg.outbound) {
     }
   }
 }
+}
+
+// ---------------------------------------------------------------------------
+// ④f 拒绝响应原因名：错误层必须经生成物常量取字段名（第 61 条）
+// ---------------------------------------------------------------------------
+// 🛑 它堵的洞
+//   契约 `forbidden-403` 写「message 必须给出缺失项名称 / 档位名称（**不得模糊报错**）」。
+//   这句话有**两半**：给人读的 message，和给机器读的 `data` 载荷字段名
+//   （2002→missing_items / 2001→denied_fields）。契约里这两个字段名**此前只有 prose**。
+//   实测三端全线缺半：
+//     · `client.ts` 在错误路径**丢掉 `body.data`**（只挂 code/message/traceId）；
+//     · 三端错误层只取 message ⇒ 用户永远看不到"到底缺什么"；
+//     · 端 A 的静态文案甚至对用户【承诺】了「响应 data.missing_items 列出缺失项」，
+//       而它自己从不读那个字段 —— 文案在替一个不存在的功能背书。
+//   ⇒ 契约要求的"给出名字"在客户端**完全没有到达**，而 tsc / 构建 / 门禁全绿。
+//     与第 57/58 条同族：**契约写下的协议与各端实现的协议是两件事，中间丢项不报错。**
+//
+//   判据两段（与 ④e 同构）：
+//     ① 生成物 ERROR_DATA_FIELDS 键值必须与契约一致（值漂移 = 红，见 ④d）；
+//     ② 出站层必须把 `body.data` 带出来（否则错误层无从取用）；
+//     ③ 错误层必须【引用形态】取字段名：`ERROR_DATA_FIELDS[` 成员访问 + 下标取用，
+//        且【不得手写】 'missing_items' / 'denied_fields' 字面量（除文档注释外）。
+if (cfg.outbound) {
+  const genRel3 = (END_ID === 'client-mp')
+    ? 'miniprogram/contract/endpoints.js'
+    : 'src/contract/endpoints.ts';
+  const outRel3 = cfg.outbound;
+  const errRel3 = (END_ID === 'client-mp')
+    ? 'miniprogram/services/codes.js'
+    : 'src/services/errors.ts';
+  const genP3 = join(END_ROOT, genRel3);
+  const outP3 = join(END_ROOT, outRel3);
+  const errP3 = join(END_ROOT, errRel3);
+
+  if (!existsSync(genP3) || !existsSync(outP3) || !existsSync(errP3)) {
+    fail('error-data-fields', `缺文件: ${genRel3} / ${outRel3} / ${errRel3}`);
+  } else {
+    const problems = [];
+    // ② 出站层必须在【错误对象上】保留 body.data（否则错误层拿不到原因名）。
+    // 🛑 判据必须判"错误对象上的赋值"这一【精准形态】—— 不能只判源码里出现过
+    //    `data:`：成功路径的 `return { data: body.data, ... }` 会让它恒真
+    //    （反向验证 R14 首跑即漏过，正是第 52 条「判据太宽 ⇒ 假绿」）。
+    //    形态：`err.data = <...>body.data`（端 A/B）或 `err.data = body && body.data`（端 C）。
+    const ob3 = stripComments2(readFileSync(outP3, 'utf8'));
+    const keepsErrData = /\berr\.data\s*=\s*[^;]*\bbody\.data\b/.test(ob3);
+    if (!keepsErrData) {
+      problems.push(`${outRel3} 的错误对象未保留响应 data（须有形如 \`err.data = body.data\` 的赋值）`
+        + ' —— 否则错误层无从取契约要求的原因名');
+    }
+    // ③ 错误层必须经生成物常量取字段名，且不得手写字面量
+    const errSrc = stripComments2(readFileSync(errP3, 'utf8'));
+    if (END_ID !== 'client-mp') {
+      // 端 A / 端 B 的字段名一律 `PROTOCOL.ERROR_DATA_FIELDS[code]`
+      if (!/ERROR_DATA_FIELDS\s*\[/.test(errSrc)) {
+        problems.push(`${errRel3} 未引用 PROTOCOL.ERROR_DATA_FIELDS[code] —— `
+          + '拒绝原因名必须经生成物常量取字段名');
+      }
+    } else if (!/ERROR_DATA_FIELDS\s*\[/.test(errSrc)) {
+      problems.push(`${errRel3} 未引用 PROTOCOL.ERROR_DATA_FIELDS[code]`);
+    }
+    for (const field of ['missing_items', 'denied_fields']) {
+      const re = new RegExp(`(['"\`])${field}\\1`);
+      if (re.test(errSrc)) {
+        problems.push(`${errRel3} 仍手写字段名字面量 "${field}" —— `
+          + '契约改字段名时这里不会跟着改（应经 PROTOCOL.ERROR_DATA_FIELDS 取）');
+      }
+    }
+    if (problems.length) {
+      fail('error-data-fields', problems.join('\n      '));
+    } else {
+      ok('error-data-fields',
+        `${outRel3} 保留错误响应 data；${errRel3} 经 PROTOCOL.ERROR_DATA_FIELDS 取原因名（无字面量）`);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

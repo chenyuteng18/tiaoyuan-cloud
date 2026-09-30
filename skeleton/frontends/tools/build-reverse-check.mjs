@@ -20,6 +20,9 @@
  *     追踪头名 / 信封成功码必须引用生成物 PROTOCOL 常量，不得手抄字面量；
  *   · `pagination-protocol`（第 58 条，R11–R13）—— 分页参数名必须经分页助手取自
  *     生成物 PROTOCOL.PAGINATION，不得手抄；且生成物键值不得漂移。
+ *   · `error-data-fields`（第 61 条，R14–R16）—— 契约「不得模糊报错」的机器可读那一半：
+ *     出站层必须保留错误响应 data，错误层必须经 PROTOCOL.ERROR_DATA_FIELDS 取字段名，
+ *     不得手写 'missing_items' / 'denied_fields' 字面量。
  *
  * 🛑 为什么在这里做而不再写一次性探针
  * ---------------------------------------------------------------------------
@@ -29,7 +32,7 @@
  * 退出码：0 全部通过（含还原后回绿）；1 有用例未被抓住 或 还原不干净。
  */
 
-import { readFileSync, writeFileSync, existsSync, copyFileSync, mkdirSync, rmSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, rmdirSync } from 'node:fs';
 import { join, dirname, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -45,14 +48,46 @@ const ENDS = {
 };
 
 // ---------------------------------------------------------------------------
-// 自愈：清掉上一次被中断留下的备份（本仓第 24 条：残留物会让下次跑报一个
-//      看不出真实原因的红）
+// 🛑 备份策略：**内存备份**，不用磁盘副本目录（本仓第 61 条顺带修掉的一个缺陷）
+//
+// 原实现把待变异文件 `copyFileSync` 到 `tools/_reverse_backup/`，跑完再
+// `rmSync` 删掉。本机运行环境装了一层**安全删除守卫**（node-safe-delete-shim），
+// 它对"单轮累计删除文件数 > 阈值"的动作直接抛错。而反向验证一轮要跑
+// 17 组用例 × （注入 + 还原）⇒ 删除量必然把阈值顶穿，于是：
+//
+//     [safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED]
+//     {"count":626,"threshold":50,"scope":"turn","targets":["...\_reverse_backup\R1__..."]}
+//
+// ⇒ **脚本会死在第 N 组用例的清理语句上**，而这个失败与"判据是否有牙齿"
+//   毫无关系。这与第 59 条（会随机变红的断言）同族：随机源是**环境状态**
+//   （本轮已经删了多少文件）而不是随机数据，同样会侵蚀门禁可信度。
+//
+// 改成内存备份后：全程**一次删除都不发生**（不 mkdir、不 copy、不 rm），
+// 还原就是一次 `writeFileSync` —— 比磁盘副本更可靠（磁盘副本在进程被杀时
+// 会留下残骸，那正是"第 24 条：检验工具把自己的残骸当成了被检对象"的成因）。
 // ---------------------------------------------------------------------------
-if (existsSync(BACKUP_DIR)) {
-  rmSync(BACKUP_DIR, { recursive: true, force: true });
-  process.stdout.write('自愈：清掉上一次遗留的 _reverse_backup/\n');
+const BACKUPS = new Map(); // absPath -> 原文
+function backup(abs) {
+  if (!BACKUPS.has(abs)) BACKUPS.set(abs, readFileSync(abs, 'utf8'));
+  return BACKUPS.get(abs);
 }
-mkdirSync(BACKUP_DIR, { recursive: true });
+function restore(abs) {
+  const src = BACKUPS.get(abs);
+  if (src === undefined) return false;
+  writeFileSync(abs, src, { encoding: 'utf8', newline: '\n' });
+  BACKUPS.delete(abs);
+  return true;
+}
+
+/** 兜底：进程异常退出时把仍未还原的文件写回（内存备份也能自愈）。 */
+function restoreAll() {
+  for (const [abs, src] of BACKUPS) {
+    try { writeFileSync(abs, src, { encoding: 'utf8', newline: '\n' }); } catch { /* 尽力而为 */ }
+  }
+  BACKUPS.clear();
+}
+process.on('uncaughtException', (e) => { restoreAll(); throw e; });
+process.on('unhandledRejection', (e) => { restoreAll(); throw e; });
 
 function run(cmd, argv, cwd) {
   return new Promise((res) => {
@@ -81,13 +116,10 @@ async function caseInject({ id, end, rel, title, mutate, expectItem }) {
   if (!existsSync(abs)) {
     return { id, ok: false, why: `文件不存在: ${end}/${rel}` };
   }
-  const backup = join(BACKUP_DIR, `${id}__${rel.replace(/[\\/]/g, '__')}`);
-  copyFileSync(abs, backup);
-
-  const before = readFileSync(abs, 'utf8');
+  const before = backup(abs);
   const after = mutate(before);
   if (after === before) {
-    copyFileSync(backup, abs);
+    restore(abs);
     return { id, ok: false, why: '变异未生效（mutate 返回了原文）—— 用例本身失效，须修正' };
   }
   writeFileSync(abs, after, { encoding: 'utf8', newline: '\n' });
@@ -96,8 +128,7 @@ async function caseInject({ id, end, rel, title, mutate, expectItem }) {
   try {
     red = await runBuildCheck(end);
   } finally {
-    copyFileSync(backup, abs);
-    rmSync(backup, { force: true });
+    restore(abs);
   }
 
   const caught = red.code !== 0 && red.out.includes(expectItem);
@@ -245,6 +276,36 @@ const CASES = [
       /q\[PROTOCOL\.PAGINATION\.PAGE_SIZE_FIELD\] = pageSize;/,
       "q['pageSize'] = pageSize;"),
   },
+
+  // --- 第 61 条：拒绝响应原因名（不得模糊报错）的反向验证 --------------------
+  {
+    id: 'R14',
+    end: 'admin-web',
+    rel: 'src/api/client.ts',
+    title: '端 A：出站层又在错误路径丢掉 body.data（用户将看不到原因名）',
+    expectItem: 'error-data-fields',
+    mutate: (s) => s.replace(/^\s*err\.data = body\.data;\n/m, ''),
+  },
+  {
+    id: 'R15',
+    end: 'therapist-app',
+    rel: 'src/services/errors.ts',
+    title: '端 B：错误层不再经生成物常量取字段名（改回手写 reasons 空数组）',
+    expectItem: 'error-data-fields',
+    mutate: (s) => s.replace(
+      /const field = PROTOCOL\.ERROR_DATA_FIELDS\[code\];/,
+      "const field = undefined;"),
+  },
+  {
+    id: 'R16',
+    end: 'client-mp',
+    rel: 'miniprogram/services/codes.js',
+    title: '端 C：字段名回退成手写字面量（契约改字段名时不会跟着改）',
+    expectItem: 'error-data-fields',
+    mutate: (s) => s.replace(
+      /var field = code === null \? null : contract\.PROTOCOL\.ERROR_DATA_FIELDS\[code\];/,
+      "var field = code === 2002 ? 'missing_items' : null;"),
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -256,16 +317,34 @@ for (const end of Object.keys(ENDS)) {
   const r = await runBuildCheck(end);
   if (r.code !== 0) {
     baselineOk = false;
+    // 第 24 条（复发）：只报 exit=1 而不报"哪个判据红了"，会把排查带向
+    // "是不是我改了代码"，而真实原因常是环境/并发/残骸。故这里必须把
+    // build-check 的失败明细原样带出。
+    //
+    // 🛑 一处初版自己犯的错（值得记录）：第一版只挑「含 ✗ / FAIL / ERROR /
+    //    BUILD 字样」的行 —— 而 vite / tsc 的真实报错行**一个这类字样都没有**
+    //    （如 `EPERM: operation not permitted, ...`），于是"明细"打印出来的
+    //    全是 ✓ 行 + 一句 `✗ real-build: vite build 失败`，**等于没打印**。
+    //    判"该打印哪些行"不能用关键词白名单，只能排除已知噪音行。
+    const detail = r.out
+      .split('\n')
+      .filter((l) => !l.includes('✓ structure'))
+      .join('\n    ');
     process.stdout.write(`\n  ✗ ${end} 基线不是绿的（exit=${r.code}）—— 先修好它再跑反向验证\n`);
+    if (detail.trim()) {
+      process.stdout.write(`    明细（build-check 原始输出，已剔结构行）:\n    ${detail}\n`);
+    } else {
+      process.stdout.write(`    （build-check 未打印任何行，原始输出长度=${r.out.length}）\n`);
+    }
   }
 }
 process.stdout.write(baselineOk ? '绿 ✓\n\n' : '');
 if (!baselineOk) {
-  rmSync(BACKUP_DIR, { recursive: true, force: true });
+  restoreAll();
   process.exit(1);
 }
 
-process.stdout.write('===== 构建自检 · base-path-wiring + cross-end-protocol 反向验证（注入 → 必须变红 → 还原 → 必须变绿）=====\n');
+process.stdout.write('===== 构建自检 · base-path-wiring + cross-end-protocol + pagination-protocol + error-data-fields 反向验证（注入 → 必须变红 → 还原 → 必须变绿）=====\n');
 const results = [];
 for (const c of CASES) {
   const r = await caseInject(c);
@@ -278,8 +357,7 @@ for (const c of CASES) {
 // ---------------------------------------------------------------------------
 // 收尾：必须还原干净、且三端回绿
 // ---------------------------------------------------------------------------
-rmSync(BACKUP_DIR, { recursive: true, force: true });
-const leftovers = readdirSync(HERE).filter((n) => n.startsWith('_reverse_backup'));
+restoreAll();
 const finalCodes = {};
 for (const end of Object.keys(ENDS)) {
   const r = await runBuildCheck(end);
@@ -288,12 +366,31 @@ for (const end of Object.keys(ENDS)) {
 const allGreen = Object.values(finalCodes).every((c) => c === 0);
 const passed = results.filter((r) => r.ok).length;
 
+// 🛑 一处刻意设计（第 24 条族）：本版已改为**内存备份**，全程不创建
+//    `_reverse_backup/`。故这里对它的判定**不能**当硬失败 —— 否则**旧版本
+//    遗留的一个空目录**就会让门禁报"异常 ✗"，而这个红与"判据有没有牙齿"
+//    毫无关系（读起来还像"残留没清干净"，把人带偏）。正确做法：只做诊断。
+//    - 目录存在且为空 → 尽力 rmdir（安全），打印一行提示，不改判定；
+//    - 目录存在且**非空** → 说明某次旧版运行崩在还原前，这时才值得提醒，
+//      但仍不改判定（真正的判定是"三端还原后是否回绿"）。
+let staleNotice = '';
+if (existsSync(BACKUP_DIR)) {
+  const stale = readdirSync(BACKUP_DIR);
+  if (stale.length === 0) {
+    try { rmdirSync(BACKUP_DIR); staleNotice = '\n（提示：清掉了旧版本遗留的空目录 tools/_reverse_backup/ —— 本版已改为内存备份，不再创建它）'; }
+    catch { staleNotice = '\n（提示：存在旧版本遗留的空目录 tools/_reverse_backup/，可手动删除）'; }
+  } else {
+    staleNotice = `\n（提示：tools/_reverse_backup/ 里有 ${stale.length} 个旧版本遗留的备份文件 `
+      + `—— 某次旧版运行崩在还原前。本版不依赖它，可手动删除；若担心源码被改，请核对 git status）`;
+  }
+}
+
 process.stdout.write(`\n合计 ${passed}/${results.length}\n`);
 process.stdout.write(`还原后三端构建自检：${Object.entries(finalCodes).map(([e, c]) => `${e}=${c}`).join(' · ')}`
-  + `${allGreen && leftovers.length === 0 ? '（全绿 ✓，无残留）' : '（异常 ✗）'}\n`);
+  + `${allGreen ? '（全绿 ✓，已按内存备份还原）' : '（异常 ✗）'}${staleNotice}\n`);
 
-if (passed === results.length && allGreen && leftovers.length === 0) {
-  process.stdout.write('\nbuild-check 反向验证 PASS —— 三条判据（base-path-wiring / cross-end-protocol / pagination-protocol）确实有牙齿，且还原干净。\n');
+if (passed === results.length && allGreen) {
+  process.stdout.write('\nbuild-check 反向验证 PASS —— 四条判据（base-path-wiring / cross-end-protocol / pagination-protocol / error-data-fields）确实有牙齿，且还原干净。\n');
   process.exit(0);
 }
 process.stdout.write('\nbuild-check 反向验证 FAIL。\n');

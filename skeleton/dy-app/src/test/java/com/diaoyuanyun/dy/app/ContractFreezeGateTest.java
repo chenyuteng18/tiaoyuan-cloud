@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -485,6 +486,92 @@ class ContractFreezeGateTest {
             assertTrue(respFields.contains(f) || "page".equals(str(f)) || "page_size".equals(str(f)),
                     "请求字段 " + f + " 既不在响应字段里、也不是 page/page_size ⇒ 声明可疑");
         }
+    }
+
+    // ======================================================================
+    // 拒绝响应的 data 载荷字段名（第 61 条）—— 「不得模糊报错」的机器可读那一半
+    // ======================================================================
+
+    /**
+     * <b>第 61 条</b>：契约 `forbidden-403` 那句「message 必须给出缺失项名称 / 档位名称
+     * （<b>不得模糊报错</b>）」有两半 —— 给人读的 {@code message}，与给机器读的
+     * <b>data 载荷字段名</b>。后者此前**只有 prose**（全仓 3 处，无一处结构化声明），
+     * 于是三端全线缺半：出站层在错误路径丢掉 {@code body.data}、错误层只取 message，
+     * 用户永远看不到"到底缺什么" —— 而契约、tsc、构建、门禁全绿。
+     *
+     * <p>本断言把三件事钉在一起：
+     * <ol>
+     *   <li>结构化块 {@code x-api-protocol.error-data-fields} 必填且取值冻结
+     *       （2002→missing_items / 2001→denied_fields）；</li>
+     *   <li>键必须与 {@code x-error-codes[].code} 逐字一致（本表用 code 数字串索引，
+     *       键写错 = 错误层取不到字段名）；</li>
+     *   <li>与 prose 双向互查 —— {@code forbidden-403} 必须同时写明两个字段名，
+     *       且 §3.2 / B1 描述里提过的名字必须与本块一致（两处都在、且一致）。</li>
+     * </ol>
+     */
+    @Test
+    void error_data_field_names_are_structured_and_agree_with_prose_and_error_codes()
+            throws IOException {
+        Sources s = load();
+        Map<String, Object> doc = s.openapi();
+
+        Map<String, Object> proto = cast(doc.get("x-api-protocol"), "x-api-protocol");
+        Map<String, Object> fields = cast(proto.get("error-data-fields"),
+                "x-api-protocol.error-data-fields");
+
+        // --- ① 冻结的两个映射 ---
+        assertEquals("missing_items", str(fields.get("2002")),
+                "GATE_MISSING(2002) 的 data 载荷字段名冻结为 missing_items");
+        assertEquals("denied_fields", str(fields.get("2001")),
+                "VISIBILITY_DENIED(2001) 的 data 载荷字段名冻结为 denied_fields");
+
+        // --- ② 键必须与 x-error-codes 的 code 逐字一致 ---
+        Map<String, Object> byCode = new HashMap<>();
+        for (Object e : asList(doc.get("x-error-codes"), "x-error-codes")) {
+            Map<String, Object> m = cast(e, "x-error-codes[]");
+            byCode.put(String.valueOf((int) m.get("code")), m);
+        }
+        for (String code : fields.keySet()) {
+            assertTrue(byCode.containsKey(code),
+                    "error-data-fields 的键 " + code + " 不在 x-error-codes 的 code 集合里 —— "
+                            + "错误层按 code 下标取字段名，键写错会静默取不到（第 61 条的成因）");
+            assertTrue(str(fields.get(code)).matches("[a-z][a-z0-9_]*"),
+                    "error-data-fields[" + code + "]=" + fields.get(code)
+                            + " 不是 snake_case 字段名 —— 契约字段一律 snake_case");
+        }
+
+        // --- ③ 与 prose（x-global-conventions.forbidden-403）双向互查 ---
+        Map<String, Object> conv = cast(doc.get("x-global-conventions"), "x-global-conventions");
+        String prose = str(conv.get("forbidden-403"));
+        assertNotNull(prose, "x-global-conventions.forbidden-403 不得缺失");
+        for (String code : fields.keySet()) {
+            String name = str(fields.get(code));
+            assertTrue(prose.contains(name),
+                    "forbidden-403 prose 未含字段名 " + name + "（code=" + code + "）—— "
+                            + "结构性事实里有、给人读的句子里没有，等于读者仍不知 data 里装什么: " + prose);
+        }
+        assertTrue(prose.contains("不得模糊报错"),
+                "forbidden-403 prose 必须保留「不得模糊报错」这句红线: " + prose);
+
+        // --- ④ 与 §3.2 / B1 描述的既有提及互查（prose 提到过的名字不得与本块分叉）---
+        String whole = s.openapiText();
+        for (String code : fields.keySet()) {
+            String name = str(fields.get(code));
+            assertTrue(whole.contains("data." + name) || whole.contains(name + "[]") || whole.contains(name),
+                    "字段名 " + name + " 在契约正文里找不到任何落点 —— data 载荷字段必须"
+                            + "在描述里可被读者看到（不得只藏在 x-api-protocol 里）");
+        }
+        assertTrue(whole.contains("missing_items"),
+                "契约正文必须保留对 missing_items 的引用（§3.2 / B1 描述 / GateMissing 响应描述）—— "
+                        + "否则该字段名只活在 x-api-protocol 一处，属未文档化约定");
+    }
+
+    private static List<Object> asList(Object o, String what) {
+        assertTrue(o instanceof List<?>, what + " 必须是列表，实为: "
+                + (o == null ? "null" : o.getClass().getName()));
+        @SuppressWarnings("unchecked")
+        List<Object> l = (List<Object>) o;
+        return l;
     }
 
     // ======================================================================

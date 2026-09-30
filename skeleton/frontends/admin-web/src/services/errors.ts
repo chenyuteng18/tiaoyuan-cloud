@@ -21,6 +21,8 @@
  * ⇒ 三套文案**必须分开写**，不得互相复用。
  */
 
+import { PROTOCOL } from '../contract/endpoints';
+
 /** 契约 `x-error-codes` 逐条转录。 */
 export const ERROR_CODE = Object.freeze({
   VALIDATION_FAILED: 1001,
@@ -45,8 +47,7 @@ export const COPY: Readonly<Record<number, string>> = Object.freeze({
   1002: '登录已失效，请重新登录。',
   2001: '该字段组在当前档位不可见 —— 服务端已按 A2 下发的可见性档位裁剪。'
     + '这不是故障：若业务确需该字段，属「调整档位」决策，请走配置变更。',
-  2002: '前置门禁未通过：响应 data.missing_items 列出缺失项。'
-    + '请先补齐前置步骤（本系统多处为硬门禁，不可跳过）。',
+  2002: '前置门禁未通过。请先补齐前置步骤（本系统多处为硬门禁，不可跳过）。如果本提示没列出缺失项，请记录 trace_id 反馈。',
   2003: '租户不匹配：该资源不属于当前租户，或请求头与登录身份不符。'
     + '若为跨店通兑场景，请核对目标门店是否在同一租户内。',
   2004: '该能力在契约中为「占位」，尚未纳入本期范围。'
@@ -74,6 +75,31 @@ export interface Described {
   readonly kind: ErrorKind;
   /** 原始 message：**仅供日志**，界面不得直接渲染（契约明文）。 */
   readonly developerMessage?: string;
+  /**
+   * 契约要求「不得模糊报错」时必须给出的**原因名清单**（本仓第 61 条）。
+   *
+   * 🛑 为什么必须有这个字段：契约 `forbidden-403` 写「message 必须给出缺失项名称 /
+   *    档位名称（不得模糊报错）」—— 这是**给人读的**；而机器可读的那一半是
+   *    `data` 里的一个确定字段名（本表见 `PROTOCOL.ERROR_DATA_FIELDS`）：
+   *    2002 GATE_MISSING → `missing_items[]`、2001 VISIBILITY_DENIED → `denied_fields[]`。
+   *    此前错误层只取 `message`，而 `client.ts` 又在错误路径把 `body.data` 丢掉 ⇒
+   *    **两者叠加 = 用户永远看不到"到底缺什么"**，而契约明文要求给出名字。
+   *
+   * 🛑 取值一律 `err.data[PROTOCOL.ERROR_DATA_FIELDS[code]]`：字段名**不得手写**，
+   *    契约改字段名时由生成物常量机械跟随（第 57 条：协议片段必须是常量引用）。
+   */
+  readonly reasons: readonly string[];
+}
+
+/** 从错误对象里取「契约要求的拒绝原因名」——字段名取自生成物常量，不手写。 */
+function reasonsOf(code: number | undefined, data: unknown): readonly string[] {
+  if (code === undefined) return [];
+  const field = PROTOCOL.ERROR_DATA_FIELDS[code];
+  if (!field) return [];
+  const bag = data as Record<string, unknown> | null | undefined;
+  const v = bag ? bag[field] : undefined;
+  if (!Array.isArray(v)) return [];
+  return v.filter((s): s is string => typeof s === 'string');
 }
 
 function kindOf(code: number): ErrorKind {
@@ -95,14 +121,20 @@ function kindOf(code: number): ErrorKind {
  *    管理者把钱/工单类操作重复点第二次，会造成更多重放记录。
  */
 export function describe(err: unknown): Described {
-  const e = err as { code?: number; traceId?: string; message?: string } | null;
+  const e = err as {
+    code?: number; traceId?: string; message?: string; data?: unknown;
+  } | null;
   if (e && typeof e.code === 'number') {
+    const reasons = reasonsOf(e.code, e.data);
     return {
-      text: COPY[e.code] ?? UNKNOWN_COPY,
+      // 🛑 契约明文「不得模糊报错」：原因名必须**出现在用户看到的那句话里**。
+      //    故这里把 reasons 拼进文案 —— 页面无需各自记得去做这件事。
+      text: appendReasons(COPY[e.code] ?? UNKNOWN_COPY, reasons),
       code: e.code,
       traceId: e.traceId ?? '',
       kind: kindOf(e.code),
       developerMessage: e.message,
+      reasons,
     };
   }
   return {
@@ -110,7 +142,17 @@ export function describe(err: unknown): Described {
     traceId: e?.traceId ?? '',
     kind: 'network',
     developerMessage: e?.message,
+    reasons: [],
   };
+}
+
+/**
+ * 把原因名清单拼进文案 —— 契约 `forbidden-403` 明文要求的「不得模糊报错」的落点。
+ * 🛑 只对「有 reasons 的 code」生效；无 reasons 时返回原文案（不追加空括号）。
+ */
+function appendReasons(text: string, reasons: readonly string[]): string {
+  if (reasons.length === 0) return text;
+  return `${text}（${reasons.join('、')}）`;
 }
 
 export function isReplay(d: Described): boolean {

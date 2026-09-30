@@ -43,7 +43,7 @@ x-global-conventions:
   envelope-rule: code != 0 时 data 为空
   pagination: 请求 ?page=<int>&page_size=<int≤100>；响应 data.{items[], total, page, page_size}；page/page_size 越界（<1 或 >100）一律 400 VALIDATION_FAILED（拒，不夹逼）
   visibility: 每个接口的响应字段按 x-visibility 矩阵在服务端裁剪；无权限字段不下发（不是 null、不是空串）
-  forbidden-403: 「前置门禁缺失」与「可见性档位不足」统一返回 403，message 必须给出缺失项名称 / 档位名称（不得模糊报错）
+  forbidden-403: 「前置门禁缺失」与「可见性档位不足」统一返回 403，message 必须给出缺失项名称 / 档位名称（不得模糊报错）；且 data 里必须给出名字本身 —— GATE_MISSING(2002) 用数组字段 missing_items，VISIBILITY_DENIED(2001) 用数组字段 denied_fields（这一步不得只靠解释性文案）
   idempotency: 写接口接受 Idempotency-Key 请求头（UUID）；服务端在 24h 窗口内去重
 x-api-protocol:
   auth-header: Authorization
@@ -70,12 +70,17 @@ x-api-protocol:
     - page
     - page_size
     page-min: 1
+    page-default: 1
     page-size-min: 1
     page-size-max: 100
     page-size-default: 20
     over-range-policy: reject-400
     over-range-error: VALIDATION_FAILED
     echo-policy: 回显"实际生效值"（缺省时回显缺省值，拒时不回显）
+  error-data-fields:
+    '2002': missing_items
+    '2001': denied_fields
+  error-data-field-rule: 该字段是数组，元素为「逐字来自上游（契约 / data-dict）的名称」；message 是给人读的，data 里这个字段是给机器比对的 —— 混用会让上游字面被解释性文字污染
 x-field-groups:
   raw_data:
     name: ① 手环原始数据

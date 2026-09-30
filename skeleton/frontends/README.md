@@ -45,7 +45,7 @@ python frontends/tools/gen-endpoints.py --check   # 只校验产物与契约一�
 | client-mp | `npm run build` → `node ../tools/build-check.mjs --end=client-mp` | 零第三方依赖 |
 | therapist-app | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` · `npm run check:x3` · `npm run check:x3-reverse` | 需 `npm install`；X-3 两组门禁 |
 | admin-web | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` · `npm run check:a` · `npm run check:a-reverse` | 需 `npm install` |
-| 三端通用 | `npm run check:build-reverse` → `node ../tools/build-reverse-check.mjs` | `base-path-wiring`（6 组 R1–R6）+ `cross-end-protocol`（4 组 R7–R10）+ `pagination-protocol`（3 组 R11–R13）反向验证，**常驻**；且能抓住「判据被删」|
+| 三端通用 | `npm run check:build-reverse` → `node ../tools/build-reverse-check.mjs` | `base-path-wiring`（6 组 R1–R6）+ `cross-end-protocol`（4 组 R7–R10）+ `pagination-protocol`（3 组 R11–R13）+ **`error-data-fields`（3 组 R14–R16）** 反向验证，**常驻**；且能抓住「判据被删」|
 
 **依赖安装（本机实测可用的一条命令）**：
 
@@ -143,7 +143,7 @@ exit 2 且不得打印 PASS）—— **W10 首跑即为红**，正是它抓出�
 
 ⚠️ 该措辞**尚未经裁定**，本文件不把它写成"已裁定"。
 
-## 8. 🛑 十二条写作/路径/判据/管道纪律（由本仓第 50、51、52、53、54、55、56、57、58、59、60 条系统性缺陷逼出，勿回退）
+## 8. 🛑 十四条写作/路径/判据/管道纪律（由本仓第 50、51、52、53、54、55、56、57、58、59、60、61、62 条系统性缺陷逼出，勿回退）
 
 ### 8.1 客户端包内【不得写出禁词原文】—— 一律用指代（第 51 条）
 
@@ -875,4 +875,142 @@ TOTAL <N> failures=<F> errors=<E> skipped=<S>
 
 - 全量回归 `EXIT=0 / BUILD SUCCESS`
 - `TOTAL 1213   failures=0 errors=0 skipped=0`（逐模块 `10/39/48/58/37/37/29/955`）
+  🛑 此为第 60 条当时的值；第 61/62 条后实测为 **`TOTAL 1214`**（见 §8.14.5 / §8.15.5）。
 - `DocTestCountAnchorGateTest` **2/2**（含反向验证五向全过）
+
+---
+
+### 8.14 契约里「不得模糊报错」只有【给人读的那一半】被实现（第 61 条）
+
+#### 8.14.1 缺口：字段名 4 处 prose 提及、后端也装配了，客户端一个字都拿不到
+
+契约 `x-global-conventions.forbidden-403` 逐字写「message 必须给出缺失项名称 / 档位名称
+（**不得模糊报错**）」；`missing_items` 另在 `:251`（GATE_MISSING trigger）、`:388`（B1 描述）、
+`:1494`（GateMissing 响应描述）**3 处 prose** 提及，`denied_fields` 在 `:1488`
+（VisibilityDenied 描述）提及 —— **全部是 prose，无一处结构化声明**。
+
+而**后端这一侧是完整的**：`GlobalExceptionHandler.java:77`
+`Map.of("missing_items", g.getMissingItems())`、`:83` `Map.of("denied_fields", v.getDeniedFields())`；
+`VisibilityDeniedException.java:43` 构造期拒空/拒 null；`GateMissingException` 携带 `missingItems`。
+
+**缺的恰好是"从后端到用户眼睛"那一段**：
+
+| 层 | 端 A | 端 B | 端 C |
+|---|---|---|---|
+| 出站层在**错误路径**保留 `body.data`？ | ✗ 只挂 code/status/traceId | ✗ 同 | ✗ 同 |
+| 错误层读这两个字段名？ | ✗ | ✗ | ✗ |
+
+且端 A `errors.ts:48` 的静态文案**对用户承诺**「响应 data.missing_items 列出缺失项」——
+**它自己从不读那个字段**。⇒ **文案在替一个不存在的功能背书**；
+契约要求的"给出名字"在客户端**完全没有到达**，而 tsc / vite / 门禁**全绿**。
+与 §8.9/§8.10/§8.11 同族：**契约写下的协议与各端实现的协议是两件事，中间丢项不报错。**
+
+#### 8.14.2 修法：四层（与 §8.9/§8.10/§8.11 同范式）
+
+1. **契约** —— `x-api-protocol` 新增 `error-data-fields` 结构化子块
+   （`"2002": missing_items` / `"2001": denied_fields`）+ `error-data-field-rule`
+   （说明该字段是**逐字来自上游（契约 / data-dict）的名称**；message 给人读、data 给机器比对，
+   混用会让上游字面被解释性文字污染）；`forbidden-403` prose 追加「且 data 里必须给出名字本身」。
+2. **生成物** —— `gen-endpoints.py` 的 `load_api_protocol()` 扩读该块
+   （缺块 / 空键 / 键非数字串 / 缺 `2002` / 缺 `2001` 即 `MISCONFIGURED` SystemExit），
+   新增 `_err()` 助手，三端生成物出 `PROTOCOL.ERROR_DATA_FIELDS`（TS 附 `Readonly<Record<number, string>>`）。
+3. **出站层 / 错误层** —— 三端出站层保留 `err.data = body.data`；
+   三端错误层经 `PROTOCOL.ERROR_DATA_FIELDS[code]` 取字段名（**不得手写**字面量）。
+   🛑 **同一个契约事实，两种合法消费形态**：端 A/B 把原因名拼进用户可见的 `text`
+   （`reasonsOf` + `appendReasons`）；**端 C 刻意只透传不渲染** ——
+   端 C 词表纪律禁止内部概念出现在客户端包里，故 `reasons` 作为**独立出口**供页面逻辑分支用。
+4. **门禁** —— `build-check.mjs` ④d 加值断言 + **新增 ④f `error-data-fields`**：
+   ① 生成物 `ERROR_DATA_FIELDS` 键值；② 出站层**精准形态** `err.data = ...body.data`；
+   ③ 错误层必须成员访问 + 不得手写字面量；一律**先剥注释**。
+
+#### 8.14.3 第 52 条复发：④f 的②初版太宽 ⇒ R14 首跑漏过
+
+④f 的②初版只判 `/\bdata\s*:/` 或 `/err\.data\s*=|\.data\s*=/` ——
+被端 A **成功路径**的 `return { data: body.data, ... }` 满足 ⇒
+**删掉 `err.data = body.data;` 仍 exit=0（R14 漏过）**。这就是 §8.3 说的**判据太宽 ⇒ 假绿**。
+
+**修法不是改端 A，而是把判据收紧为精准形态**
+`/\berr\.data\s*=\s*[^;]*\bbody\.data\b/` —— 必须判「**错误对象上**的赋值」。
+
+#### 8.14.4 删判据模拟（本条最关键的证据）
+
+把 ④f 整段停用后重跑 ⇒ **R14–R16 三组全部变「漏过」、合计 13/16、脚本 FAIL**
+（R1–R13 仍被抓住，因为它们由另三段代码守）⇒ **四条判据各自有牙齿**。
+
+#### 8.14.5 复验数字（逐字）
+
+- 契约冻结门禁 **13/13**（新增 `error_data_field_names_are_structured_and_agree_with_prose_and_error_codes`：
+  结构化块 ↔ `x-error-codes[].code` 逐字 ↔ `forbidden-403` prose 双向 ↔ 正文落点，**四向互查**）
+- `gen-endpoints.py --check` `[OK] client-mp 15 / therapist-app 29 / admin-web 39`
+- 三端 `build-check` 全绿（`error-data-fields` 三端各 ✓）
+- `build-reverse-check` **16/16 PASS**；**禁用 ④f 后 13/16 ⇒ FAIL**
+- 后端全量回归 `TOTAL 1214 failures=0 errors=0 skipped=0`（1213 → **1214**，+1 = 本条新增的契约互查断言）
+
+---
+
+### 8.15 判据的第六种失效形态：条件性假红（依赖环境状态）（第 62 条）
+
+#### 8.15.1 现象：同一条命令，手跑绿、脚本里红
+
+复验第 61 条时 `build-reverse-check` 基线报
+`✗ therapist-app / admin-web 基线不是绿的（exit=1）`，
+而同一条 `build-check` 命令**手跑两次全绿**（`BUILD OK`）⇒ **基线门禁本身是偶发红**。
+
+#### 8.15.2 取证过程本身也踩了一个坑（值得记）
+
+基线只打印 `exit=1`、**不打印哪个判据红了** —— 与第 24 条同族：**报错不指向真因**。
+我第一版诊断代码"只挑含 `✗` / `FAIL` / `ERROR` / `BUILD` 字样的行"，
+而 **vite / tsc 的真实报错行一个这类字样都没有** ⇒ "明细"打印出来全是 ✓ 行 +
+一句 `✗ real-build: vite build 失败`，**等于没打印**。
+
+> **纪律**：判"该打印哪些行"**不能用关键词白名单，只能排除已知噪音行**。
+
+#### 8.15.3 真因（逐字）
+
+```
+[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED]
+{"count":627,"threshold":50,"scope":"turn","targets":["...\therapist-app\dist\assets"]}
+    at checkBulkDeleteGuard (node-safe-delete-shim.cjs:239:19)
+    at emptyDir (vite/dist/node/chunks/dep-*.js:17082:19)
+    at prepareOutDir (...:65746:7)
+```
+
+`vite build` 默认 `emptyOutDir: true`，实现是 `fs.rmSync(dist/assets, {recursive:true})` ——
+而本机运行环境装了一层**安全删除守卫**，它对"单轮累计删除文件数 > 阈值"的动作**直接抛错**。
+
+⇒ **判据红，而红的原因是"本轮我已经删了多少文件"这个与代码完全无关的变量**；
+报错还指向 `dist/assets` 路径 + 一段 shim 栈，读起来像"产物目录有问题"—— **真因完全看不出**。
+
+#### 8.15.4 为什么单独编号：与第 59 条同族但随机源不同
+
+| | 第 59 条（§8.12） | 第 62 条（本条） |
+|---|---|---|
+| 随机源 | **随机数据**（base64 密文偶现 `"72"`，约 1%） | **环境状态**（本轮累计删除量） |
+| 表现 | 不定期变红 | 条件性假红（删够多就红） |
+| 修法 | 判**解码后的字节** | 让判据**不依赖那个环境变量** |
+
+两者都会侵蚀门禁可信度（"红了可能是运气"⇒ 没人再看红）⇒
+归一为**判据失效的第六种形态：条件性假红（依赖环境状态）**。
+
+#### 8.15.5 修法（三处，都不动安全机制、都不放宽语义）
+
+1. `build-check.mjs` 新增共用 `viteBuildArgv()` 返回 `['build','--emptyOutDir=false']`（端 A/B 共用）——
+   产物正确性**不依赖"先清空"**（vite 产物带内容哈希，重建会**覆盖**同名文件并按新图重写
+   `index.html`，残留旧哈希文件不被引用、不影响结论）。
+   🛑 **这不是放宽判据**：`vite build` 仍真实执行、仍必须 `exit=0`，
+   只是不让它删一个**与被检语义无关**的目录。
+2. `build-reverse-check.mjs` 磁盘备份 → **内存备份**（`Map<absPath, 原文>` + `restore()`）：
+   全程**一次删除都不发生**；配 `uncaughtException` / `unhandledRejection` 兜底 `restoreAll()` ——
+   **比磁盘副本更可靠**（磁盘副本在进程被杀时会留残骸，那正是第 24 条的成因）。
+   > 同族第二处：原实现 17 组用例 × 2 次删除 ⇒ **必然**顶穿阈值 ⇒
+   > **脚本死在第 N 组用例的清理语句上**，死法与"判据是否有牙齿"毫无关系。
+3. 收尾对**旧版遗留的** `_reverse_backup/` 只做**诊断**不改判定 ——
+   否则旧版遗留的一个空目录就会让门禁报"异常 ✗"，读起来还像"残留没清干净"，把人带偏。
+
+#### 8.15.6 复验数字（逐字）
+
+- 基线 **绿 ✓**
+- `build-reverse-check` **16/16 PASS**、
+  `还原后三端构建自检：client-mp=0 · therapist-app=0 · admin-web=0（全绿 ✓，已按内存备份还原）`
+- 后端全量回归 `TOTAL 1214 failures=0 errors=0 skipped=0`
+

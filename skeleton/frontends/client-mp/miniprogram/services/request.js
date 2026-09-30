@@ -132,6 +132,12 @@ function call(operationId, opts) {
         err.code = body && body.code;
         err.statusCode = res.statusCode;
         err.traceId = traceId;
+        // 🛑 错误路径也必须把 `body.data` 带出来（本仓第 61 条）——
+        //    契约「不得模糊报错」的机器可读那一半装在 data 里（2001/2002）。
+        //    端 C 是客户视角，中性文案不得出现内部概念，故本层只【透传】
+        //    字段名由中性层按 `contract.PROTOCOL.ERROR_DATA_FIELDS` 取用；
+        //    是否展示给客户由中性层与页面决定（不在这里做措辞判断）。
+        err.data = body && body.data;
         reject(err);
       },
       fail: function (err) {

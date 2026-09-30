@@ -55,6 +55,12 @@ const PROTOCOL = Object.freeze({
     OVER_RANGE_POLICY: "reject-400",
     OVER_RANGE_ERROR: "VALIDATION_FAILED",
   }),
+  // 拒绝响应的 data 载荷字段名（第 61 条）—— 「不得模糊报错」的机器可读那一半。
+  // 错误层必须用 ERROR_DATA_FIELDS[code] 取字段名，不得手写 'missing_items'。
+  ERROR_DATA_FIELDS: Object.freeze({
+    2002: "missing_items",
+    2001: "denied_fields",
+  }),
 });
 
 const END_TOKEN_ROLES = Object.freeze(["client"]);

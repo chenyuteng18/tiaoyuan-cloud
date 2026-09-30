@@ -156,10 +156,17 @@ export async function call<T = unknown>(
         code?: number;
         status?: number;
         traceId?: string;
+        data?: unknown;
       };
       err.code = body.code;
       err.status = res.status;
       err.traceId = traceId;
+      // 🛑 错误路径也必须把 `body.data` 带出来（本仓第 61 条）——
+      //    契约「不得模糊报错」的机器可读那一半就装在 data 里：
+      //    2002 GATE_MISSING → `data.missing_items[]`、2001 VISIBILITY_DENIED →
+      //    `data.denied_fields[]`。此前这里把 data 丢掉，于是错误层永远拿不到
+      //    缺失项/被拒字段名 —— 调理师只看到「门禁未通过」，不知道缺什么。
+      err.data = body.data;
       throw err;
     }
     return { data: body.data, traceId, status: res.status };

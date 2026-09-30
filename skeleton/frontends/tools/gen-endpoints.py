@@ -330,6 +330,28 @@ def load_api_protocol(end_id: str):
             "MISCONFIGURED: %s 的 x-api-protocol.pagination.over-range-policy=%r —— "
             "本仓唯一合法取值是 'reject-400'（越界直接拒，不夹逼）。静默夹逼会让客户端"
             "拿到 100 条却以为请求了 101 条，且无从察觉。" % (path, policy))
+    err_fields = proto.get("error-data-fields")
+    if not isinstance(err_fields, dict) or not err_fields:
+        raise SystemExit(
+            "MISCONFIGURED: %s 的 x-api-protocol 缺 error-data-fields 结构化块 —— "
+            "「不得模糊报错」的机器可读那一半（2002→missing_items / 2001→denied_fields）"
+            "必须写死，否则三端出站层在错误路径丢弃 data、错误层也从不读这两个字段名，"
+            "而契约 / tsc / 门禁全绿（本仓第 61 条）。" % path)
+    for k, v in err_fields.items():
+        if str(k).strip() == "" or str(v).strip() == "":
+            raise SystemExit(
+                "MISCONFIGURED: %s 的 x-api-protocol.error-data-fields 出现空键/空值：%r=%r"
+                % (path, k, v))
+        if not str(k).isdigit():
+            raise SystemExit(
+                "MISCONFIGURED: %s 的 x-api-protocol.error-data-fields 的键必须是 code 数字串"
+                "（与 x-error-codes.code 逐字一致），实为 %r。" % (path, k))
+    for must in ("2002", "2001"):
+        if must not in {str(k) for k in err_fields}:
+            raise SystemExit(
+                "MISCONFIGURED: %s 的 x-api-protocol.error-data-fields 缺 code=%s —— "
+                "契约明文要求该 403 给出原因名（不得模糊报错），它的 data 字段名必须可机械取用。"
+                % (path, must))
     return {
         "auth_header": str(proto["auth-header"]),
         "auth_scheme": str(proto["auth-scheme"]),
@@ -340,6 +362,8 @@ def load_api_protocol(end_id: str):
         "envelope_ok_code": ok_code,
         "idempotency_window_hours": proto.get("idempotency-window-hours"),
         "envelope_rule": str(proto.get("envelope-rule") or ""),
+        "error_data_fields": {str(k): str(v) for k, v in err_fields.items()},
+        "error_data_field_rule": str(proto.get("error-data-field-rule") or ""),
         "pagination": {
             "request_fields": [str(f) for f in pag["request-fields"]],
             "response_fields": [str(f) for f in pag["response-fields"]],
@@ -413,6 +437,16 @@ def _pag(proto):
     return proto["pagination"]
 
 
+def _err(proto, code):
+    """取某 code 的拒绝响应 data 载荷字段名（第 61 条）—— 缺键即报错，不兜底。"""
+    fields = proto["error_data_fields"]
+    if code not in fields:
+        raise SystemExit(
+            "MISCONFIGURED: x-api-protocol.error-data-fields 缺 code=%s —— "
+            "该 code 的 data 载荷字段名必须可机械取用（不得让错误层手写字面量）。" % code)
+    return fields[code]
+
+
 def _render_protocol_cjs(proto):
     """跨端协议片段常量（CommonJS 形态）。逐条转录自契约 x-api-protocol。"""
     return [
@@ -444,6 +478,12 @@ def _render_protocol_cjs(proto):
         "    PAGE_SIZE_DEFAULT: %d," % _pag(proto)["page_size_default"],
         "    OVER_RANGE_POLICY: %s," % js_literal(_pag(proto)["over_range_policy"]),
         "    OVER_RANGE_ERROR: %s," % js_literal(_pag(proto)["over_range_error"]),
+        "  }),",
+        "  // 拒绝响应的 data 载荷字段名（第 61 条）—— 「不得模糊报错」的机器可读那一半。",
+        "  // 错误层必须用 ERROR_DATA_FIELDS[code] 取字段名，不得手写 'missing_items'。",
+        "  ERROR_DATA_FIELDS: Object.freeze({",
+        "    2002: %s," % js_literal(_err(proto, "2002")),
+        "    2001: %s," % js_literal(_err(proto, "2001")),
         "  }),",
         "});",
         "",
@@ -480,6 +520,15 @@ def _render_protocol_ts(proto):
         "  readonly ENVELOPE_OK_CODE: number;",
         "  /** 分页协议（契约 x-api-protocol.pagination）—— 上下界与【越界处置】。 */",
         "  readonly PAGINATION: PaginationSpec;",
+        "  /**",
+        "   * 拒绝响应的 data 载荷字段名（契约 x-api-protocol.error-data-fields，第 61 条）。",
+        "   *",
+        "   * 🛑 「不得模糊报错」有两半：`message` 是给人读的，**本表是给机器读的**。",
+        "   *    三端出站层此前在错误路径丢弃 `body.data`、错误层也从不读这两个字段名 ⇒",
+        "   *    用户只看到静态文案，「缺失项 / 被拒字段到底是哪些」在客户端【完全没有到达】。",
+        "   *    故错误层必须 `err.data[PROTOCOL.ERROR_DATA_FIELDS[code]]` 取，不得手写字面量。",
+        "   */",
+        "  readonly ERROR_DATA_FIELDS: Readonly<Record<number, string>>;",
         "}",
         "",
         "export interface PaginationSpec {",
@@ -520,6 +569,10 @@ def _render_protocol_ts(proto):
         "    OVER_RANGE_POLICY: %s," % js_literal(_pag(proto)["over_range_policy"]),
         "    OVER_RANGE_ERROR: %s," % js_literal(_pag(proto)["over_range_error"]),
         "  } as PaginationSpec),",
+        "  ERROR_DATA_FIELDS: Object.freeze({",
+        "    2002: %s," % js_literal(_err(proto, "2002")),
+        "    2001: %s," % js_literal(_err(proto, "2001")),
+        "  }) as Readonly<Record<number, string>>,",
         "});",
         "",
     ]

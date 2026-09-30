@@ -24,6 +24,8 @@
 
 'use strict';
 
+var contract = require('../contract/endpoints');
+
 /**
  * 契约 x-error-codes 全集（http / code / name 逐条对应）。
  * 值为**客户可见文案**，因此：无内部字段名、无门禁名、不作原因解释、无评价。
@@ -61,6 +63,31 @@ var UNKNOWN_COPY = '操作未完成，请稍后再试';
 /** 网络层失败（没有 code），与"服务端明确拒绝"是两件事，故文案分开。 */
 var NETWORK_COPY = '网络不稳定，请检查网络后重试';
 
+/**
+ * 取「契约要求的拒绝原因名」—— 字段名取自生成物常量，不手写。
+ *
+ * 🛑 端 C 的处置与端 A / 端 B **刻意不同**（这不是遗漏，是本层最重要的设计决定）
+ * ---------------------------------------------------------------------------
+ * 契约 `forbidden-403` 要求「不得模糊报错」，给出未满足项 / 被拒字段名 ——
+ * 那一半是给**机器**的：前端按它分支（"缺哪一步就去补哪一步"）。
+ * 但同一份契约的 `x-wording-discipline.client-forbidden-terms` 又明令
+ * **客户端不得出现内部概念**，而 `missing_items` 的取值恰恰是内部标识
+ * （`PROFILED` / `CONSENTED` / `screening_result` / `plan_approved` …）。
+ *
+ * ⇒ 两处要求的交集不是"二选一"，而是：**透传进程序，不渲染进文案**。
+ *   故本函数只把原因名交给**页面逻辑**用于决定跳哪一页 / 提示去补哪一步，
+ *   而 `describe()` 返回的 `text` **绝不拼接它们**（拼接即违反词表纪律）。
+ *   🛑 若有人"顺手"把它拼进 text，客户会看到 `PROFILED` 这类标识 ——
+ *   那正是契约词表要防的事。故 `text` 与 `reasons` 是**两个独立出口**。
+ */
+function reasonsOf(code, data) {
+  var field = code === null ? null : contract.PROTOCOL.ERROR_DATA_FIELDS[code];
+  if (!field) return [];
+  var v = data ? data[field] : undefined;
+  if (!Array.isArray(v)) return [];
+  return v.filter(function (s) { return typeof s === 'string'; });
+}
+
 function isReplay(code) {
   return Number(code) === 4002;
 }
@@ -68,26 +95,29 @@ function isReplay(code) {
 /**
  * 把一个请求错误翻成客户可见文案。
  *
- * @param {Error} err  request.call 抛出的错误（可能带 .code / .statusCode）
- * @returns {{text:string, code:number|null, traceId:string, kind:string}}
+ * @param {Error} err  request.call 抛出的错误（可能带 .code / .statusCode / .data）
+ * @returns {{text:string, code:number|null, traceId:string, kind:string, reasons:string[]}}
  *          kind: 'auth' | 'replay' | 'server' | 'network' | 'ok'
+ *          🛑 `reasons` 是**程序用**的原因名清单（契约要求，见 reasonsOf 的注释），
+ *             只在**中性文案里渲染**，是否落到界面由中性层 `nextActionLine` 决定。
  */
 function describe(err) {
-  if (!err) return { text: '', code: null, traceId: '', kind: 'ok' };
+  if (!err) return { text: '', code: null, traceId: '', kind: 'ok', reasons: [] };
 
   var code = err.code === undefined || err.code === null ? null : Number(err.code);
   var traceId = err.traceId || '';
+  var reasons = reasonsOf(code, err.data);
 
   // 网络层：没有信封，只有 fail 回调（小程序 wx.request 的 fail）。
   if (code === null) {
-    return { text: NETWORK_COPY, code: null, traceId: traceId, kind: 'network' };
+    return { text: NETWORK_COPY, code: null, traceId: traceId, kind: 'network', reasons: [] };
   }
   if (isReplay(code)) {
     // 幂等命中：服务端返回的是**首次处理结果**，属成功路径。
-    return { text: '', code: code, traceId: traceId, kind: 'replay' };
+    return { text: '', code: code, traceId: traceId, kind: 'replay', reasons: reasons };
   }
   if (code === 1002) {
-    return { text: CODE_COPY[1002], code: code, traceId: traceId, kind: 'auth' };
+    return { text: CODE_COPY[1002], code: code, traceId: traceId, kind: 'auth', reasons: reasons };
   }
   var text = Object.prototype.hasOwnProperty.call(CODE_COPY, code)
     ? CODE_COPY[code]
@@ -97,6 +127,7 @@ function describe(err) {
     code: code,
     traceId: traceId,
     kind: code >= 9001 ? 'server' : 'server',
+    reasons: reasons,
   };
 }
 

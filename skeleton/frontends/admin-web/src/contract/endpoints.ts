@@ -53,6 +53,15 @@ export interface ProtocolSpec {
   readonly ENVELOPE_OK_CODE: number;
   /** 分页协议（契约 x-api-protocol.pagination）—— 上下界与【越界处置】。 */
   readonly PAGINATION: PaginationSpec;
+  /**
+   * 拒绝响应的 data 载荷字段名（契约 x-api-protocol.error-data-fields，第 61 条）。
+   *
+   * 🛑 「不得模糊报错」有两半：`message` 是给人读的，**本表是给机器读的**。
+   *    三端出站层此前在错误路径丢弃 `body.data`、错误层也从不读这两个字段名 ⇒
+   *    用户只看到静态文案，「缺失项 / 被拒字段到底是哪些」在客户端【完全没有到达】。
+   *    故错误层必须 `err.data[PROTOCOL.ERROR_DATA_FIELDS[code]]` 取，不得手写字面量。
+   */
+  readonly ERROR_DATA_FIELDS: Readonly<Record<number, string>>;
 }
 
 export interface PaginationSpec {
@@ -92,6 +101,10 @@ export const PROTOCOL: ProtocolSpec = Object.freeze({
     OVER_RANGE_POLICY: "reject-400",
     OVER_RANGE_ERROR: "VALIDATION_FAILED",
   } as PaginationSpec),
+  ERROR_DATA_FIELDS: Object.freeze({
+    2002: "missing_items",
+    2001: "denied_fields",
+  }) as Readonly<Record<number, string>>,
 });
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';

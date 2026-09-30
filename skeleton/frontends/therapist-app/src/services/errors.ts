@@ -20,6 +20,8 @@
  * 客户端的中性措辞搬到内部端，造成一线看不懂；或反之泄露内部概念给客户）。
  */
 
+import { PROTOCOL } from '../contract/endpoints';
+
 /** 契约 `x-error-codes` 逐条转录。 */
 export const ERROR_CODE = Object.freeze({
   VALIDATION_FAILED: 1001,
@@ -70,6 +72,33 @@ export interface Described {
   readonly kind: ErrorKind;
   /** 原始 message：**仅供日志**，界面不得直接渲染（契约明文）。 */
   readonly developerMessage?: string;
+  /**
+   * 契约要求「不得模糊报错」时必须给出的**原因名清单**（本仓第 61 条）。
+   *
+   * 🛑 契约 `forbidden-403`：2002 GATE_MISSING 的 `data.missing_items[]` 与
+   *    2001 VISIBILITY_DENIED 的 `data.denied_fields[]`。此前 `client.ts` 在错误
+   *    路径把 `body.data` 丢掉、本层又只取 `message` ⇒ 一线只看到「门禁未通过」，
+   *    **不知道缺什么**，只能去猜或来问 —— 而契约明文要求给出名字。
+   *    字段名一律取自 `PROTOCOL.ERROR_DATA_FIELDS`，**不得手写**。
+   */
+  readonly reasons: readonly string[];
+}
+
+/** 从错误对象里取「契约要求的拒绝原因名」——字段名取自生成物常量，不手写。 */
+function reasonsOf(code: number | undefined, data: unknown): readonly string[] {
+  if (code === undefined) return [];
+  const field = PROTOCOL.ERROR_DATA_FIELDS[code];
+  if (!field) return [];
+  const bag = data as Record<string, unknown> | null | undefined;
+  const v = bag ? bag[field] : undefined;
+  if (!Array.isArray(v)) return [];
+  return v.filter((s): s is string => typeof s === 'string');
+}
+
+/** 把原因名清单拼进文案（契约明文「不得模糊报错」的落点）。 */
+function appendReasons(text: string, reasons: readonly string[]): string {
+  if (reasons.length === 0) return text;
+  return `${text}（${reasons.join('、')}）`;
 }
 
 function kindOf(code: number): ErrorKind {
@@ -91,14 +120,19 @@ function kindOf(code: number): ErrorKind {
  *    否则一线会重复点第二次、第三次，制造更多重放。
  */
 export function describe(err: unknown): Described {
-  const e = err as { code?: number; traceId?: string; message?: string } | null;
+  const e = err as {
+    code?: number; traceId?: string; message?: string; data?: unknown;
+  } | null;
   if (e && typeof e.code === 'number') {
+    const reasons = reasonsOf(e.code, e.data);
     return {
-      text: COPY[e.code] ?? UNKNOWN_COPY,
+      // 🛑 契约明文「不得模糊报错」：原因名必须**出现在一线看到的那句话里**。
+      text: appendReasons(COPY[e.code] ?? UNKNOWN_COPY, reasons),
       code: e.code,
       traceId: e.traceId ?? '',
       kind: kindOf(e.code),
       developerMessage: e.message,
+      reasons,
     };
   }
   return {
@@ -106,6 +140,7 @@ export function describe(err: unknown): Described {
     traceId: e?.traceId ?? '',
     kind: 'network',
     developerMessage: e?.message,
+    reasons: [],
   };
 }
 

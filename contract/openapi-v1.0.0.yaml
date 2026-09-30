@@ -78,7 +78,7 @@ x-global-conventions:
   envelope-rule: code != 0 时 data 为空
   pagination: "请求 ?page=<int>&page_size=<int≤100>；响应 data.{items[], total, page, page_size}；page/page_size 越界（<1 或 >100）一律 400 VALIDATION_FAILED（拒，不夹逼）"
   visibility: 每个接口的响应字段按 x-visibility 矩阵在服务端裁剪；无权限字段不下发（不是 null、不是空串）
-  forbidden-403: 「前置门禁缺失」与「可见性档位不足」统一返回 403，message 必须给出缺失项名称 / 档位名称（不得模糊报错）
+  forbidden-403: 「前置门禁缺失」与「可见性档位不足」统一返回 403，message 必须给出缺失项名称 / 档位名称（不得模糊报错）；且 data 里必须给出名字本身 —— GATE_MISSING(2002) 用数组字段 missing_items，VISIBILITY_DENIED(2001) 用数组字段 denied_fields（这一步不得只靠解释性文案）
   idempotency: 写接口接受 Idempotency-Key 请求头（UUID）；服务端在 24h 窗口内去重
 
 # =============================================================================
@@ -139,6 +139,32 @@ x-api-protocol:
     over-range-policy: reject-400
     over-range-error: VALIDATION_FAILED
     echo-policy: 回显"实际生效值"（缺省时回显缺省值，拒时不回显）
+  # ---------------------------------------------------------------------------
+  # 拒绝响应的 data 载荷字段名（第 61 条）—— 「不得模糊报错」的**机器可读**那一半
+  # ---------------------------------------------------------------------------
+  # 🛑 上面 `x-global-conventions.forbidden-403` 那句 prose 写「message 必须给出
+  # 缺失项名称 / 档位名称（不得模糊报错）」—— 这是**给人读的**。
+  # 但同一句还隐含了另一半：这两类 403 的 data 里必须**有一个确定字段名**装着那些名字。
+  # 契约在 §3.2 / B1 描述里提过 `data.missing_items` 与 `data.denied_fields`，
+  # 全仓 grep 3 处 —— **全部是 prose，没有一处是结构化声明**。
+  # 于是三端前端各自面对同一件事：
+  #     · 后端确实装配了它们（`GlobalExceptionHandler` 用 `Map.of("missing_items", ...)`
+  #       / `Map.of("denied_fields", ...)`，且 `VisibilityDeniedException` 在构造期
+  #       就拒空/拒 null）；
+  #     · 端 A 的 `errors.ts` 甚至对用户【承诺】了「响应 data.missing_items 列出缺失项」；
+  #     · 而**三端出站层一律在错误路径丢弃 `body.data`**（只把 code / message / traceId
+  #       挂到 Error 上），三端错误层也从不读这两个字段名。
+  #   ⇒ 用户永远只看到那句静态文案，"缺失项 / 被拒字段到底是哪些"这个**契约要求必须
+  #   给出的信息**在客户端**完全没有到达**。这正是第 57/58 条的同族：
+  #   **契约写下的协议与各端实现的协议是两件事，中间丢项不报错。**
+  # 故把「哪个 code 的 data 里装哪个字段名」落成结构化事实；生成器转录为
+  # `ERROR_DATA_FIELDS` 常量，三端错误层一律引用常量取字段名（不得手写字面量）。
+  # 🛑 取值必须与 `x-error-codes` 的 `code` 逐字一致，且字段名必须与
+  # §3.2 / B1 描述的 prose 一致 —— 两处都在、且一致，由 ContractFreezeGateTest 互查。
+  error-data-fields:
+    "2002": missing_items
+    "2001": denied_fields
+  error-data-field-rule: 该字段是数组，元素为「逐字来自上游（契约 / data-dict）的名称」；message 是给人读的，data 里这个字段是给机器比对的 —— 混用会让上游字面被解释性文字污染
 
 # =============================================================================
 # 字段组定义（契约 §3.1）—— 四组 × 五角色，与 config #43 / 原型 D1 逐格一致
