@@ -655,8 +655,203 @@ if (therOnly.length > 0) {
 }
 
 // ---------------------------------------------------------------------------
-// 输出
+// ⑪ 【角色可达性】第 72 条 —— 第 64 条（装载）的同族第三处
 // ---------------------------------------------------------------------------
+// 🛑 缺口形态：⑧ 判的是"代码里有一条从界面到出站的调用链"——
+//    它对**全部角色**合并判断（`consumerCode.some(...)`：只要**任一**页面用了这个
+//    函数就算通过）。而端 B 的导航项**带角色门控**：
+//        `visibleNav = NAV.filter((n) => n.requires === null || canCall(n.requires, role))`
+//    如果某个导航项的门控端点**比它承载的页面更窄**（页面用了双角色端点，门控却是
+//    仅经络师的端点），则该页对调理师**永久消失** ⇒ 页面里的端点对该角色不可达。
+//
+// 🛑 受控实证（不是理论风险）：把 `{ key: 'intake', requires: 'createCustomer' }`
+//    改成 `requires: 'createRefund'`（仅 meridian）—— 建档页对调理师永久消失，
+//    而 `⑧` 仍报「29 个端点全部有完整调用链」、`⑦ nav` 仍报「6 项全部可核」、
+//    `tsc --noEmit` = 0 ⇒ **门禁与类型系统一律全绿**。
+//    （⑦ 只判"该 id 存在于生成物"、⑧ 只判"代码里有人调"，都不判"该角色到不到得了"。）
+//
+// 判据（不变量：**某角色有权调用的端点，必须至少有一个该角色能到达的页面在用它**）：
+//   ① 解析 NAV：key → 门控端点 → 门控角色集（字面量 / firstSoleEndpointId() / null=恒可见）；
+//   ② 解析渲染分支：key → 实际渲染的页面组件（含内联分支与嵌套组件）；
+//   ③ 页面组件 → 它用到的端点（canCall 字面量 ∪ 封装函数名 → 生成物 id）；
+//   ④ 逐角色核算 reachable(r) ⊇ grantable(r)，落差逐条报出。
+// 🛑 判据不认识某形态时**按失败处理**（第 64 条：不认识 ≠ 通过）。
+// 🛑 未在 NAV 出现的页面**豁免**（如 LoginPage 在导航之前渲染）——但若该页面的
+//    端点**没有任何**导航入口，则须显式在 NAV 里出现（豁免集必须写死且可核对）。
+{
+  // 豁免：不在 NAV 渲染、但合法可到达的页面（登录页在 `if (!profile)` 分支里渲染）
+  const NON_NAV_PAGES = ['LoginPage'];
+
+  const appText = stripComments(readFileSync(join(SRC, 'App.tsx'), 'utf8'));
+  const END_ROLES = ['therapist', 'meridian'];
+
+  // ① NAV：key -> requires
+  const navBlock = (() => {
+    const s = appText.search(/const\s+NAV\s*[:=]/);
+    if (s < 0) return null;
+    const rest = appText.slice(s);
+    const e = rest.search(/\]\s*\)\s*;/);
+    return e >= 0 ? rest.slice(0, e) : rest;
+  })();
+
+  const soleFirst = () => entries.find((e) => e.roles.length === 1) ?? null;
+
+  const navItems = navBlock === null ? [] : [...navBlock.matchAll(
+    /key:\s*'([^']+)'[^}]*?requires:\s*(?:'([^']+)'|([A-Za-z_$][\w$]*)\s*\(\s*\)|null)/g
+  )].map((m) => ({ key: m[1], req: m[2] ?? (m[3] ? `${m[3]}()` : null) }));
+
+  // ② 渲染分支：key -> 该分支实际渲染的页面组件（按 pages/ 下真实文件判定）
+  const pageFileOf = (name) => join(SRC, 'pages', name + '.tsx');
+  const segOf = (key) => {
+    const s = appText.search(new RegExp(`tab\\s*===\\s*'${escapeRe(key)}'\\s*\\?`));
+    if (s < 0) return null;
+    const rest = appText.slice(s);
+    const e = rest.search(/\)\s*:\s*tab\s*===|\)\s*:\s*null\s*\}/);
+    return e >= 0 ? rest.slice(0, e) : rest;
+  };
+
+  // ③ 封装函数名 -> 端点 id
+  const epOfFn = new Map();
+  for (const f of walk(join(SRC, 'services'))) {
+    if (!f.endsWith('.ts')) continue;
+    const t = stripComments(readFileSync(f, 'utf8'));
+    const re = /(?:export\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(([\s\S]*?)\n\}/g;
+    let m;
+    while ((m = re.exec(t))) {
+      const c = /\bcall\s*(?:<[^(]*?>)?\s*\(\s*['"]([^'"]+)['"]/.exec(m[2]);
+      if (c) epOfFn.set(m[1], c[1]);
+    }
+  }
+  const collectUsed = (texts) => {
+    const out = new Set();
+    for (const t of texts) {
+      for (const m of t.matchAll(/canCall\s*\(\s*'([^']+)'/g)) out.add(m[1]);
+      for (const m of t.matchAll(/([A-Za-z_$][\w$]*)\s*\(/g)) {
+        const ep = epOfFn.get(m[1]);
+        if (ep) out.add(ep);
+      }
+    }
+    return out;
+  };
+
+  const bad = [];
+  const reach = [];   // {key, comps, gateRoles, used}
+  let unknownForm = 0;
+
+  for (const it of navItems) {
+    let gateRoles;
+    if (it.req === null) gateRoles = END_ROLES.slice();
+    else if (it.req.endsWith('()')) {
+      if (it.req === 'firstSoleEndpointId()') {
+        const sf = soleFirst();
+        gateRoles = sf ? sf.roles.slice() : END_ROLES.slice();
+      } else { unknownForm += 1; bad.push(`NAV 项 ${it.key} 的门控用了未登记的推导函数 ${it.req}`); continue; }
+    } else {
+      const g = entries.find((e) => e.id === it.req);
+      if (!g) { bad.push(`NAV 项 ${it.key} 的门控端点 ${it.req} 不在生成物里`); continue; }
+      gateRoles = g.roles.slice();
+    }
+    if (gateRoles.length === 0) {
+      bad.push(`NAV 项 ${it.key} 的门控角色集为空 ⇒ 该导航项对**所有角色**都隐藏（页面永久不可达）`);
+    }
+
+    const seg = segOf(it.key);
+    if (seg === null) { bad.push(`NAV 项 ${it.key} 找不到渲染分支（⑦ page-registry 亦应报红）`); continue; }
+    const comps = [...seg.matchAll(/<([A-Z][\w]*)/g)]
+      .map((m) => m[1]).filter((n) => existsSync(pageFileOf(n)));
+    const texts = comps.length
+      ? comps.map((n) => stripComments(readFileSync(pageFileOf(n), 'utf8')))
+      : [seg];   // 内联分支：端点就近写在 App.tsx 分支里
+    reach.push({ key: it.key, comps: comps.length ? comps : ['(内联)'], gateRoles, used: collectUsed(texts) });
+  }
+
+  // ④ 外壳层（App.tsx 整体 + 面板外渲染的页面）
+  // ---------------------------------------------------------------------------
+  // 🛑 为什么外壳层要单独算**（判据首跑就撞上了这个，属第 55 条形态：判据太窄 ⇒ 假红）
+  //    ① `authLogin` 由 LoginPage 触发，而 LoginPage 渲染在 `if (!profile)` 分支里
+  //       —— 它**不在任何 NAV 项的分支内**，但**每个角色都能到达**（登录前必经）；
+  //    ② `getCustomer` 写在 App.tsx 的 `loadCustomer()` 里，而 `customer` 分支只渲染
+  //       `<CustomerPage>`（用的是 listVisits）—— 端点与页面并不一一对应。
+  //    ⇒ 正确语义不是"每个端点必须挂在某个 tab 分支里"，而是：
+  //       **外壳层代码对外壳可见的所有角色可达**；只有"某角色一个导航项都看不到"
+  //       （被整体锁在面板外）才是真问题。
+  //    🛑 这不削弱判据的牙齿：注入"intake 门控改窄"后，therapist 仍能看到
+  //       customer/assessment/service 等页 ⇒ 外壳端点仍判可达，
+  //       而 **intake 页那 5 个端点对 therapist 依然报不可达** ✓。
+  const shellUsed = collectUsed([appText]);
+  for (const p of NON_NAV_PAGES) {
+    const f = pageFileOf(p);
+    if (existsSync(f)) for (const e of collectUsed([stripComments(readFileSync(f, 'utf8'))])) shellUsed.add(e);
+  }
+
+  // ⑤ 逐角色核算（不变量：任意角色 r，grantable(r) ⊆ reachable(r)）
+  const roleStats = [];
+  for (const r of END_ROLES) {
+    const grantable = entries.filter((e) => e.roles.includes(r)).map((e) => e.id);
+    const reachable = new Set();
+    // 面板分支：该角色能打开哪几个导航项
+    const myNavs = reach.filter((x) => x.gateRoles.includes(r));
+    const canEnterShell = myNavs.length > 0;
+    if (canEnterShell) {
+      for (const e of shellUsed) {
+        const d = entries.find((y) => y.id === e);
+        if (d && d.roles.includes(r)) reachable.add(e);
+      }
+    } else {
+      bad.push(`角色 ${r} 看不到**任何**导航项（门控角色集与它全无交集）⇒ 该角色被整体锁在面板外，`
+        + '它有权调用的端点一个都到不了 —— 这不是"页面被藏起来"，而是"角色被关在外面"。');
+    }
+    for (const x of myNavs) {
+      for (const e of x.used) {
+        const d = entries.find((y) => y.id === e);
+        if (d && d.roles.includes(r)) reachable.add(e);
+      }
+    }
+    const gap = grantable.filter((x) => !reachable.has(x));
+    roleStats.push({ r, grantable: grantable.length, reachable: reachable.size, gap });
+    if (gap.length) {
+      bad.push(`角色 ${r}：有权调用 ${grantable.length} 个端点，但其中 ${gap.length} 个`
+        + `**没有任何该角色可到达的页面在用**：\n        `
+        + gap.map((g) => {
+          const d = entries.find((y) => y.id === g);
+          return `${g}（角色 ${JSON.stringify(d.roles)}）`;
+        }).join(', ')
+        + '\n        ⇒ 门控端点必须**代表**它承载的页面：门控比页面更窄 ⇒ 页面被永久藏起来（第 72 条）。');
+    }
+  }
+
+  // ⑥ 判据的覆盖面必须自证（第 53 条）：不可达页面必须有豁免声明，否则报红
+  const allPageFiles = walk(join(SRC, 'pages')).filter((f) => f.endsWith('.tsx'))
+    .map((f) => f.replace(/\\/g, '/').split('/').pop().replace(/\.tsx$/, ''));
+  const reachedPages = new Set();
+  for (const x of reach) for (const c of x.comps) reachedPages.add(c);
+  for (const p of allPageFiles) {
+    if (reachedPages.has(p) || NON_NAV_PAGES.includes(p)) continue;
+    bad.push(`页面 ${p} 既不在任何 NAV 项的渲染分支里、也不在豁免清单里`
+      + '（若确为面板外渲染，请加入本判据的 NON_NAV_PAGES 并说明依据）——'
+      + '未被校验的页面其角色可达性无从判断。');
+  }
+  // ⑧ 豁免清单必须全部真实存在且确有使用（防"豁免成了垃圾桶"）
+  for (const p of NON_NAV_PAGES) {
+    if (!allPageFiles.includes(p)) bad.push(`豁免清单里的 ${p} 并不存在于 pages/ —— 豁免已失效，请修订`);
+    else if (collectUsed([stripComments(readFileSync(pageFileOf(p), 'utf8'))]).size === 0) {
+      bad.push(`豁免页面 ${p} 未用任何端点 —— 它无需豁免，请从 NON_NAV_PAGES 移除`);
+    }
+  }
+
+  if (navItems.length === 0) {
+    fail('reach-by-role', 'App.tsx 里没解析到任何 NAV 项 —— 本判据的检查对象不存在（若已重构请同步更新本门禁）');
+  } else if (bad.length) {
+    fail('reach-by-role', '角色可达性核算未通过：\n      ' + bad.join('\n      '));
+  } else {
+    const summary = roleStats.map((s) => `${s.r} ${s.reachable}/${s.grantable}`).join(' · ');
+    const gateDesc = reach.map((x) => `${x.key}[${x.gateRoles.join('|')}]`).join(' ');
+    ok('reach-by-role',
+      `角色可达性成立（${summary}）—— 有权调用的端点全部有该角色可到达的页面在用：`
+      + `已核 ${reach.length} 个导航项的门控角色（${gateDesc}）；`
+      + `面板外渲染的页面豁免 ${NON_NAV_PAGES.length} 个（${NON_NAV_PAGES.join(', ') || '无'}）。`);
+  }
+}
 console.log('== 端 B · X-3 角色级装载自检 ==');
 for (const l of oks) console.log(l);
 for (const l of notes) console.log(l);
