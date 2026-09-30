@@ -16,6 +16,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Map;
 
@@ -85,6 +86,63 @@ public class GlobalExceptionHandler {
             body = Result.fail(ex.getCode(), ex.getDevMessage(), traceId);
         }
         return ResponseEntity.status(status).body(body);
+    }
+
+    /**
+     * 🔴 2026-10-01（第 73 条）：<b>路由不存在</b>不是「服务端异常」⇒ 404，不是 500·9001。
+     *
+     * <h2>它修复的缺陷（启动后真请求实测暴露）</h2>
+     * <pre>
+     *   GET /api/v1/definitely-not-exist
+     *   → 500 · 9001 「系统异常: NoResourceFoundException」   ← 修复前（把「请求不合法」答成「服务端故障」）
+     *   → 404 · <b>无 code 字段</b>                            ← 修复后（回到本仓既有的设计预期）
+     * </pre>
+     * Spring Boot 3.2+ 对「无处理器匹配」抛 {@link NoResourceFoundException}，
+     * 它此前落到 {@link #handleOther} ⇒ 被当作<b>服务端内部错误</b>。
+     *
+     * <h2>🛑 为什么修复形态是「404 且【不带】code」，而不是「404 · 3001」</h2>
+     * 这一点必须写清，否则后来者会把"没有 code"当成遗漏而"修"成 3001，从而撞坏一条既有自证用例：
+     * <ol>
+     *   <li><b>契约不覆盖未知路由</b>：契约 §2.0 的 {@code 404 → 3001 NOT_FOUND} 的 trigger 逐字是
+     *       「资源不存在（<b>仅限本租户内确实不存在</b>）」—— 限定语指向<b>业务资源</b>
+     *       （工单/客户/门店…）；「URL 拼错」不在其列。契约只定义了 40 个 path，
+     *       未知路由<b>不是契约端点</b> ⇒ 「响应必须是四字段信封」这条契约纪律也不适用于它。</li>
+     *   <li><b>本仓已有一处测试钉住了相反的设计预期</b>：
+     *       {@code RefundWritePathMatrixE2ETest$SelfProof#the_self_proof_discriminates_a_nonexistent_path}
+     *       逐字断言「不存在的路径<b>不得</b>返回 code=3001」，理由是那条自证用例
+     *       <b>正是靠「未知路径无 code」来区分「端点根本没实现」与「业务层查无此单」</b>——
+     *       因为正向矩阵断言的就是 404，若两者无法区分，「端点没实现」会被误判成「角色被放行」。
+     *       让未知路由也返回 3001，会让那条自证用例丧失分辨力（第 55 条：判据太窄/无分辨力）。</li>
+     * </ol>
+     * ⇒ 故本分支<b>刻意不返回任何 body</b>：{@code codeOrZero()} 得到 0，自证用例继续成立，
+     * 而 HTTP 已从 500 回到 404（不再声称「服务端故障」）。
+     *
+     * <h2>🛑 为什么这仍然是真缺陷（不是"错误码不精确"）</h2>
+     * 把「请求根本不合法」答成 5xx，有三个具体坏后果：
+     * <ol>
+     *   <li><b>端侧行为错</b>：SDK 拿到 5xx 会按「服务端故障」重试（退避 + 熔断），
+     *       而这是<b>永远不会成功</b>的重试 —— 正确的动作是让开发者改 URL；</li>
+     *   <li><b>告警噪音</b>：监控上「5xx 率」是服务健康度的核心指标。把每个 URL 笔误
+     *       都计入 5xx，会让真实故障淹没在噪音里（与 {@link #handleBiz} 那处分级留痕同一纪律）；</li>
+     *   <li><b>排查方向被带偏</b>：{@code 9001} 的消息是"系统异常: NoResourceFoundException"，
+     *       运维会去查服务端 —— 而问题在 URL 里。</li>
+     * </ol>
+     * 这与 C-3 修过的 {@code HttpMessageNotReadableException}（请求体类型错被答成 500 后改为 400·1001）
+     * 是<b>同族</b>：凡「请求在进入业务逻辑之前就不合法」的各类，都不该落到 {@link #handleOther}。
+     *
+     * <h2>留痕：{@code warn} + 响应头里有 {@code X-Trace-Id}</h2>
+     * URL 笔误是<b>预期路径</b>（客户端 bug / 扫描器噪音），不是服务端故障 ⇒ 沿用本类
+     * 「4xx 是预期路径，不打堆栈、不进 error 噪音」的分级纪律。
+     * 虽然本分支不回 body，但 {@code TraceIdFilter} 已把 {@code X-Trace-Id} 写进响应头，
+     * 且本方法落 {@code warn}（含 uri 与 trace_id）⇒ 排查链完整（body 无 code 是本仓的设计预期，不是遗漏）。
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Void> handleNoResource(NoResourceFoundException ex, HttpServletRequest request) {
+        String traceId = MDC.get("traceId");
+        log.warn("路由不存在 trace_id={} uri={} method={}",
+                traceId, request.getRequestURI(), request.getMethod());
+        // 🛑 刻意不回 body：未知路由不是契约端点，「无 code」是本仓自证用例依赖的分辨信号。
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
 
     @ExceptionHandler(Exception.class)
