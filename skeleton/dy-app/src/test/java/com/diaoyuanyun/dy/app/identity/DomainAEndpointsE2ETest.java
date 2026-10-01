@@ -418,6 +418,65 @@ class DomainAEndpointsE2ETest {
                             + "不含 client。客户对门店台账没有数据面（他只能看本人）。实际: "
                             + resp.getStatusCode() + " body=" + resp.getBody());
             assertEquals(2001, code(resp), "应报 2001 VISIBILITY_DENIED（契约 A3 声明 '403'）");
+
+            // ─────────────────────────────────────────────────────────────────
+            // 🛑 2026-10-01 补：契约「不得模糊报错」的【人可读那一半】此前零覆盖
+            // ─────────────────────────────────────────────────────────────────
+            // 上游契约 §1.2 逐字：「403 语义：…message 必须【给出缺失项名称 / 档位名称】
+            // （PRD P0-08 / §7.2：不得模糊报错）」。
+            // 🛑 判据形态的教训（本仓第 55 条，此处首跑就复发了一次）：
+            //   初版断言 message 必须含 "client" 或 "客户" ⇒ 首跑即红
+            //   （实测 message=「权限不足: store:read」）。但那**不是缺陷** ——
+            //   A3 的真实拒绝来自 `PermissionInterceptor`（`@RequirePermission("store:read")`），
+            //   而契约要的「名称」既可以是**缺失项名称**（最常见的正是权限码名）
+            //   也可以是**档位名称**。把判据写死成"必须出现角色名"，
+            //   就是把本仓自己规定的合法形态判红 = 判据太窄。
+            //   ⇒ 正确判法是断言【非空 + 真的点名了某个标识符】，而不是点名某个特定词。
+            String message = message(resp);
+            assertFalse(message.isBlank(), "403 的 message 不得为空（契约：不得模糊报错）");
+            assertTrue(message.contains(":"),
+                    "🛑 message 必须【点名】缺失项 / 档位名 —— 上游契约 §1.2 逐字要求"
+                            + "「message 必须给出缺失项名称 / 档位名称（不得模糊报错）」。"
+                            + "只说「无权访问」会让调用方无从判断该补哪个码或换哪个角色。"
+                            + "本仓既有形态为「<原因>: <名称>」（如「权限不足: store:read」）。"
+                            + "实际 message=" + message);
+        }
+
+        @Test
+        @DisplayName("🛑 A3 角色级拒绝的响应形态：无 data.denied_fields（与字段级拒绝刻意不同）")
+        void a3_role_level_rejection_carries_no_denied_fields() {
+            // 🛑 本条钉住一个【刻意的设计边界】，同时登记一个【契约表述缺口】。
+            // ------------------------------------------------------------------
+            // A3 的真实拒绝来自 `PermissionInterceptor`（控制器贴 `@RequirePermission("store:read")`），
+            // 即**权限码准入**；而契约里另有一条同码的 `StoreListService#requireCallable`
+            // 角色级判据（"客户不可调 A3"显式条款）作为第二道。
+            // 契约里两类 2001 被拒的东西根本不同：
+            //   ① 字段级拒绝：客户索取派生字段（include=derived）⇒ 被拒的是【字段】，
+            //      故 data.denied_fields["effect_verdict","as_value"] 有明确内容可报
+            //      （契约 §3.2 逐字；由 DerivedVisibilityE2ETest 强守护）；
+            //   ② 权限码/角色级拒绝（本条）：被拒的是【调用能力本身】，
+            //      **没有"被拒字段名"这回事**。
+            // 硬塞一个 denied_fields 是【语义挪用】—— 与一路在修的那类
+            // "把 A 情形的码/字段拿来答 B 情形" 是同一个错误。
+            //
+            // 🛑 契约表述缺口（登记待裁，本用例只钉"现状是有意为之"，不代拍）：
+            //   x-error-codes 里 2001 的 trigger 逐字是「该角色对请求【字段组】无可见性档位」
+            //   —— 说的是**字段组**；而"该角色不可调该端点"是另一回事。
+            //   契约未为后者另立 code ⇒ 同一 2001 承载两种语义。
+            //   裁定权在契约 owner（补 code？还是收窄 2001 的语义？），不由实现侧代拍。
+            // ------------------------------------------------------------------
+            ResponseEntity<String> resp = get("/api/v1/stores", token("client", "own_store"));
+            assertEquals(2001, code(resp));
+
+            JsonNode d = data(resp);
+            assertFalse(d.has("denied_fields"),
+                    "🛑 A3 是【角色级】拒绝（被拒的是整个端点，不是某个字段）⇒ 刻意【不带】"
+                            + "denied_fields。若这里出现了字段名，说明有人把它和【字段级】拒绝混为一谈 —— "
+                            + "那会让客户端以为「去掉某个参数就能重试」，而实际上换任何参数都不会通过。"
+                            + "实际 data=" + d);
+            assertTrue(d.isMissingNode() || d.isNull(),
+                    "🛑 A3 角色级拒绝的 data 应为缺省 —— 契约 envelope-rule 与既有实现一致。"
+                            + "实际 data=" + d);
         }
 
         @Test
@@ -646,6 +705,18 @@ class DomainAEndpointsE2ETest {
             JsonNode root = MAPPER.readTree(resp.getBody());
             assertNotNull(root, "响应体为空: " + resp.getStatusCode());
             return root.path("data");
+        } catch (Exception e) {
+            throw new AssertionError("响应不是合法 JSON 信封: " + resp.getBody(), e);
+        }
+    }
+
+    /**
+     * 读取信封 message —— 用于断言上游契约 §1.2「message 必须给出缺失项名称 / 档位名称
+     * （不得模糊报错）」那条纪律的<b>人可读方向</b>。
+     */
+    private String message(ResponseEntity<String> resp) {
+        try {
+            return MAPPER.readTree(resp.getBody()).path("message").asText("");
         } catch (Exception e) {
             throw new AssertionError("响应不是合法 JSON 信封: " + resp.getBody(), e);
         }
