@@ -1,0 +1,58 @@
+# 调元云 · 本地/演示编排（生产请用 K8s + 外部托管 PG + 密钥管理）
+# 启动: docker compose up --build
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${DB_NAME:-diaoyuanyun_prod}
+      POSTGRES_USER: ${DB_USERNAME:-diaoyuanyun}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change_me_in_secret}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-diaoyuanyun} -d ${DB_NAME:-diaoyuanyun_prod}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-diaoyuanyun_prod}
+      DB_USERNAME: ${DB_USERNAME:-diaoyuanyun}
+      DB_PASSWORD: ${DB_PASSWORD:-change_me_in_secret}
+      # 🛑 prod 必须显式选 redis 幂等后端，否则 IdempotencyConfiguration 启动即失败（fail-closed）
+      DY_IDEMPOTENCY_BACKEND: redis
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      # 主密钥等敏感项务必走密钥管理，不要明文写在此处
+      DY_MASTER_KEY: ${DY_MASTER_KEY}
+      DY_CRYPTO_AUTO_PROVISION_KEK: ${DY_CRYPTO_AUTO_PROVISION_KEK:-true}
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  redisdata:

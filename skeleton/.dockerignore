@@ -1,0 +1,12 @@
+# 构建上下文排除项（保持镜像层干净、加速构建）
+**/target
+**/node_modules
+**/.git
+**/_work
+**/_work_*
+**/build.log
+**/*.log
+**/.idea
+**/*.iml
+frontends
+.github
