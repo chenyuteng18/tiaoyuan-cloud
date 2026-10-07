@@ -12,16 +12,22 @@ import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.validation.FieldError;
 import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 全局异常处理器 (ADR-06): 把 {@link BizException} 统一转 {@link Result} 信封, 回填 trace_id。
@@ -240,7 +246,8 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 🔴 2026-09-27（C-3）：请求体/参数在<b>进入控制器之前</b>就反序列化失败 ⇒ 400·1001，不是 500·9001。
+     * 🔴 2026-09-27（C-3 起点）· 2026-10-07（第 74 条族级枚举补全）：请求体/参数在<b>进入控制器之前</b>
+     * 就反序列化失败 / 类型不匹配 / 缺必填项 / Bean Validation 失败 ⇒ <b>统一 400·1001</b>，不是 500·9001。
      *
      * <h2>它修复的缺陷（由 C-3 写路径矩阵的真实请求暴露）</h2>
      * <pre>
@@ -269,20 +276,61 @@ public class GlobalExceptionHandler {
      * </ol>
      *
      * <h2>🛑 对外不回显解析细节（沿用本类一贯纪律）</h2>
-     * 三个分支都只回显<b>字段语义</b>与"这是什么类型的问题"，<b>不</b>回显
+     * 各分支只回显<b>字段语义</b>与"这是什么类型的问题"，<b>不</b>回显
      * Jackson 的原始消息（它含包名、类名与目标类型的内部路径）。
      * 与 {@code handleOther} 的"只回类名"同源：响应体是给调用方看的，
      * 内部细节留在服务端日志里（本方法仍落 {@code warn}，因这是预期路径而非故障）。
      *
-     * <h2>为什么这三类合在一个方法里</h2>
-     * 它们共享<b>同一个语义</b>：请求<b>在进入业务逻辑之前</b>就不合法。
-     * 分开写会让"哪一类该报 400、哪一类该报 500"在三处各自表述 ——
-     * 而其中一处将来被改成 500 时，另两处仍绿，症状是"同一个字段偶尔 400 偶尔 500"。
+     * <h2>🛑 2026-10-07（第 74 条族级枚举）：为什么这六类合在一个方法里，且此前漏了其中三类</h2>
+     * 它们共享<b>同一个语义</b>：请求<b>在进入业务逻辑之前</b>就不合法（参数绑定 / Bean Validation 阶段）。
+     * 分开写会让"哪一类该报 400、哪一类该报 500"在多处各自表述 ——
+     * 而其中一处将来被改成 500 时，其余仍绿，症状是"同一个字段偶尔 400 偶尔 500"。
+     * <br>
+     * 第 74 条按本仓「修一处同族必须枚举全族」的纪律，对"参数绑定 / 校验"这一类做了启动后真请求实测，
+     * 抓出<b>同族里此前漏在 {@link #handleOther} 的成员</b>（都是 {@code 500 · 9001}）：
+     * <pre>
+     *   POST /api/v1/doc-templates/uploads  （multipart，但省略必填 part "file"）
+     *   → 500 · 9001 「系统异常: MissingServletRequestPartException」   ← 修复前（应为 400）
+     * </pre>
+     * {@code MissingServletRequestPartException} 继承自 {@link ServletRequestBindingException}，
+     * 而原方法只列了 {@code HttpMessageNotReadableException / MethodArgumentTypeMismatchException /
+     * MissingServletRequestParameterException} 三者 —— <b>漏了 {@code ServletRequestBindingException} 这一支
+     * （含缺请求头 + 缺 multipart part）</b>，于是"客户端漏传一个 part"被当成"服务端内部错误"。
+     * 另补 {@code MethodArgumentNotValidException}（@Valid 体校验失败，回显被拒字段名）——
+     * 它来自 spring-web，<b>免费</b>并入；其触发前提是存在一个 Validator bean，当前骨架未引 validation starter，
+     * 故该分支<b>休眠</b>（@Valid 不会真正跑校验），但一旦将来引入校验即自动生效，无需再改本类。
+     * <br>
+     * 🛑 <b>{@code ConstraintViolationException}（@Validated 方法级校验失败）本轮<b>刻意不并入</b></b>：
+     * 它属于 {@code jakarta.validation} 包，而本仓<b>有意不引入</b> validation starter —— 引入
+     * {@code spring-boot-starter-validation} 会把 {@code hibernate-validator}（含 "hibernate" 字面量）拉进 classpath，
+     * 撞坏 {@code ProvisioningBoundaryGateTest#no_orm_is_on_the_classpath}（该测试用字面扫描守护
+     * "classpath 无 ORM"这一架构边界，是 provisioning「表名 ⇔ 写入路径」静态判据的前提）。
+     * 且当前骨架无任何 @Validated 用法、也无 Validator bean，该异常<b>根本不可达</b>；
+     * 故不并入既尊重不变式、又不留不可达分支。若将来确需方法级校验，应：① 评估 ORM 边界后再决定引入方式；
+     * ② 在此处补 {@code ConstraintViolationException} 分支（届时 {@code jakarta.validation} 才在 classpath）。
+     *
+     * <h2>🛑 实测已枚举到的「同族全体」（2026-10-07，启动后真请求逐条探测）</h2>
+     * <pre>
+     *   HttpMessageNotReadableException        → 400 · 1001（已在：请求体无法解析）
+     *   MethodArgumentTypeMismatchException     → 400 · 1001（已在：查询/路径参数类型错）
+     *   MissingServletRequestParameterException → 400 · 1001（已在：缺必填查询参数）
+     *   MethodArgumentNotValidException          → 400 · 1001（本轮补：@Valid 体校验失败，回显被拒字段名；休眠，需 Validator bean）
+     *   ServletRequestBindingException
+     *     ├ MissingServletRequestPartException  → 400 · 1001（本轮补：缺必填 multipart part）★ 真缺口，真请求实测抓出
+     *     └ MissingRequestHeaderException        → 400 · 1001（本轮补：缺必填请求头）
+     * </pre>
+     * ⇒ <b>本仓可达成员已无遗漏</b>（{@code ConstraintViolationException} 因上述原因不可达、不并入）。
+     * 这条"枚举清单"本身即判据：将来若有人新增异常处理而漏了某类，
+     * 应把它补进这张表，而不是让它继续落回 {@link #handleOther} 变成 500。
      */
     @ExceptionHandler({
             HttpMessageNotReadableException.class,
             MethodArgumentTypeMismatchException.class,
-            MissingServletRequestParameterException.class})
+            MissingServletRequestParameterException.class,
+            MethodArgumentNotValidException.class,
+            ServletRequestBindingException.class,
+            MissingServletRequestPartException.class,
+            MissingRequestHeaderException.class})
     public ResponseEntity<Result<Void>> handleUnreadableRequest(Exception ex, HttpServletRequest request) {
         String traceId = MDC.get("traceId");
         String detail;
@@ -293,8 +341,16 @@ public class GlobalExceptionHandler {
         } else if (ex instanceof MethodArgumentTypeMismatchException m) {
             detail = "参数类型不匹配: " + m.getName()
                     + "（期望类型见契约；例如路径变量 / 查询参数应是 UUID 却传了其它格式）";
+        } else if (ex instanceof MethodArgumentNotValidException v) {
+            detail = "请求参数校验失败: " + formatFieldErrors(v);
+        } else if (ex instanceof MissingServletRequestPartException mp) {
+            detail = "缺少必填的 multipart part: " + mp.getRequestPartName();
+        } else if (ex instanceof MissingRequestHeaderException mh) {
+            detail = "缺少必填请求头: " + mh.getHeaderName();
+        } else if (ex instanceof MissingServletRequestParameterException mp) {
+            detail = "缺少必填参数: " + mp.getParameterName();
         } else {
-            detail = "缺少必填参数";
+            detail = "请求参数绑定失败";
         }
         // 归为"预期路径"而非故障：与 handleBiz 对 4xx 的分级留痕一致（不带堆栈）。
         log.warn("请求不可解析(400) trace_id={} uri={} method={} type={} msg={}",
@@ -303,5 +359,16 @@ public class GlobalExceptionHandler {
 
         Result<Void> body = Result.fail(ErrorCode.VALIDATION_FAILED.getCode(), detail, traceId);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
+    /**
+     * 把 {@link MethodArgumentNotValidException} 的被拒字段名拼成一句话（不得模糊报错：
+     * 调用方要的是"哪个字段不合法"，不是一句"校验失败"）。
+     */
+    private static String formatFieldErrors(MethodArgumentNotValidException v) {
+        return v.getBindingResult().getFieldErrors().stream()
+                .map(FieldError::getField)
+                .distinct()
+                .collect(Collectors.joining(", ", "[", "]"));
     }
 }
