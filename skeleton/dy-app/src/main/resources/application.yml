@@ -1,5 +1,14 @@
 server:
   port: 8080
+  tomcat:
+    # 🛑 第 75 条：超限上传必须返回【干净的 413】，而不是重置连接。
+    #   默认情况下，Tomcat 在 multipart 解析超限（抛 MaxUploadSizeExceededException）后，
+    #   因「请求体还有剩余字节没读完」、且超过了 max-swallow-size，会直接【重置连接】 ——
+    #   客户端收到的是「连接被中止」、永远看不到 413，GlobalExceptionHandler 的 413 也白写。
+    #   设为 -1（无限吞咽）确保 Tomcat 在发出错误响应前读完整个请求体，
+    #   使 handleUploadTooLarge 的 413 能真正送达客户端。
+    #   与 max-file-size=12MB 配合：单 part 已被 12MB 卡住，实际需吞咽的量有界，不会无限读。
+    max-swallow-size: -1
 
 spring:
   application:

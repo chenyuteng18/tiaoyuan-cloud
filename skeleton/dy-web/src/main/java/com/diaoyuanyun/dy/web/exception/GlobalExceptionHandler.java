@@ -25,6 +25,7 @@ import org.springframework.web.bind.UnsatisfiedServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -233,6 +234,77 @@ public class GlobalExceptionHandler {
         // 🛑 刻意不回 body：这三类都不是契约端点行为，且契约未为它们定义 code。
         //    回 {code:9001} 会把「请求不合法」谎报成「服务端故障」；回自造 code 会让客户端落进契约未声明分支。
         return ResponseEntity.status(status).build();
+    }
+
+    /**
+     * 🔴 2026-10-07（第 75 条）：上传体超过容器 multipart 上限 ⇒ <b>413 Payload Too Large</b>，不是 500·9001。
+     *
+     * <h2>它修复的缺陷（启动后真请求实测暴露）</h2>
+     * <pre>
+     *   POST /api/v1/doc-templates/uploads  （multipart，file part = 13 MiB，超过 spring.servlet.multipart.max-file-size=12MB）
+     *   → 500 · 9001 「系统异常: MaxUploadSizeExceededException」   ← 修复前（客户端请求体过大，被答成服务端故障）
+     *   → 413（裸状态码，无 code）                                  ← 修复后
+     * </pre>
+     * {@code MaxUploadSizeExceededException} 在 DispatcherServlet 的 {@code checkMultipart} 阶段抛出，
+     * 此前落到 {@link #handleOther} ⇒ 被当成<b>服务端内部错误</b>。
+     * 它和第 73 条（未知路由答 500）、第 74 条（缺 multipart part 答 500）是<b>同族</b>：
+     * 凡"请求在进入业务逻辑之前就不合法"的各类，都不该落到 {@link #handleOther} 变成 500。
+     *
+     * <h2>🛑 为什么是 413 且【不带】code（与 405/415/406 同源，与 400·1001 相异）</h2>
+     * <ul>
+     *   <li><b>HTTP 状态</b>：{@code 413 Payload Too Large} 是"请求实体过大"的标准语义 —— 这是<b>客户端</b>的问题
+     *       （发的文件比容器愿意接收的还大），不是服务端故障；把 413 答成 500 会带来与第 73/74 条<b>同一组坏后果</b>
+     *       （SDK 按 5xx 退避重试永不成功 / 5xx 率告警被污染 / 运维去查服务端）。</li>
+     *   <li><b>不带 code</b>：契约 §2.0 的码表只有十个（1001/1002/2001-2004/3001/4001/4002/5001/6001/9001），
+     *       <b>没有 413</b>。回一个自造 code 会让客户端落进契约未声明分支；而 {@code 1001 VALIDATION_FAILED}
+     *       的 trigger 是"参数类型/必填/约束不满足"——它说的是<b>参数的【值】</b>，不是"传输层实体太大"，
+     *       用它去答 413 属于<b>code 语义挪用</b>。⇒ 与 {@link #handleUnroutableRequest} 同款：<b>回裸状态码、不带 body</b>。</li>
+     * </ul>
+     * 留痕取 {@code warn}（与 404/405/415/406/400 同一纪律：这是<b>预期路径</b>——客户端把文件发大了，
+     * 不是服务端故障，不打堆栈、不进 error 噪音）。
+     *
+     * <h2>🛑 这一支与「业务层 file_size 校验」是两层不同的闸，不冲突</h2>
+     * 本仓业务层 {@code DocFileService} 已对 {@code file_size ≤ 10 MiB} 做校验、超限回 <b>400·1001</b>
+     * （见 {@code DocFileE2ETest#upload_rejects_oversize}，该用例用 10 MiB + 1 字节、落在 12MB 容器上限内
+     * 故能到达业务层）。本方法处理的是<b>更外面的容器上限（12MB）</b>：10~12 MiB 由业务层以 400·1001 拦截，
+     * >12 MiB 在容器 multipart 解析阶段就以 413 拦截。<b>两层各司其职</b>，缺一不可
+     * （若没有本方法，>12 MiB 的请求会一路 500）。
+     *
+     * <h2>🛑 第 75 条「枚举全族」的结论（2026-10-07，启动后真请求逐条探测 + 源码判定）</h2>
+     * "请求在进入业务逻辑之前就不合法"这一族，到此<b>已全部枚举完毕</b>，可落入 {@link #handleOther} → 500 的成员
+     * 已清零。逐类归属如下：
+     * <pre>
+     *   ── 路由/方法/媒体（handleUnroutableRequest，裸状态码、无 code、warn）──
+     *   NoResourceFoundException              → 404   路径不存在
+     *   HttpRequestMethodNotSupportedException→ 405   方法不支持
+     *   HttpMediaTypeNotSupportedException    → 415   媒体类型不支持
+     *   HttpMediaTypeNotAcceptableException   → 406   Accept 不可接受
+     *   ── 参数绑定/校验（handleUnreadableRequest，400·1001，warn）──
+     *   HttpMessageNotReadableException        → 400 · 1001
+     *   MethodArgumentTypeMismatchException     → 400 · 1001
+     *   MissingServletRequestParameterException → 400 · 1001
+     *   MethodArgumentNotValidException          → 400 · 1001（休眠，需 Validator bean）
+     *   ServletRequestBindingException（含 MissingServletRequestPart / MissingRequestHeader / MissingPathVariable / UnsatisfiedServletRequestParameter）→ 400 · 1001
+     *   ── 请求实体过大（本方法，413，无 code，warn）──
+     *   MaxUploadSizeExceededException          → 413   上传体超过容器 multipart 上限
+     *   ── 以下同族成员经判定【不可达 / 非客户端错误】，刻意不并入（避免掩盖真 500）──
+     *   MultipartException 其它子类（如缺 boundary 的底层解析失败）→ 属服务端 multipart 解析故障，应 500，不并入
+     *   MissingMatrixVariableException          → 若引入矩阵变量才可达；本仓契约无矩阵变量用法，不可达，不并入
+     *   AsyncRequestTimeoutException            → 若启用异步请求超时才可达；本仓控制器无异步返回（Callable/DeferredResult），不可达，不并入
+     *   HttpMessageNotWritableException / ConversionNotSupportedException → 服务端序列化/转换故障，本就是 500，不应被改成 4xx
+     * </pre>
+     * ⇒ <b>"请求不合法却答 500"这一大类缺陷，已在第 73/74/75 条完成逐族枚举与清零</b>；本方法即收口。
+     * 将来若有人新增异常处理而漏了某类，应把它补进这张表，而不是让它继续落回 {@link #handleOther}。
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Void> handleUploadTooLarge(MaxUploadSizeExceededException ex, HttpServletRequest request) {
+        String traceId = MDC.get("traceId");
+        long max = ex.getMaxUploadSize();
+        // 客户端把文件发大了是【预期路径】，不是服务端故障：warn + 无堆栈，不进 error 噪音。
+        log.warn("上传体过大(413) trace_id={} uri={} method={} max_bytes={}",
+                traceId, request.getRequestURI(), request.getMethod(), max);
+        // 🛑 刻意不回 body：契约未为 413 定义 code（见上），回自造 code 会让客户端落进契约未声明分支。
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).build();
     }
 
     @ExceptionHandler(Exception.class)
