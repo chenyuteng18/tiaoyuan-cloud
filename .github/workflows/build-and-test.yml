@@ -35,7 +35,7 @@ jobs:
           path: skeleton/**/target/surefire-reports/*.txt
 
   frontend:
-    name: 三端前端工程自检（结构 + 契约 + 真实构建）
+    name: 三端前端工程自检 + 行为测试 + 反向验证
     runs-on: ubuntu-latest
     needs: backend
     steps:
@@ -44,15 +44,41 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: admin-web 自检
+
+      - name: 安装端 A / 端 B 依赖
+        working-directory: skeleton/frontends
+        run: |
+          (cd admin-web && npm ci)
+          (cd therapist-app && npm ci)
+
+      # 契约一致性（一次校验三端：15 / 29 / 39 ops 与裁剪契约逐字一致）
+      - name: 契约一致性
         working-directory: skeleton/frontends/admin-web
-        run: node ../tools/build-check.mjs --end=admin-web
-      - name: therapist-app 自检
+        run: npm run check:contract
+
+      # 端 A / 端 B：结构 + 契约 + 真实构建（tsc --noEmit + vite build）+ 行为测试（vitest）
+      - name: 端 A admin-web 自检 + 测试
+        working-directory: skeleton/frontends/admin-web
+        run: |
+          node ../tools/build-check.mjs --end=admin-web
+          npm test
+      - name: 端 B therapist-app 自检 + 测试
         working-directory: skeleton/frontends/therapist-app
-        run: node ../tools/build-check.mjs --end=therapist-app
-      - name: client-mp 自检
+        run: |
+          node ../tools/build-check.mjs --end=therapist-app
+          npm test
+
+      # 端 C：小程序工程自检（产物由微信开发者工具编译）+ node 侧行为测试（零依赖 node --test）
+      - name: 端 C client-mp 自检 + 测试
         working-directory: skeleton/frontends/client-mp
-        run: node ../tools/build-check.mjs --end=client-mp
+        run: |
+          node ../tools/build-check.mjs --end=client-mp
+          npm test
+
+      # 门禁有牙齿的反向验证：注入 25 类故障必须被八条判据逐一抓住（含还原校验）
+      - name: 构建门禁反向验证（25/25）
+        working-directory: skeleton/frontends/admin-web
+        run: node ../tools/build-reverse-check.mjs
 
   docker:
     name: 镜像可构建性（不推送）

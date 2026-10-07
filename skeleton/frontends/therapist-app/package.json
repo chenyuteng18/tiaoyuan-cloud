@@ -12,7 +12,8 @@
     "check:build": "node ../tools/build-check.mjs --end=therapist-app",
     "check:x3": "node ../tools/x3-check.mjs",
     "check:x3-reverse": "node ../tools/x3-reverse-check.mjs",
-    "check:build-reverse": "node ../tools/build-reverse-check.mjs"
+    "check:build-reverse": "node ../tools/build-reverse-check.mjs",
+    "test": "vitest run"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -22,7 +23,9 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^30.1.2",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vitest": "^2.1.9"
   }
 }

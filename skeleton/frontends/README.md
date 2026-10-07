@@ -1792,5 +1792,54 @@ const visibleNav = NAV.filter((n) => n.requires === null || canCall(n.requires, 
 
 ---
 
-> 🛑 **本文件 §8 的条数已由「二十四条」增至「二十五条」**（新增 §8.26，对应本仓第 73 条），标题行已同步订正。
+### 8.27 三端"零测试"缺口收口（2026-10-08）：把「构建通过」升级为「行为被断言」
+
+#### 8.27.1 缺口：三端只有"契约一致 + 类型构建"，**没有一行运行时行为断言**
+
+三端此前各有 `check:contract`（生成物与契约逐字一致）与 `check:build`（`tsc --noEmit` + `vite build`），
+但它们**只回答"代码能不能编译、名字对不对"**，不回答"发出去的那条请求，URL/头/信封/错误解析到底对不对"。
+⇒ 出站层的三处**跨端隐式协议**（Base Path 前缀、`Authorization` 头名、`Idempotency-Key`）
+与错误路径的 `data` 保留，**全靠门禁的语法扫描**守住，没有一条用例**真发一次请求**去验。
+
+#### 8.27.2 收口：为三端各建一套行为测试（共 **48 例**）
+
+| 端 | 用例数 | 基建 | 覆盖 |
+|---|---|---|---|
+| 端 A `admin-web` | 18（3 文件） | vitest@2（`node` 环境） | `call` 出站（前缀/Bearer/幂等键/多段路径参数）+ 错误路径带 `data` + 生成物自洽（39 ops） |
+| 端 B `therapist-app` | 18（3 文件） | vitest@2（`forks` + `singleFork`） | 同上（差异：`role` 必填、`th-` 幂等前缀、29 ops） |
+| 端 C `client-mp` | 12（2 文件） | Node 内置 `node --test`（**零依赖**） | CJS `request` 层（`wx.request` 桩）+ 生成物自洽（15 ops） |
+
+🛑 **为什么端 C 用 `node --test` 而不是 vitest**：端 C 是原生小程序（CJS、无构建期），
+其自检脚本注释逐字写着 `real-build: 本端不适用`。为它拉一整套 vitest + jsdom，
+会让"零依赖即可跑"这一端 C 的既有属性倒退。用 Node 内置 runner，`npm test` 无需任何 `node_modules`。
+
+#### 8.27.3 三处真缺陷（都是本轮**新写的测试或串行门禁**抓出来的）
+
+1. **两端的 `tsc --noEmit` 被测试文件打破**：`beforeEach` / 一个未使用的 `const f` 触发 `TS6133`
+   ⇒ `check:build` 由绿转红。**测试文件在 `tsconfig` 的类型检查范围内**，写测试同样要过类型门禁。
+2. **端 C 测试桩未注入后端基址** ⇒ `requestBaseUrl` 取值即抛
+   （`env.js` 三环境基址均 `null`，取用即显式报错 —— **这是有意的 fail-closed**，不是缺陷）。
+   测试须显式 `ENV.setBaseUrl('develop', ...)`。
+3. **`vitest` 在 brokered-fs 下的偶发 `EPERM` 竞态**：多进程并发写 `node_modules/.vite` 时，
+   部分测试文件**未被收集**（报了 "Test Files 1"，而实际有 3 个）。
+   ⇒ 两端统一 `pool: 'forks'` + `poolOptions.forks.singleFork: true` 串行化；冷启动连跑两次验证确定性。
+   🛑 **这条是"绿得不完整"**：它不是红，而是"少跑了两文件却仍显示 passed" —— 只有**核对用例数**才发现。
+
+#### 8.27.4 反向验证脚本**禁止并行**
+
+本轮曾把端 A / 端 B 的 `check:build-reverse` **并行**跑，端 A 报 FAIL。
+根因：该脚本会**对三端同一批文件**做"注入故障 → 还原"，两个实例并行即互相踩踏。
+⇒ **反向验证脚本必须串行**；串行后 25/25 PASS、`git status` 干净无注入残留。
+
+#### 8.27.5 复验（逐字）
+
+- 三端全门禁**串行**通过：端 A `contract/build/a/a-reverse/build-reverse` 全 PASS；
+  端 B `contract/build/x3/x3-reverse/build-reverse` 全 PASS；端 C `build/build-reverse` PASS。
+- 三端测试：端 A `18 passed (3 files)` · 端 B `18 passed (3 files)` · 端 C `# pass 12 # fail 0`。
+- 后端全量 `mvn -o clean install` **BUILD SUCCESS**（8 模块全 SUCCESS，`Tests run: 859, Failures: 0, Errors: 0`；
+  码级锚点 `TOTAL 1227` 对齐）。CI `build-and-test.yml` 已把「三端测试 + 反向验证」纳入流水线。
+
+---
+
+> 🛑 **本文件 §8 的条数已由「二十五条」增至「二十六条」**（新增 §8.27，对应本轮三端测试套件收口），标题行已同步订正。
 
