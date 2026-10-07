@@ -17,9 +17,11 @@ import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingPathVariableException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.ServletRequestBindingException;
+import org.springframework.web.bind.UnsatisfiedServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -316,9 +318,17 @@ public class GlobalExceptionHandler {
      *   MissingServletRequestParameterException → 400 · 1001（已在：缺必填查询参数）
      *   MethodArgumentNotValidException          → 400 · 1001（本轮补：@Valid 体校验失败，回显被拒字段名；休眠，需 Validator bean）
      *   ServletRequestBindingException
-     *     ├ MissingServletRequestPartException  → 400 · 1001（本轮补：缺必填 multipart part）★ 真缺口，真请求实测抓出
-     *     └ MissingRequestHeaderException        → 400 · 1001（本轮补：缺必填请求头）
+     *     ├ MissingServletRequestPartException      → 400 · 1001（本轮补：缺必填 multipart part）★ 真缺口，真请求实测抓出
+     *     ├ MissingRequestHeaderException            → 400 · 1001（本轮补：缺必填请求头）
+     *     ├ MissingPathVariableException             → 400 · 1001（本轮补：显式点名；路径变量由路由匹配保证必填，极难触发，防御性）
+     *     └ UnsatisfiedServletRequestParameterException → 400 · 1001（本轮补：显式点名；@RequestParam(params=...) 条件不满足，防御性）
      * </pre>
+     * 🛑 <b>为何 {@code ServletRequestBindingException} 的另两个子类也要显式点名</b>：第 74 条实证
+     * {@code @ExceptionHandler(ServletRequestBindingException.class)} 的<b>父类映射在运行时未覆盖其子类</b>
+     * （只写父类时 {@code MissingServletRequestPartException} 仍落 {@code handleOther} → 500；显式点名后才命中）。
+     * 故本族其余子类（{@code MissingPathVariableException} / {@code UnsatisfiedServletRequestParameterException}）也必须显式点名，
+     * 否则会重蹈 I3 的覆辙。二者在骨架里<b>低可达</b>（路径变量由路由匹配保证必填、{@code params} 条件不满足走 400 解析链），
+     * 未逐条造端点真请求实测，但其命中机制已由 I3 的 {@code MissingServletRequestPartException} 同一父类实证。
      * ⇒ <b>本仓可达成员已无遗漏</b>（{@code ConstraintViolationException} 因上述原因不可达、不并入）。
      * 这条"枚举清单"本身即判据：将来若有人新增异常处理而漏了某类，
      * 应把它补进这张表，而不是让它继续落回 {@link #handleOther} 变成 500。
@@ -330,7 +340,9 @@ public class GlobalExceptionHandler {
             MethodArgumentNotValidException.class,
             ServletRequestBindingException.class,
             MissingServletRequestPartException.class,
-            MissingRequestHeaderException.class})
+            MissingRequestHeaderException.class,
+            MissingPathVariableException.class,
+            UnsatisfiedServletRequestParameterException.class})
     public ResponseEntity<Result<Void>> handleUnreadableRequest(Exception ex, HttpServletRequest request) {
         String traceId = MDC.get("traceId");
         String detail;
