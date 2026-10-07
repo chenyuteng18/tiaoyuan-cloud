@@ -1831,7 +1831,19 @@ const visibleNav = NAV.filter((n) => n.requires === null || canCall(n.requires, 
 根因：该脚本会**对三端同一批文件**做"注入故障 → 还原"，两个实例并行即互相踩踏。
 ⇒ **反向验证脚本必须串行**；串行后 25/25 PASS、`git status` 干净无注入残留。
 
-#### 8.27.5 复验（逐字）
+#### 8.27.5 顺带抓出的 CI 缺口：**流水线只跑了最弱的那条判据**
+
+`build-and-test.yml` 的前端任务原本只调 `build-check.mjs`，而它**不含**
+`endpoint-reachability` / `required-args-wired` / `required-args-carrier` / `reach-by-role`
+—— 这四条判据在 `a-check.mjs`（端 A）/ `x3-check.mjs`（端 B）/ `build-check.mjs`（端 C）里。
+⇒ 「端 A C1 调用缺必需参数」那类缺陷（第 65 条）**在 CI 里根本不会被拦**，
+因为跑的那个脚本不判实参。
+
+**修法**：CI 前端任务改为按端跑**全部门禁**：
+端 A `check:build` + `check:a` + `test`；端 B `check:build` + `check:x3` + `test`；
+端 C `build` + `test`；反向验证三件套（`build-reverse` / `a-reverse` / `x3-reverse`）**串行**执行。
+
+#### 8.27.6 复验（逐字）
 
 - 三端全门禁**串行**通过：端 A `contract/build/a/a-reverse/build-reverse` 全 PASS；
   端 B `contract/build/x3/x3-reverse/build-reverse` 全 PASS；端 C `build/build-reverse` PASS。

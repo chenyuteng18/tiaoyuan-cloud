@@ -56,29 +56,37 @@ jobs:
         working-directory: skeleton/frontends/admin-web
         run: npm run check:contract
 
-      # 端 A / 端 B：结构 + 契约 + 真实构建（tsc --noEmit + vite build）+ 行为测试（vitest）
-      - name: 端 A admin-web 自检 + 测试
+      # 端 A / 端 B：结构 + 契约 + 真实构建（tsc --noEmit + vite build）
+      #            + 端级强判据（check:a = 端点可达性 / 必需参数 / 未完结面；check:x3 = 角色可达性）
+      #            + 行为测试（vitest）
+      - name: 端 A admin-web 全门禁 + 测试
         working-directory: skeleton/frontends/admin-web
         run: |
-          node ../tools/build-check.mjs --end=admin-web
+          npm run check:build
+          npm run check:a
           npm test
-      - name: 端 B therapist-app 自检 + 测试
+      - name: 端 B therapist-app 全门禁 + 测试
         working-directory: skeleton/frontends/therapist-app
         run: |
-          node ../tools/build-check.mjs --end=therapist-app
+          npm run check:build
+          npm run check:x3
           npm test
 
       # 端 C：小程序工程自检（产物由微信开发者工具编译）+ node 侧行为测试（零依赖 node --test）
       - name: 端 C client-mp 自检 + 测试
         working-directory: skeleton/frontends/client-mp
         run: |
-          node ../tools/build-check.mjs --end=client-mp
+          npm run build
           npm test
 
-      # 门禁有牙齿的反向验证：注入 25 类故障必须被八条判据逐一抓住（含还原校验）
-      - name: 构建门禁反向验证（25/25）
+      # 门禁有牙齿的反向验证：注入故障必须被逐一抓住（含还原校验）。
+      # 🛑 必须【串行】：这些脚本对三端同一批文件做「注入 → 还原」，并行会互相踩踏。
+      - name: 门禁反向验证（build 25/25 · a · x3）
         working-directory: skeleton/frontends/admin-web
-        run: node ../tools/build-reverse-check.mjs
+        run: |
+          node ../tools/build-reverse-check.mjs
+          node ../tools/a-reverse-check.mjs
+          node ../tools/x3-reverse-check.mjs
 
   docker:
     name: 镜像可构建性（不推送）
