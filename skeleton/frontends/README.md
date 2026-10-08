@@ -2022,8 +2022,13 @@ Windows 的 `py` 启动器会**读脚本首行的 shebang**。而 `gen-endpoints
 
 #### 复验（逐字）
 
-- 后端 `mvn -B -ntp clean install` **BUILD SUCCESS**（9 模块全 SUCCESS，
-  `Tests run: 2454, Failures: 0, Errors: 0`，含真库 RLS 隔离套件）。
+- 后端 `mvn -B -ntp clean install` **BUILD SUCCESS**（**9 个 reactor 模块**全 SUCCESS =
+  1 个聚合 POM + 8 个功能模块〔7 业务 + `dy-crypto`〕；
+  **`Tests run: 1227 / 199 个测试类 / Failures: 0 / Errors: 0 / Skipped: 0`**，含真库 RLS 隔离套件）。
+  > 🛑 **订正（本轮自查发现）**：本条初稿曾写 `Tests run: 2454` —— 那个数是**把
+  > "逐测试类"与"逐模块汇总"两批行**都加了一遍（1227 + 1227），**是双计**。
+  > 真值 **1227**，与仓库自己的文档计数锚点 `DocTestCountAnchorGateTest`（`TOTAL 1227`）一致。
+  > ⇒ 又一次印证第 60 条：**"计数"本身就是一句活断言**；而且**订正必须写出来，不能悄悄改掉**。
 - **四端门禁全绿，逐条 `exit=0`**：端 A `check:contract` + `check:build` + `check:a` + `npm test`（**18 例**）·
   端 B `check:build` + `check:x3` + `npm test`（**18 例**）· 端 C `build` + `npm test`（**12 例**）·
   端 D `android-check`（25 条判据）。（三端行为测试合计 **48 例**，与 §8.27.2 同数。）
@@ -2042,6 +2047,13 @@ Windows 的 `py` 启动器会**读脚本首行的 shebang**。而 `gen-endpoints
   （`重跑:` / `校验:`），**零语义变更**。
 - 四组反向验证**在「无并发编辑」的干净条件下重跑**：**104/104** 全部 PASS、还原干净
   （见上方"自曝"一节 —— 第一次跑出的 build 19/26 是**并发编辑**导致的**假 FAIL**，不是判据问题）。
+  > 📌 **口径说明（2026-10-08 补记）**：这里的 **104/104 是【本条修复当时】的口径**
+  > （build 26 / a 21 / **x3 14** / android 43）。紧随其后的第 78 条为端 B 新增了
+  > **I15 / I16 / I17** 三组注入 ⇒ **当前仓库的总口径是 107/107**
+  > （build 26 / a 21 / **x3 17** / android 43，见 §8.29.6）。
+  > 🛑 之所以**保留 104 而不改成 107**：那是**当时的实测结果**，改掉就变成了
+  > "事后把自己的历史改得更好看"（第 60 条：计数是活断言，**订正必须写出来、不能悄悄改掉**）。
+  > 两者不矛盾 —— 一个是**该次修复的证据**，一个是**当前基线**。
 
 #### 教训（可复用）
 
@@ -2133,7 +2145,7 @@ Windows 的 `py` 启动器会**读脚本首行的 shebang**。而 `gen-endpoints
 
 #### 8.29.6 复验（逐字）
 
-- 端 B 门禁 **14 → 17 条判据**（新增 `x3-role-label-from-contract`）：`X-3 OK` / `exit=0`；
+- 端 B 门禁 **14 → 15 条判据**（新增 `x3-role-label-from-contract`）：`X-3 OK` / `exit=0`；
 - `check:build` + `check:x3` + `npm test`（**18 例**）全绿；
 - 反向验证 **14 → 17 组**：**17/17 PASS**、还原干净、`git status` 无注入残留。
 
