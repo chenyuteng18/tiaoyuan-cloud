@@ -218,10 +218,22 @@ jobs:
       #    下一步的显式 `sdkmanager --install` 继续承担（compileSdk=36 仍被钉死）。
       - name: 安装 SDK 组件（platform-36 / build-tools）
         run: |
-          # 许可证一并显式接受：不赌镜像是否预接受过 platform-36 的许可证，
-          # `yes |` 供自动应答，失败不吞（sdkmanager 对已接受项是幂等的）。
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager --install "platforms;android-36" "build-tools;35.0.0"
+          # 🛑 CI 第三轮实测（run 37800030929）：sdkmanager 并**不在** runner 的 PATH 上
+          #    （exit 127 `sdkmanager: command not found`）—— 之前是 setup-android@v3
+          #    这个 action 负责把它放进 PATH，删掉该 action 后这一隐式依赖露了出来
+          #    （第 48 条：删一个步骤 = 删掉它顺手提供的全部环境）。
+          #    ubuntu-latest 镜像预装的 SDK 目录一定在 $ANDROID_HOME 下，用绝对路径
+          #    定位；cmdline-tools 的版本目录名会变（本镜像实测是 16.0 不是 latest），
+          #    故 latest 不在就 glob 兜底。
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKM" ]; then
+            SDKM="$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | head -1)"
+          fi
+          echo "sdkmanager = $SDKM"
+          test -x "$SDKM"
+          # 许可证一并显式接受：不赌镜像是否预接受过 platform-36 的许可证。
+          yes | "$SDKM" --licenses >/dev/null
+          "$SDKM" --install "platforms;android-36" "build-tools;35.0.0"
 
       # 🛑 必须补可执行位：本工程在 Windows 上开发，而 git 在 Windows 上默认
       #    `core.filemode=false` ⇒ `gradlew` 的 +x 不会被记进版本库，
