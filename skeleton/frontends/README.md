@@ -1828,7 +1828,7 @@ const visibleNav = NAV.filter((n) => n.requires === null || canCall(n.requires, 
 - 🛑 **本条最硬的一条教训（406 抓出方式）**：**「处理是否正确」要看「HTTP 状态码」与「留痕级别」两件事**。
   406 的**状态码本来就对**，只有留痕级别错 —— 我首轮枚举时正是因此把它写成「Spring 裸默认、无需处理」，
   **是复查启动日志（`grep 未捕获异常`）才把它抓出来**。⇒ 只看状态码，会把「半个正确」看成「全对」。
-- 后端全量回归 `BUILD SUCCESS` / **`TOTAL 1227 failures=0 errors=0 skipped=0`**
+- 后端全量回归 `BUILD SUCCESS` / **`TOTAL 1249 failures=0 errors=0 skipped=0`**（2026-10-08 第 81 条收口：1227 → 1249 = JwtIssuerTest 7 + AuthLoginE2ETest 8 + RedisTokenRevocationCheckerTest 7；逐模块 `10/46/55/58/37/37/29/977`）
   （逐模块 `10/39/48/58/37/37/29/969`；dy-app `965 → 969` = 第 73 条新增 **8 例** + 族级枚举第三轮 1 例 + 第 74 条新增 **3 例**（RequestValidationEnvelopeE2ETest）+ 第 75 条新增 **1 例**（UploadPayloadTooLargeE2ETest））
 - 🛑 **过程性教训**：首轮 `build-reverse-check.mjs` 前台超时被 SIGTERM 掐断，**脚本残留了注入物**，
   隔一轮再跑报「基线不是绿的」——**看起来完全像真实缺陷**，我据此「修复」了 `domain.ts`，

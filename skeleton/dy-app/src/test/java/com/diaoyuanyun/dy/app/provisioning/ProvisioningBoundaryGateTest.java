@@ -155,7 +155,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>本类为纯静态检查，<b>不连数据库</b>，归入 {@code dy-app} 的常规单测。
  */
-@DisplayName("组织主数据开通边界：42 张迁移表 × 生产代码写入方（未开通的归零必须显式）")
+@DisplayName("组织主数据开通边界：43 张迁移表 × 生产代码写入方（未开通的归零必须显式）")
 class ProvisioningBoundaryGateTest {
 
     // ==================================================================
@@ -354,7 +354,18 @@ class ProvisioningBoundaryGateTest {
             //       编造成功用例（"声称一个不可达路径被正确拒绝"比不写它更坏）。
             "band_sync_probe", "band_daily_coverage",
             // —— 由密钥台账写入 ——
-            "tenant_kek", "subject_dek", "subject_key_tombstone"));
+            "tenant_kek", "subject_dek", "subject_key_tombstone",
+            // —— 由凭证开通通路写入（2026-10-08，契约 A1 登录闭环落地）——
+            //    载体 = V23 建表 + CredentialProvisioningService.createCredential()
+            //    （INSERT INTO auth_credential ... ON CONFLICT (account) DO NOTHING，
+            //    受影响行数判定 CREATED / ALREADY_EXISTS —— 返回值不撒谎，V18 教训）。
+            //    🛑 与 V21/V22 同形态：「服务/运维通路，无 HTTP 映射」—— 开通账号不在
+            //    契约 45 操作内，新增端点属契约变更须走冻结流程；本写入方是
+            //    内部通路而非占位（AuthLoginE2ETest 经它建凭证，真实可用）。
+            //    🛑 本表豁免 RLS（登录先于租户上下文，豁免理由见
+            //    RlsCoverageGateTest.NON_TENANT_TABLES 注释），故其写入方
+            //    不依赖 RLS 上下文 —— 与本账其他"短事务 SET LOCAL 后写"的表形态不同。
+            "auth_credential"));
 
     /**
      * 生产代码里<b>确认无任何写入方</b>的表（<b>0 张</b>）。
@@ -581,7 +592,7 @@ class ProvisioningBoundaryGateTest {
     // ==================================================================
 
     @Test
-    @DisplayName("② 登记为「已开通」的 42 张表，生产代码里必须真的有 INSERT INTO（否则账本在骗人）")
+    @DisplayName("② 登记为「已开通」的 43 张表，生产代码里必须真的有 INSERT INTO（否则账本在骗人）")
     void tables_declared_as_provisioned_are_actually_written() throws IOException {
         Map<String, String> java = productionSourcesStrippedOfComments();
         Map<String, String> sql = deliverySqlStrippedOfComments();

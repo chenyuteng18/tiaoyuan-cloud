@@ -36,6 +36,21 @@ public class JwtProperties {
     /** 允许的签名算法。仅允许 HS256；<b>不得加入 none</b>（见 JwtVerifier 的 alg 混淆防护）。 */
     private String algorithm = "HS256";
 
+    /**
+     * 访问 token 有效期（秒）。默认 12h —— 与三端"一个工作日一次登录"的使用节奏对齐。
+     * 生产可经 {@code DY_JWT_TTL_SECONDS} 覆盖；<b>不得设为 0 或负数</b>
+     * （那会签出"出生即过期"的 token，由 {@code JwtProperties} 启动自检拒绝）。
+     */
+    private long ttlSeconds = 12 * 3600;
+
+    public long getTtlSeconds() {
+        return ttlSeconds;
+    }
+
+    public void setTtlSeconds(long ttlSeconds) {
+        this.ttlSeconds = ttlSeconds;
+    }
+
     public String getSecret() {
         return secret;
     }

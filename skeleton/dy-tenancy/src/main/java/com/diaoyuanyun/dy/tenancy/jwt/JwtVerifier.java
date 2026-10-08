@@ -54,8 +54,11 @@ public class JwtVerifier {
     private final JwtProperties properties;
     private final ObjectMapper mapper = new ObjectMapper();
     private final byte[] secretBytes;
-    /** 可选的吊销检查（生产接 Redis 黑名单）。默认放行 = 不启用吊销。 */
-    private final TokenRevocationChecker revocationChecker;
+    /**
+     * 可选的吊销检查（生产接 Redis 黑名单）。默认放行 = 不启用吊销。
+     * 非 final：dy.auth.revocation=redis 时由 Spring 经 {@link #setRevocationChecker} 注入。
+     */
+    private volatile TokenRevocationChecker revocationChecker;
 
     /**
      * 无参构造 —— 供单元测试与"仅解析"场景使用。
@@ -99,6 +102,21 @@ public class JwtVerifier {
         }
         log.info("JwtVerifier 已就绪: alg=HS256 iss={} requireIssuer={} clockSkew={}s",
                 properties.getIssuer(), properties.isRequireIssuer(), properties.getClockSkewSeconds());
+    }
+
+    /**
+     * 可选注入吊销检查器（required=false —— 缺省无 bean 时不注入，保持"不启用吊销"）。
+     *
+     * <p>🛑 为什么用 setter 而不是改主构造器签名：主构造器 {@code (JwtProperties)}
+     * 被 Spring 与大量既有测试锁定；改为可选依赖（{@code ObjectProvider} / setter）
+     * 让"启用吊销"成为部署侧显式配置（{@code dy.auth.revocation=redis} 装配
+     * {@code RedisTokenRevocationChecker}），而 dy-tenancy 对实现类零依赖
+     * （接口定义在本类内，实现在 dy-web —— 依赖方向不反转）。
+     * volatile：verify 是请求线程热路径，注入后对全部线程可见。
+     */
+    @Autowired(required = false)
+    public void setRevocationChecker(TokenRevocationChecker revocationChecker) {
+        this.revocationChecker = revocationChecker;
     }
 
     /**

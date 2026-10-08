@@ -1,0 +1,113 @@
+# ============================================================================
+# 调元云 · 生产编排（单机商用起步形态）
+#
+# 与根目录 docker-compose.yml（本地/演示）的三点差异：
+#   1. Nginx 在最前面做 TLS 终结（80→443 重定向；后端不直接暴露端口）
+#   2. PostgreSQL / Redis 不映射宿主端口（只在 compose 网络内可达）
+#   3. 全部敏感项走 .env 文件（cp .env.production.example .env 后填写，
+#      .env 不进 git —— 已由 .gitignore 覆盖；生产建议改用云 KMS 注入）
+#
+# 启动:  docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d
+# ----------------------------------------------------------------------------
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs/fullchain.pem:/etc/nginx/certs/fullchain.pem:ro
+      - ./certs/privkey.pem:/etc/nginx/certs/privkey.pem:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    # 🛑 不映射宿主端口 —— 后端只经 Nginx 可达（见 nginx.conf upstream）
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      # 🛑 prod 必须显式选 redis 幂等后端，否则 IdempotencyConfiguration 启动即失败（fail-closed）
+      DY_IDEMPOTENCY_BACKEND: redis
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      # JWT 密钥：≥32 字节（HS256 下限）；JwtVerifier/JwtIssuer 构造期 fail-fast 校验
+      # 生成示例: openssl rand -base64 48
+      DY_JWT_SECRET: ${DY_JWT_SECRET}
+      # 主密钥等敏感项务必走密钥管理（KMS），不要明文写进 .env 长期保存
+      DY_MASTER_KEY: ${DY_MASTER_KEY}
+      DY_CRYPTO_AUTO_PROVISION_KEK: ${DY_CRYPTO_AUTO_PROVISION_KEK:-false}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "10"
+
+  postgres:
+    image: postgres:17
+    # 🛑 不映射宿主端口 —— 数据库只在 compose 网络内可达
+    expose:
+      - "5432"
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # 每日 02:30 逻辑备份（宿主机 cron 亦可，见 backup.sh）
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    # 🛑 不映射宿主端口
+    expose:
+      - "6379"
+    environment:
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      # requirepass 生效后 ping 需带密码
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

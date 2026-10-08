@@ -44,15 +44,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *       内部自描述端点 / 演示入口 / 自建能力面，**每一类都要说明它为什么可以出站**。</li>
  * </ol>
  *
- * <h2>当前口径（机械清点结果，不是估计）</h2>
+ * <h2>当前口径（机械清点结果，不是估计；2026-10-08 A1 登录落地后更新）</h2>
  * <pre>
  *   契约 operationId 总数        45
- *   其中已实现                   41
- *   其中登记出范围（Non-goal）     3   （A1 登录 / F3 稽核信号 / F4 稽核覆盖率）
+ *   其中已实现                   42
+ *   其中登记出范围（Non-goal）     2   （F3 稽核信号 / F4 稽核覆盖率）
  *   其中登记待上游冻结             1   （H1 电子签回调 —— 契约禁止此刻编码）
  *   ────────────────────────────────
- *   实现侧端点总数               68
- *   其中对应契约行               41
+ *   实现侧端点总数               69
+ *   其中对应契约行               42
  *   其中登记为内部端点           27
  * </pre>
  *
@@ -93,11 +93,12 @@ class EndpointCoverageLedgerTest {
      * 某天补了一个端点，本表对应项必须删掉 —— 否则"未实现"与"已实现"两个事实并存。
      */
     private static final Map<String, String> OUT_OF_SCOPE = new LinkedHashMap<>() {{
-        put("authLogin",
-                "【Non-goal】A1 POST /auth/login。身份认证由外部 IdP 承担，本骨架不实现登录端点；"
-                        + "开发/联调期的身份获取走 /api/v1/demo/*（见 INTERNAL_ENDPOINTS 的 demo 组）。"
-                        + "契约 x-callable-roles 含 client，而 PermissionRegistry 刻意不登记 client —— "
-                        + "若将来要落它，必须先解决『客户持码』这条基线的连带影响（见 PermissionRegistry 类注释）。");
+        // 🛑 authLogin 已于 2026-10-08 从本表【移出】（归零显式动作）：契约 A1 落地
+        //    （AuthLoginController + LoginService + V23 auth_credential）。
+        //    原登记理由"身份认证由外部 IdP 承担"随商用开发启动而废止 —— 三端登录页
+        //    早已对接 authLogin，后端补实现即闭环。实现形态与原登记提示一致：
+        //    A1 不贴 @RequirePermission（PermissionRegistry 仍不登记 client，
+        //    "客户持码"基线未动 —— 客户凭证登录拿到的 token 走 A2 的既有解算链）。
         put("listAuditSignals",
                 "【未立项】F3 GET /audit/signals。依赖上游对『稽核信号』的定义（哪些事件算信号、"
                         + "信号的严重度分档），口径未定 ⇒ 写了就是臆造。A-10 已明确出范围，"
@@ -309,11 +310,11 @@ class EndpointCoverageLedgerTest {
                             + " 字符）—— 占位式的一条等于没登记。");
         }
 
-        // 冻结口径（与 javadoc 的机械清点结果一致）
-        assertEquals(41, covered.size(),
-                "已实现的契约端点数应为 41，实际 " + covered.size() + "。" + uncovered);
-        assertEquals(4, uncovered.size(),
-                "未实现的契约端点数应为 4，实际 " + uncovered.size() + ": " + uncovered);
+        // 冻结口径（与 javadoc 的机械清点结果一致；2026-10-08 A1 落地 41→42、4→3）
+        assertEquals(42, covered.size(),
+                "已实现的契约端点数应为 42，实际 " + covered.size() + "。" + uncovered);
+        assertEquals(3, uncovered.size(),
+                "未实现的契约端点数应为 3，实际 " + uncovered.size() + ": " + uncovered);
     }
 
     // ======================================================================
@@ -371,7 +372,7 @@ class EndpointCoverageLedgerTest {
      * 覆盖率口径必须可被一条断言核对 —— 使"系统开发到什么程度"有一个<b>唯一的数字</b>。
      */
     @Test
-    @DisplayName("④ 覆盖率口径：45 = 41 已实现 + 4 出范围；实现侧 68 = 41 + 27 内部")
+    @DisplayName("④ 覆盖率口径：45 = 42 已实现 + 3 出范围；实现侧 = 42 + 内部（A1 authLogin 2026-10-08 落地）")
     void coverage_numbers_are_consistent() throws IOException {
         Path root = resolveRepoRoot();
         Map<String, Set<String>> contract = contractOperations(root);
@@ -388,8 +389,9 @@ class EndpointCoverageLedgerTest {
         covered.retainAll(contractVerbPaths);
 
         assertEquals(45, ops, "契约operationId 总数变了");
-        assertEquals(41, covered.size(), "已实现契约端点数变了");
-        assertEquals(4, OUT_OF_SCOPE.size(), "出范围登记数变了");
+        // 2026-10-08: A1 authLogin 落地，41 → 42；出范围登记 4 → 3（差额登记面归零显式动作）
+        assertEquals(42, covered.size(), "已实现契约端点数变了");
+        assertEquals(3, OUT_OF_SCOPE.size(), "出范围登记数变了");
         assertEquals(ops, covered.size() + OUT_OF_SCOPE.size(),
                 "45 ≠ 已实现 + 出范围 —— 覆盖台账与登记面不一致");
 
@@ -397,8 +399,9 @@ class EndpointCoverageLedgerTest {
         assertEquals(INTERNAL_ENDPOINTS.size(), extraCount,
                 "实现侧多出的端点数（" + extraCount + "）与 INTERNAL_ENDPOINTS 登记数（"
                         + INTERNAL_ENDPOINTS.size() + "）不一致");
-        assertEquals(68, impl.size(),
-                "实现侧端点总数应为 68（41 契约 + 27 内部），实际 " + impl.size());
+        // 2026-10-08: A1 authLogin 落地，实现侧 68 → 69（42 契约 + 27 内部）
+        assertEquals(69, impl.size(),
+                "实现侧端点总数应为 69（42 契约 + 27 内部），实际 " + impl.size());
     }
 
     // ======================================================================

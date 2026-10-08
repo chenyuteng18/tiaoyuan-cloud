@@ -316,7 +316,28 @@ class RlsCoverageGateTest {
      * 下一个要改它的人一定先读到这里。</b>一条写错理由的豁免，比一条没有理由的豁免更危险 ——
      * 它会让人放心地在这张表上继续加不该加的东西。
      */
-    private static final Set<String> NON_TENANT_TABLES = Set.of("schema_migration", "audit_log");
+    private static final Set<String> NON_TENANT_TABLES =
+            Set.of("schema_migration", "audit_log", "auth_credential");
+
+    /**
+     * 🛑 {@code auth_credential} 的豁免理由（V23 · 2026-10-08 · 契约 A1 登录闭环）——
+     * <b>登录发生在租户上下文建立之前</b>：请求还没有 token，
+     * {@code TenantContextFilter} 的空上下文使 RLS 策略
+     * {@code tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid}
+     * 恒假 ⇒ 给这张表加 RLS 策略等于让登录查询永远查不到行 ⇒ 全量 401。
+     * 与 audit_log 的豁免同构：<b>豁免是结构性的（先于上下文存在），不是疏忽</b>。
+     *
+     * <p>替代边界（V23 迁移第二节逐字 + {@code AuthCredentialLedger} 物理钉死）：
+     * <ol>
+     *   <li>account 全局唯一索引 + 仓储<b>只提供</b>"按 account 定点读一行"读路径 ——
+     *       不存在按租户批量读的方法；</li>
+     *   <li>出站窄记录 {@code CredentialRow}，{@code credential_hash} 永不进响应/日志；</li>
+     *   <li>V23 的 {@code $v23_guard$} 自证守卫：表若被误加 RLS 策略，迁移期即抛错 ——
+     *       与本豁免互为两侧证据（静态侧 = 本登记；真库侧 = 守卫）。</li>
+     * </ol>
+     * 🛑 与 audit_log 同一纪律：<b>豁免是针对 RLS 覆盖的，不是针对数据敏感度的</b> ——
+     * 本表不得被任何面向租户/客户的查询 join 暴露。
+     */
 
     private static JdbcTemplate jdbc;
     private static List<String> migrationSqls;
