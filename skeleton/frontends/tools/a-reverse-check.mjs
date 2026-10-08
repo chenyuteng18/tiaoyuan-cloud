@@ -94,7 +94,17 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
 const results = [];
 
 /** 一组注入：改文件 → 断言真变了 → 跑门禁 → 还原 → 复验绿。 */
-async function injection({ name, path, from, to, expectExit = 1, expectGate }) {
+/**
+ * 注入一组错误，断言门禁变红、变红的**是那一条**，再断言还原后变绿。
+ *
+ * @param also 可选：**同一组用例需要动第二个文件**时的附加注入（默认空 ⇒ 行为不变）。
+ *   🛑 为什么需要它（第 83 条 I27 实测逼出）：有些判别力**只在两个文件的组合下**才成立 ——
+ *   例如"② 只认**生产**文件的出站调用形态"这条，要证明它，必须同时
+ *   （a）让生产调用消失、（b）让某个**单测**提供同 id 的调用形态
+ *   —— 只有 (a) 会被新老两种口径一起抓住（那是 I23 已证过的形态），
+ *   只有 (a)+(b) 的组合才是新口径**独有**的判别力。
+ */
+async function injection({ name, path, from, to, also = [], expectExit = 1, expectGate }) {
   const original = readFileSync(path, 'utf8');
   stash(path);
   if (from !== undefined) {
@@ -109,6 +119,28 @@ async function injection({ name, path, from, to, expectExit = 1, expectGate }) {
     results.push({ name, ok: false, why: '注入没有带来任何内容差异（等价于原样 ⇒ 会是假红）' });
     restoreAll();
     return;
+  }
+  // ---- 附加注入：每个都必须真的改动文件，否则这组用例的前提不成立 ----
+  for (const m of also) {
+    if (!existsSync(m.path)) {
+      results.push({ name, ok: false, why: `附加注入的文件不存在：${m.path}` });
+      restoreAll();
+      return;
+    }
+    const o = readFileSync(m.path, 'utf8');
+    if (!o.includes(m.from)) {
+      results.push({ name, ok: false, why: `附加注入锚点未找到：${JSON.stringify(m.from.slice(0, 70))}` });
+      restoreAll();
+      return;
+    }
+    const next = o.replace(m.from, m.to);
+    if (next === o) {
+      results.push({ name, ok: false, why: '附加注入没有带来任何内容差异（等价于原样 ⇒ 会是假红）' });
+      restoreAll();
+      return;
+    }
+    stash(m.path);
+    writeFileSync(m.path, next);
   }
   const red = await runGate();
   restoreAll();
@@ -518,6 +550,103 @@ await injection({
   from: "  return call<CustomerDetail>('getCustomer', { params: { id: customerId } }).then((r) => r.data);",
   to: "  return call<CustomerDetail>('getCustomer', { params: {} }).then((r) => r.data);",
   expectGate: 'required-args-wired',
+});
+
+// ---------------------------------------------------------------------------
+// I22~I27 【第 83 条 · 契约外能力面】⑫ `internal-capability-registry` 的六组注入
+// ---------------------------------------------------------------------------
+// 🛑 为什么需要整整六组（第 53 条教训：判据的每一条**子规则**都必须有一条用例）
+// ---------------------------------------------------------------------------
+// ⑫ 有四条互相独立的子规则。只注"清册与后端台账不一致"这一种，等于只证明了
+// 其中一条有牙齿 —— 而"未被证明有牙齿的那几条"与"没写"在效果上无法区分。
+//   ① 两侧一致（I22：把 path 改成后端台账里没有的）
+//   ② 无死声明（I23：把调用点的能力 id 改名 ⇒ 声明了却没人用）
+//   ②′ **只认生产**（I27：生产调用消失、单测仍在调 ⇒ 旧口径的静默漏检点）
+//   ③ 分层纪律（I24：页面里直接 fetch）
+//   ④ 协议常量（I25：把 PROTOCOL.AUTH_HEADER 换成字面量）
+//   ⑤ ⑨ 第三形态的实参核验（I26：NAV 引用一个清册里不存在的能力 id）
+// 每一组都只触发**一条**子规则，且都断言"还原后必须变绿"。
+
+/** 契约外清册的绝对路径（五组注入里有三组改它）。 */
+const CAP_REG = join(SRC, 'contract', 'internal-capabilities.ts');
+
+// I22 ① 两侧一致：把运维自检的 path 漂移成台账里不存在的形态
+await injection({
+  name: 'I22 清册 path 漂移（/ops/health → /ops/healthz，后端台账里没有）',
+  path: CAP_REG,
+  from: "    path: '/ops/health',",
+  to: "    path: '/ops/healthz',",
+  expectGate: 'internal-capability-registry',
+});
+
+// I23 ② 无死声明：把出站调用点的能力 id 改名 ⇒ 那一条"声明了却没人用"
+await injection({
+  name: 'I23 出站调用点的能力 id 改名（声明了却没人用 = 死声明）',
+  path: join(SRC, 'services', 'ops.ts'),
+  from: "  return callInternal<OpsHealth>('getOpsHealth').then((r) => r.data);",
+  to: "  return callInternal<OpsHealth>('getOpsHealthProbe').then((r) => r.data);",
+  expectGate: 'internal-capability-registry',
+});
+
+// I24 ③ 分层纪律：页面里直接 fetch（绕过 api/internal.ts + 清册）
+await injection({
+  name: 'I24 页面里直接 fetch（绕过出站通道 ⇒ 契约外端点变成未登记出站面）',
+  path: join(SRC, 'pages', 'OpsHealthPage.tsx'),
+  from: '  async function load() {',
+  to: "  async function load() {\n"
+    + "    void fetch('/api/v1/ops/health'); // 注入：页面绕过出站通道直接打内部端点\n",
+  expectGate: 'internal-capability-registry',
+});
+
+// I25 ④ 协议常量：把第二条出站通道的鉴权头名换成手写字面量（第 57 条）
+await injection({
+  name: 'I25 契约外通道里手写协议字面量（PROTOCOL.AUTH_HEADER → \'Authorization\'）',
+  path: join(SRC, 'api', 'internal.ts'),
+  from: 'headers[PROTOCOL.AUTH_HEADER] = `${PROTOCOL.AUTH_SCHEME} ${token}`;',
+  to: "headers['Authorization'] = `${PROTOCOL.AUTH_SCHEME} ${token}`;",
+  expectGate: 'internal-capability-registry',
+});
+
+// I26 ⑤ ⑨ 第三形态的实参核验：NAV 引用一个清册里不存在的能力 id
+//     🛑 这条证明的是"带参推导函数**不是**给契约外能力开后门" ——
+//        它的实参同样必须能在真源里查到（与 ① 形态的 id 必须命中生成物同级）。
+await injection({
+  name: 'I26 NAV 引用清册里不存在的能力 id（带参推导形态的实参核验）',
+  path: APP,
+  from: "requires: internalCapabilityId('getOpsHealth') },",
+  to: "requires: internalCapabilityId('getOpsHealthProbe') },",
+  expectGate: 'nav-requires',
+});
+
+// I27 【第 83 条 · 判据"太宽"的孪生面】② 必须只认**生产**文件的出站调用形态
+// ---------------------------------------------------------------------------
+// 🛑 它防的是哪一类缺陷（第 52 条家族：**假绿 —— 被非生产出现满足**）
+// ---------------------------------------------------------------------------
+// ② 问的是"这条清册条目**有人真的在用**吗"。若把 `services/` 下的**单测**也算作
+// "在用"，那么"生产调用被删掉、只剩单测还在调它"就会**长期绿** —— 而那种状态下
+// 该能力面对用户已经彻底不可达（清册条目成了纸面声明）。
+// 这与第 52 条"代码里出现了某个名字 ≠ 那个名字被使用了"同构，只是宿主换成了"单测"。
+//
+// 🛑 为什么必须**两个文件一起动**（这也是给注入器加 `also` 的由来）
+// ---------------------------------------------------------------------------
+// 只动生产（把调用式换成变量实参）会被**新老两种口径一起**抓住 ⇒ 那证明的是
+// I23 已证过的东西，对本条新判别力**零信息量**。
+// 只有 (a) 生产调用消失 + (b) 单测提供同 id 的调用形态，计数等式才重新成立、
+// "死声明"才被掩盖 —— 那正是旧口径的静默漏检点，也正是本组要证明新口径抓住了它。
+await injection({
+  name: 'I27 生产调用消失而单测仍在调（② 若把单测算作"在用"就会假绿）',
+  path: join(SRC, 'services', 'ops.ts'),
+  from: "  return callInternal<OpsHealth>('getOpsHealth').then((r) => r.data);",
+  to: "  const __probe_cap: string = 'getOpsHealth';\n"
+    + '  return callInternal<OpsHealth>(__probe_cap).then((r) => r.data);',
+  also: [{
+    path: join(SRC, 'services', 'ops.test.ts'),
+    from: "import { describe, it, expect, vi, afterEach } from 'vitest';",
+    to: "import { describe, it, expect, vi, afterEach } from 'vitest';\n"
+      + "import { callInternal } from '../api/internal';\n"
+      + "void callInternal('getOpsHealth'); // 注入：单测里的调用形态（旧口径会把它算作「有人在用」）",
+  }],
+  expectGate: 'internal-capability-registry',
 });
 
 // ---------------------------------------------------------------------------

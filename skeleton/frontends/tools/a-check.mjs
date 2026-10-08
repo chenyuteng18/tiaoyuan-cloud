@@ -31,7 +31,7 @@
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { probeDebrisNotice } from './_gate-common.mjs';
+import { probeDebrisNotice, isTestSource } from './_gate-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FRONTENDS = join(HERE, '..');
@@ -531,12 +531,21 @@ if (entries.length === 0) {
 //
 // 🛑 判据形态（第 53 条教训：覆盖面必须跟上"本仓允许的所有写法"）
 // ---------------------------------------------------------------------------
-// 两种合法形态：
-//   ① 生成物里存在的端点 id **字符串字面量**：`requires: 'getCustomer'`
-//   ② 契约层导出的**推导函数调用**：`requires: firstFrontierEndpointId()`
-// **计数等式**：①的条数 + ②的条数 **必须等于** NAV 里 non-null 的 `requires` 条数。
-// 等式是防"新增第三种形态"的关键 —— 少了它，`requires: (0 ? 'x' : null)` 这类
-// 写法会**两条式子都不命中**，于是"没查到"被当成"没有问题"（第 53 条的静默漏检）。
+// **三种**合法形态：
+//   ① 生成物里存在的**契约**端点 id **字符串字面量**：`requires: 'getCustomer'`
+//   ② 契约层导出的**无参推导函数调用**：`requires: firstFrontierEndpointId()`
+//   ③ 契约层导出的**带 id 实参**的调用：`requires: internalCapabilityId('getOpsHealth')`
+//      —— 契约**外**能力面的依赖声明（这些端点不在生成物里，见
+//      `contract/internal-capabilities.ts` 文件头）。
+// **计数等式**：①的条数 + ②的条数 + ③的条数 **必须等于** NAV 里 non-null 的 `requires` 条数。
+// 等式是防"新增第四种形态"的关键 —— 少了它，`requires: (0 ? 'x' : null)` 这类
+// 写法会**三条式子都不命中**，于是"没查到"被当成"没有问题"（第 53 条的静默漏检）。
+//
+// 🛑 ③ 形态**不是给契约外能力开后门**（它的核验强度与 ① 等价，两个方向）
+// ---------------------------------------------------------------------------
+//   · 函数名必须是 `scope.ts` 真的导出的（与 ② 同一道守卫，走同一段代码）；
+//   · **实参 id 必须能在清册里查到** —— 这正是 ① 的"id 必须能查到"在契约外那一侧的对应物。
+//     少任意一条，`internalCapabilityId('typo')` 就会静默变成一个"点了打不开"的导航项。
 {
   const APP = join(SRC, 'App.tsx');
   const appCode = stripComments(readFileSync(APP, 'utf8'));
@@ -551,17 +560,21 @@ if (entries.length === 0) {
     const literalIds = [...navBlock.matchAll(/requires:\s*'([^']+)'/g)].map((m) => m[1]);
     // ② 推导函数调用形态（无参）
     const callFns = [...navBlock.matchAll(/requires:\s*([A-Za-z_$][\w$]*)\s*\(\s*\)/g)].map((m) => m[1]);
+    // ③ 带单个字符串实参的推导函数调用（契约外能力面 id）
+    const argCalls = [...navBlock.matchAll(/requires:\s*([A-Za-z_$][\w$]*)\s*\(\s*'([^']+)'\s*\)/g)]
+      .map((m) => ({ fn: m[1], id: m[2] }));
     // 计数等式
     const requiresTotal = (navBlock.match(/requires:/g) ?? []).length;
     const nullCount = (navBlock.match(/requires:\s*null/g) ?? []).length;
     const nonNullExpected = requiresTotal - nullCount;
-    const covered = literalIds.length + callFns.length;
+    const covered = literalIds.length + callFns.length + argCalls.length;
 
     if (covered !== nonNullExpected) {
       bad.push(
         `requires 的形态未被判据覆盖：non-null 的 requires 有 ${nonNullExpected} 条，`
-        + `判据只认出 ${covered} 条（字面量 ${literalIds.length} + 推导函数 ${callFns.length}）。`
-        + '新增了第三种写法（如内联三元 / 变量拼接）会静默漏检 —— 第 53 条的形态。',
+        + `判据只认出 ${covered} 条（字面量 ${literalIds.length} + 无参推导 ${callFns.length}`
+        + ` + 带参推导 ${argCalls.length}）。`
+        + '新增了第四种写法（如内联三元 / 变量拼接）会静默漏检 —— 第 53 条的形态。',
       );
     }
 
@@ -572,12 +585,32 @@ if (entries.length === 0) {
         + '（导航项会静默保留，点进去才报错）');
     }
 
-    // ② 每一个推导函数名必须是 scope.ts 真的导出的函数（防"凭空调用"）
+    // ②③ 函数名必须是 scope.ts 真的导出的函数（防"凭空调用"）
     const scopeCode = stripComments(readFileSync(SCOPE, 'utf8'));
-    const notExported = callFns.filter((fn) => !new RegExp(`export\\s+function\\s+${escapeRe(fn)}\\s*\\(`).test(scopeCode));
+    const calledFns = [...callFns, ...argCalls.map((a) => a.fn)];
+    const notExported = calledFns.filter((fn) => !new RegExp(`export\\s+function\\s+${escapeRe(fn)}\\s*\\(`).test(scopeCode));
     if (notExported.length) {
-      bad.push(`以下 requires 调用了 scope.ts 未导出的函数：${notExported.join(', ')}`
+      bad.push(`以下 requires 调用了 scope.ts 未导出的函数：${[...new Set(notExported)].join(', ')}`
         + '（推导函数必须来自契约层，页面/外壳不得自造依赖源）');
+    }
+
+    // ③ 实参 id 必须能在【清册】里查到（与 ① 的"必须能在生成物里查到"同级）
+    const regPath = join(SRC, 'contract', 'internal-capabilities.ts');
+    if (argCalls.length && !existsSync(regPath)) {
+      bad.push(`requires 用了带 id 实参的形态（${argCalls.length} 处），但契约外清册不存在：${regPath}`
+        + '（覆盖面不足，**不得当作通过**）');
+    } else if (argCalls.length) {
+      const regCode = stripComments(readFileSync(regPath, 'utf8'));
+      const declared = new Set([...regCode.matchAll(/\bid:\s*'([^']+)'/g)].map((m) => m[1]));
+      if (declared.size === 0) {
+        bad.push(`契约外清册里没解析到任何能力 id（解析方式与清册写法不咬合）——`
+          + '覆盖面不足，**不得当作通过**（第 52/53 条）');
+      }
+      const unknownCaps = argCalls.filter((a) => !declared.has(a.id)).map((a) => a.id);
+      if (unknownCaps.length) {
+        bad.push(`以下 requires 引用了清册里不存在的能力 id：${unknownCaps.join(', ')}`
+          + '（导航项会静默保留，点进去打不开）');
+      }
     }
 
     if (bad.length) {
@@ -585,7 +618,8 @@ if (entries.length === 0) {
     } else {
       ok('nav-requires',
         `NAV 的 ${nonNullExpected} 条非 null requires 全部可查`
-        + `（字面量 ${literalIds.length} 条均命中生成物；推导函数 ${callFns.length} 条均为 scope.ts 导出；计数等式成立）`);
+        + `（字面量 ${literalIds.length} 条均命中生成物；无参推导 ${callFns.length} 条 + `
+        + `带参推导 ${argCalls.length} 条均为 scope.ts 导出，实参均命中契约外清册；计数等式成立）`);
     }
   }
 }
@@ -962,6 +996,194 @@ if (entries.length === 0) {
     ok('required-args-wired',
       `${withRequired} 个带 required 声明的端点中，${checked} 个有调用点可核对，`
       + `其调用点/封装体均已带上全部必需参数（判实参形态，非判词出现 —— 第 52 条）`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ⑫ 【契约外能力面】前端清册 ⊆ 后端台账 + 无死声明 + 分层 + 协议常量（第 83 条）
+// ---------------------------------------------------------------------------
+// 🛑 它堵的洞：**契约外的出站面此前没有任何东西在看**
+// ---------------------------------------------------------------------------
+// ⑩ 只认生成物里的 39 个契约端点（它的计数等式就是 `called.size === entries.length`）。
+// ⇒ 端 A 一旦要打**契约未声明**的端点（结算落账 / 对账报表 / 运维自检），
+//   只有两条路：① 手改生成物（与契约脱钩，且 ⑩ 的计数等式与后端
+//   `EndpointCoverageLedgerTest` 会同时失真）；② 让页面直接 `fetch`（**绕过所有白名单**）。
+//   两条路都会让"这个页面到底打了哪些契约外端点"在代码里**无处可查** ——
+//   这正是本仓反复登记的「未登记的出站面」。
+// 故本项目为契约外出站单开一条通道，并把下面四件事变成构建期事实：
+//   ① **两侧一致**：清册里每条能力的 `METHOD + path`（参数归一成 `{}`）必须出现在
+//      **后端** `EndpointCoverageLedgerTest.INTERNAL_ENDPOINTS` 台账里
+//      —— 前端**不得发明**端点。真源是后端台账（契约里根本没声明这些端点），
+//      前端清册是它的镜像，本判据是两者的咬合点。
+//   ② **无死声明**：清册里每条都必须被 `services/` 层以调用形态出站
+//      （`callInternal('<id>'` / `downloadInternal('<id>'`）。**计数等式**：
+//      命中数 === 清册条数。防"声明了却没人用"与"用了却没声明"两个方向。
+//   ③ **分层**：`fetch(` 只允许出现在 `api/`（两条通道的实现处）；
+//      `callInternal(` / `downloadInternal(` 只允许出现在 `services/`（+ 其定义处）。
+//      页面里出现任一个 ⇒ 报红（否则"某端点被哪个服务封装"不再可查）。
+//      🛑 ②③ 都**只扫生产文件**：`*.test.ts(x)` 不在随构建发布的产物图里，
+//         而通道自身的单测必须调用 `callInternal` 才能被测（那不是"绕过分层"）。
+//         排除数会被打印出来 —— 排除本身也必须是可见的（第 53 条）。
+//   ④ **协议常量**：契约外通道也是出站通道，**同受第 57 条约束** ——
+//      头名 / 令牌前缀 / 信封成功码必须引用生成物常量 `PROTOCOL.*`，不得手抄字面量。
+//      （`tools/build-check.mjs` ④d 只扫 `src/api/client.ts`；本判据补上第二条通道。）
+//
+// 🛑 覆盖面自证（第 52/53/55 条）——两处**必须有**
+// ---------------------------------------------------------------------------
+//   · 后端台账读不到 / 解析出的键数 < 20 ⇒ **报红，不得当作通过**。
+//     否则"一个键都没解析到"会让 ① 变成"两边都是空集，完美一致"。
+//   · 清册解析不到条目 ⇒ 报红（同上）。
+{
+  const REG = join(SRC, 'contract', 'internal-capabilities.ts');
+  const TRANSPORT_REL = 'api/internal.ts';
+  const TRANSPORT = join(SRC, 'api', 'internal.ts');
+  // 🛑 后端台账路径：`skeleton/dy-app/src/test/java/.../EndpointCoverageLedgerTest.java`
+  //    （与 build-check 读仓库根 workflow 同类的"跳出 frontends/ 去读真源"判据；
+  //     拿不到真源时报红而不是跳过 —— 见覆盖面自证。）
+  const LEDGER = join(FRONTENDS, '..', 'dy-app', 'src', 'test', 'java',
+    'com', 'diaoyuanyun', 'dy', 'app', 'EndpointCoverageLedgerTest.java');
+
+  const bad = [];
+
+  // ---- 前提：三个文件都要在 ----
+  for (const [label, p] of [['契约外清册', REG], ['契约外出站通道', TRANSPORT], ['后端内部端点台账', LEDGER]]) {
+    if (!existsSync(p)) {
+      bad.push(`${label}不存在：${p} —— 覆盖面不足，**不得当作通过**`);
+    }
+  }
+
+  if (bad.length === 0) {
+    const regCode = stripComments(readFileSync(REG, 'utf8'));
+    const transportCode = stripComments(readFileSync(TRANSPORT, 'utf8'));
+
+    // ---- 解析清册：id / method / path（字段顺序被注释钉死为 id → method → path）----
+    const caps = [...regCode.matchAll(
+      /\bid:\s*'([^']+)'\s*,\s*method:\s*'([^']+)'\s*,\s*path:\s*'([^']+)'/g,
+    )].map((m) => ({ id: m[1], method: m[2], path: m[3] }));
+    if (caps.length === 0) {
+      bad.push('契约外清册里没解析到任何条目（解析正则与清册写法不咬合）——'
+        + '覆盖面不足，**不得当作通过**（第 52/53 条）');
+    }
+
+    // ---- 解析后端台账：`put("VERB /path", …)` ----
+    const ledgerCode = readFileSync(LEDGER, 'utf8');
+    const norm = (s) => s.replace(/\{[^}]*\}/g, '{}');
+    const ledgerKeys = new Set(
+      [...ledgerCode.matchAll(/\bput\(\s*"([A-Z]+)\s+([^"]+)"/g)].map((m) => `${m[1]} ${norm(m[2])}`),
+    );
+    if (ledgerKeys.size < 20) {
+      bad.push(`后端内部端点台账只解析出 ${ledgerKeys.size} 个键（< 20）——`
+        + '解析方式与台账写法不咬合，覆盖面不足，**不得当作通过**');
+    }
+
+    // ---- ① 两侧一致（前端 ⊆ 后端台账）----
+    const invented = caps.filter((c) => !ledgerKeys.has(`${c.method} ${norm(c.path)}`));
+    if (invented.length) {
+      bad.push('以下契约外能力面**在后端台账里查不到**（前端发明了端点）：\n        '
+        + invented.map((c) => `${c.id} → ${c.method} ${c.path}`).join('\n        ')
+        + '\n        ⇒ 契约里没有它们、后端台账里也没有 ⇒ 打过去必然 404/403。');
+    }
+
+    // ---- 清册自证：形态与前缀 ----
+    const malformed = caps.filter((c) => !['GET', 'POST'].includes(c.method)
+      || !c.path.startsWith('/')
+      || c.path.includes('/api/v1'));
+    if (malformed.length) {
+      bad.push('以下清册条目形态不对（方法限于 GET/POST；path 以 `/` 开头且**不得含 `/api/v1`**'
+        + '—— 前缀由 env 层拼，写进来就是重复）：'
+        + malformed.map((c) => `${c.id}(${c.method} ${c.path})`).join(', '));
+    }
+    const dupIds = caps.map((c) => c.id).filter((x, i, a) => a.indexOf(x) !== i);
+    if (dupIds.length) bad.push(`清册里有重复 id：${[...new Set(dupIds)].join(', ')}`);
+
+    // ---- ② 无死声明（每条都必须被 services 层以调用形态出站）----
+    const INTERNAL_CALL_RE = /\b(?:callInternal|downloadInternal)\s*(?:<[^(]*?>)?\s*\(\s*'([^']+)'/gs;
+    // 🛑 只取**生产** services 文件：若把单测也算进来，"生产调用被删掉、只剩单测在调"
+    //    仍然会绿 —— 那是"死声明"换了个地方住（本判据要防的正是这个洞）。
+    const svcAll = walk(join(SRC, 'services')).filter((f) => /\.(ts|tsx)$/.test(f));
+    const svcFiles = svcAll.filter((f) => !isTestSource(relative(SRC, f).replace(/\\/g, '/')));
+    const svcTestsSkipped = svcAll.length - svcFiles.length;
+    const calledCaps = new Set();
+    for (const f of svcFiles) {
+      const code = stripComments(readFileSync(f, 'utf8'));
+      for (const m of code.matchAll(INTERNAL_CALL_RE)) calledCaps.add(m[1]);
+    }
+    const dead = caps.filter((c) => !calledCaps.has(c.id)).map((c) => c.id);
+    if (dead.length) {
+      bad.push('以下契约外能力面**已声明但从未被调用**（死声明）：'
+        + dead.join(', ')
+        + '\n        ⇒ "声明了却没人用"与"用了却没声明"是同一个洞的两面。'
+        + '要么在 services/ 层真的调用它，要么从清册里删掉。');
+    }
+    if (calledCaps.size !== caps.length) {
+      bad.push(`契约外出站调用形态覆盖数 ${calledCaps.size} ≠ 清册条数 ${caps.length}`
+        + '（判据必须证明它认识的东西覆盖了全部 —— 第 53/55 条教训）');
+    }
+
+    // ---- ③ 分层：fetch 只在 api/；callInternal/downloadInternal 只在 services/ ----
+    const allSrc = walk(SRC).filter((f) => /\.(ts|tsx)$/.test(f));
+    const fetchOut = [];
+    const internalCallOut = [];
+    let prodFiles = 0;
+    let testFilesSkipped = 0;
+    for (const f of allSrc) {
+      const rel = relative(SRC, f).replace(/\\/g, '/');
+      // 🛑 测试文件不随 `vite build` 发布、也不构成运行时调用链 ⇒ 不属于"生产出站路径"。
+      //    通道自身的单测（`api/internal.test.ts`）**必须**调用 `callInternal` 才能被测。
+      //    排除数打印在下面 ok() 里 —— 那是本条对"排除"的自我申报（第 53 条）。
+      if (isTestSource(rel)) { testFilesSkipped += 1; continue; }
+      prodFiles += 1;
+      const code = stripComments(readFileSync(f, 'utf8'));
+      if (!rel.startsWith('api/') && /\bfetch\s*\(/.test(code)) fetchOut.push(rel);
+      // 🛑 放行两类：`services/`（调用方）与**通道定义处自身**（它定义了这两个函数；
+      //    其 `function downloadInternal(` 的声明形态会被下面的调用式正则命中）。
+      if (rel.startsWith('services/') || rel === TRANSPORT_REL) continue;
+      if (/\b(?:callInternal|downloadInternal)\s*(?:<[^(]*?>)?\s*\(/.test(code)) internalCallOut.push(rel);
+    }
+    if (fetchOut.length) {
+      bad.push(`以下文件**绕过了出站通道**直接 fetch（契约外端点必须经 api/internal.ts + 清册）：`
+        + fetchOut.join(', '));
+    }
+    if (internalCallOut.length) {
+      bad.push(`以下文件在 services/ 之外调用契约外通道（分层纪律要求出站收在 services/ 一处）：`
+        + internalCallOut.join(', '));
+    }
+
+    // ---- ④ 协议常量（第 57 条对第二条通道同样成立）----
+    const mustRef = ['PROTOCOL.AUTH_HEADER', 'PROTOCOL.AUTH_SCHEME',
+      'PROTOCOL.IDEMPOTENCY_HEADER', 'PROTOCOL.TRACE_HEADER', 'PROTOCOL.ENVELOPE_OK_CODE'];
+    const notRef = mustRef.filter((k) => !transportCode.includes(k));
+    if (notRef.length) {
+      bad.push(`${TRANSPORT_REL} 未引用生成物协议常量：${notRef.join(', ')}`
+        + '（第 57 条：跨端协议片段必须是常量引用，手抄即静默分叉）');
+    }
+    const hardLit = [];
+    for (const [lit, why] of [["'Authorization'", '鉴权头名'], ["'Idempotency-Key'", '幂等头名']]) {
+      if (transportCode.includes(lit)) hardLit.push(`${lit}（${why}）`);
+    }
+    if (hardLit.length) {
+      bad.push(`${TRANSPORT_REL} 里残留了协议字面量：${hardLit.join(' / ')}`
+        + ' —— 一律取 PROTOCOL.*（第 57 条）');
+    }
+    // 令牌源唯一性（⑧ 的姊妹条：第二条通道也必须经 token-store）
+    if (!/import\s*\{[^}]*\breadToken\b[^}]*\}\s*from\s*'\.\.\/services\/token-store'/.test(transportCode)) {
+      bad.push(`${TRANSPORT_REL} 未从 services/token-store 导入 readToken ——`
+        + '第二条出站通道同样只允许经唯一权威点读写令牌（⑧ 的姊妹条）');
+    }
+
+    if (bad.length) {
+      fail('internal-capability-registry', '契约外能力面的边界不成立：\n      ' + bad.join('\n      '));
+    } else {
+      ok('internal-capability-registry',
+        `契约外能力面 ${caps.length} 条：与后端 INTERNAL_ENDPOINTS 台账逐条一致`
+        + `（台账 ${ledgerKeys.size} 键）· 全部被 services/ 层以调用形态触达 · `
+        + `fetch 仅出现在 api/ · 协议常量与令牌源均已收敛；`
+        + `②③ 只扫生产文件：services/ ${svcFiles.length} 个（另排除单测 ${svcTestsSkipped} 个）· `
+        + `全仓生产源码 ${prodFiles} 个（另排除单测 ${testFilesSkipped} 个 —— 不随 vite build 发布）`);
+    }
+  } else {
+    fail('internal-capability-registry',
+      '契约外能力面的边界**未验证**（前提文件缺失；不得当作通过）：\n      ' + bad.join('\n      '));
   }
 }
 

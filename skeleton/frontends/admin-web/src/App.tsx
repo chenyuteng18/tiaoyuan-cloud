@@ -29,8 +29,14 @@
  */
 
 import { useState } from 'react';
+import { isAllowedInternalCapability } from './api/internal';
 import { endpointById } from './contract/endpoints';
-import { firstFrontierEndpointId, roleExpansionOf, unsettledEndpoints } from './contract/scope';
+import {
+  firstFrontierEndpointId,
+  internalCapabilityId,
+  roleExpansionOf,
+  unsettledEndpoints,
+} from './contract/scope';
 import {
   currentRole,
   currentStoreScope,
@@ -46,23 +52,29 @@ import CustomerConsolePage from './pages/CustomerConsolePage';
 import DashboardPage from './pages/DashboardPage';
 import DocTemplatePage from './pages/DocTemplatePage';
 import LoginPage from './pages/LoginPage';
+import OpsHealthPage from './pages/OpsHealthPage';
 import RefundWorkbenchPage from './pages/RefundWorkbenchPage';
+import SettlementPage from './pages/SettlementPage';
 import StorePage from './pages/StorePage';
 import UnsettledPage from './pages/UnsettledPage';
 
-type Tab = 'workbench' | 'customer' | 'store' | 'refund' | 'audit' | 'docs' | 'unsettled';
+type Tab =
+  | 'workbench' | 'customer' | 'store' | 'refund' | 'audit' | 'docs'
+  | 'settlement' | 'ops' | 'unsettled';
 
 interface NavItem {
   readonly key: Tab;
   readonly label: string;
   /**
-   * 本导航项依赖的 operationId。
-   * 🛑 `null` = 不依赖任何端点（纯展示页）。
-   * 🛑 形态只有两种，`tools/a-check.mjs` ⑨ `nav-requires` 判据会校验：
-   *      ① 生成物里存在的端点 id 字符串字面量；
-   *      ② `contract/scope.ts` 导出的推导函数调用（本端目前只有一处，见下）。
-   *      两种形态的计数之和必须等于非 null 的 `requires` 条数，
-   *      防"新增第三种形态导致静默漏检"（第 53 条教训）。
+   * 本导航项依赖的**出站 id**。
+   * 🛑 `null` = 不依赖任何出站面（纯展示页）。
+   * 🛑 形态有**三种**，`tools/a-check.mjs` ⑨ `nav-requires` 判据会校验，
+   *    且**三种形态的计数之和必须等于非 null 的 `requires` 条数**：
+   *      ① 生成物里存在的**契约**端点 id 字符串字面量（如 `'getCustomer'`）；
+   *      ② `contract/scope.ts` 导出的**无参**推导函数调用（如 `firstFrontierEndpointId()`）；
+   *      ③ `internalCapabilityId('<能力id>')` —— **契约外**能力面的依赖声明，
+   *        实参必须是 `contract/internal-capabilities.ts` 清册里存在的 id（⑨ 双向核验）。
+   *    计数等式是防"新增第四种形态导致静默漏检"（第 53 条教训）。
    */
   readonly requires: string | null;
 }
@@ -71,10 +83,12 @@ interface NavItem {
  * 导航表。
  * 🛑 端 A 的 `requires` 恒真（39/39 端点均授予 admin），但仍必须写：
  *    它让"本页依赖哪个端点"成为**可被门禁校验**的事实（见文件头 ③）。
- * 🛑 形态：6 条端点 id 字面量 + 1 条推导函数调用。
+ * 🛑 形态：5 条端点 id 字面量 + 1 条无参推导函数调用 + 2 条契约外能力 id 调用。
  *    "未完结总览"项**刻意不写 `'listDocTemplates'` 字面量**，而用推导函数 ——
  *    导航表是外壳组件，**无从渲染提示条**；若为过判据在这里写一行"标注"
  *    就是纸面合规（详见 scope.ts 的 `firstFrontierEndpointId` 注释）。
+ *    同理，"结算对账 / 运维自检"两页打的是**契约外**能力面（契约里没有这些端点），
+ *    故走 `internalCapabilityId('<能力id>')`，实参由 ⑨ 与清册逐条核对。
  */
 const NAV: readonly NavItem[] = Object.freeze([
   { key: 'workbench', label: '工作台', requires: null },
@@ -83,6 +97,8 @@ const NAV: readonly NavItem[] = Object.freeze([
   { key: 'refund', label: '退款工单', requires: 'createRefund' },
   { key: 'audit', label: '稽核', requires: 'listAuditSignals' },
   { key: 'docs', label: '文书模板', requires: 'listDocTemplates' },
+  { key: 'settlement', label: '结算对账', requires: internalCapabilityId('listSettlementStatements') },
+  { key: 'ops', label: '运维自检', requires: internalCapabilityId('getOpsHealth') },
   { key: 'unsettled', label: '未完结总览', requires: firstFrontierEndpointId() },
 ]);
 
@@ -125,9 +141,15 @@ export default function App() {
   // 🛑 见文件头：端 A 的 requires 恒真（39/39 端点均为 admin）。
   //    这里**如实保留判定**（`endpointById(...)` 必须能在生成物里查到），
   //    而不是删掉它 —— 删掉会让"导航项引用了不存在的端点"不再可查。
-  const visibleNav = NAV.filter((n) => n.requires === null || endpointById(n.requires) !== null);
+  // 🛑 第二类出站面（契约外能力面）**必须一并认**，否则那两个导航项会被
+  //    这条过滤**静默摘掉**：页面文件在、渲染分支也在，但用户点不到 —— 属第 64 条
+  //    "可到达性断在装载层"的同型。故判定写成"两类真源任一命中"。
+  const visibleNav = NAV.filter(
+    (n) => n.requires === null || endpointById(n.requires) !== null || isAllowedInternalCapability(n.requires)
+  );
   const requiresCount = NAV.filter((n) => n.requires !== null).length;
   const requiresChecked = visibleNav.filter((n) => n.requires !== null).length;
+
 
   /**
    * 全局未完结提示（外壳层的**真实界面行为**，不是为过判据而写的空标注）。
@@ -241,6 +263,8 @@ export default function App() {
       {tab === 'refund' ? <RefundWorkbenchPage roleLabel={roleLabel} /> : null}
       {tab === 'audit' ? <AuditPage roleLabel={roleLabel} scopeText={scopeText} /> : null}
       {tab === 'docs' ? <DocTemplatePage roleLabel={roleLabel} /> : null}
+      {tab === 'settlement' ? <SettlementPage roleLabel={roleLabel} /> : null}
+      {tab === 'ops' ? <OpsHealthPage roleLabel={roleLabel} /> : null}
       {tab === 'unsettled' ? <UnsettledPage roleLabel={roleLabel} /> : null}
 
       <footer
@@ -252,12 +276,18 @@ export default function App() {
         }}
       >
         <div>
-          导航依赖已校验：本端 {NAV.length} 项导航中，{requiresCount} 项声明了 operationId 依赖，
-          全部可在生成物里查到（本次渲染实际校验 {requiresChecked} 项）。
+          导航依赖已校验：本端 {NAV.length} 项导航中，{requiresCount} 项声明了出站依赖
+          （契约端点 id / 契约层推导函数 / 契约外能力面 id），
+          全部可在**对应真源**里查到（本次渲染实际校验 {requiresChecked} 项）。
         </div>
         <div style={{ marginTop: SPACE.xs }}>
           🛑 端 A 的导航过滤**恒真**（39/39 端点均授予 admin），`requires` 在本端的用途不是过滤
           而是"依赖可查"；本端真正的边界是**服务端行级范围**，界面不自行裁剪。
+        </div>
+        <div style={{ marginTop: SPACE.xs }}>
+          🛑 契约外能力面（结算对账 / 运维自检）另有真源：后端
+          <code>EndpointCoverageLedgerTest.INTERNAL_ENDPOINTS</code> 台账 ——
+          前端清册与它的一致性由 <code>tools/a-check.mjs</code> ⑫ 判据逐条核对。
         </div>
       </footer>
     </div>

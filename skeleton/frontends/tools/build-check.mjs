@@ -172,11 +172,17 @@ const ENDS = {
       'src/contract/endpoints.ts',
       // 契约元信息层（范围 / 未完结 / 仅超管 / 分域 —— 端 A 的真实边界都在这里）
       'src/contract/scope.ts',
+      // 🛑 契约**外**能力面（结算对账 / 运维自检）：出站白名单的第二个真源。
+      //    它与「生成物」是两套并行白名单，各自守自己的边界（见该文件头）。
+      //    新增这两条同时意味着 a-check ⑫ `internal-capability-registry` 有了被检对象。
+      'src/contract/internal-capabilities.ts',
+      'src/api/internal.ts',
       // 应用层
       'src/services/token-store.ts',
       'src/services/session.ts',
       'src/services/errors.ts',
       'src/services/domain.ts',
+      'src/services/ops.ts',
       'src/ui/tokens.ts',
       'src/ui/components.tsx',
       // 页面
@@ -187,6 +193,12 @@ const ENDS = {
       'src/pages/RefundWorkbenchPage.tsx',
       'src/pages/AuditPage.tsx',
       'src/pages/DocTemplatePage.tsx',
+      // 🛑 2026-10-09（批次 F）新增两页 —— 此前结算落账 / 对账报表（E1）与运维自检（E2）
+      //    **后端有、前端无**：契约里没有这些端点，端 A 又没有契约外通道 ⇒
+      //    "总部用不了对账报表"这件事在门禁下完全静默。补页之后必须同步登记在此，
+      //    否则"文件被删了门禁也不会红"（第 53 条同型的静默漏检）。
+      'src/pages/SettlementPage.tsx',
+      'src/pages/OpsHealthPage.tsx',
       'src/pages/UnsettledPage.tsx',
     ],
     scanWords: false,

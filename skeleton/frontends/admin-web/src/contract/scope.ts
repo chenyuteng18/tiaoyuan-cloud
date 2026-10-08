@@ -45,6 +45,7 @@ import {
   type Endpoint,
   type RoleExpansion,
 } from './endpoints';
+import { internalCapabilityById } from './internal-capabilities';
 
 /** 本端角色（生成物声明的 token-roles，不另立）。 */
 export type ConsoleRole = string;
@@ -126,6 +127,35 @@ export function unsettledEndpoints(): readonly { endpoint: Endpoint; items: read
 export function firstFrontierEndpointId(): string | null {
   const list = unsettledEndpoints().filter((x) => x.items.some((i) => i.kind === 'frontier'));
   return list.length ? list[0].endpoint.id : null;
+}
+
+// ---------------------------------------------------------------------------
+// 契约外能力面：导航项的依赖声明（⑨ nav-requires 的**第三种合法形态**）
+// ---------------------------------------------------------------------------
+
+/**
+ * 声明"本导航项依赖某条**契约外**能力面"，返回该能力 id（查不到返回 `null`）。
+ *
+ * 🛑 为什么要有这个函数（而不是把能力 id 直接写进 NAV）
+ * ---------------------------------------------------------------------------
+ * ⑨ `nav-requires` 判据的 ① 形态要求 `requires` 里的字面量 id **能在生成物里查到**。
+ * 契约外能力面**不在生成物里**（生成物是契约的机械转录）⇒ 直接写字面量会被判红，
+ * 而且那条红是**对的**：它防的正是"导航项引用了一个不存在的端点"。
+ * 故这里为第三种形态提供落点：`requires: internalCapabilityId('<能力id>')`。
+ * 判据对这种形态的核验是**双向**的：
+ *   · 函数必须由本文件导出（防页面自造依赖源）；
+ *   · 实参 id 必须能在 `contract/internal-capabilities.ts` 清册里查到
+ *     （防"引用了一个不存在的能力"）。
+ * 两条合起来，与 ① 形态的强度等价 —— 不是给契约外能力开后门。
+ *
+ * 🛑 为什么"契约外能力面"单独走一条通道
+ * ---------------------------------------------------------------------------
+ * 见 `contract/internal-capabilities.ts` 文件头：真源是**后端**的
+ * `INTERNAL_ENDPOINTS` 台账（契约里根本没声明这些端点），前端清册是它的镜像，
+ * 两侧一致性由 `tools/a-check.mjs` ⑫ 与 `tools/a-check.mjs` ⑨ 共同守。
+ */
+export function internalCapabilityId(capabilityId: string): string | null {
+  return internalCapabilityById(capabilityId) ? capabilityId : null;
 }
 
 // ---------------------------------------------------------------------------
