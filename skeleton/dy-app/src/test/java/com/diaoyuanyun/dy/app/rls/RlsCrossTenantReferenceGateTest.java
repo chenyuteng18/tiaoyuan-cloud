@@ -94,14 +94,18 @@ class RlsCrossTenantReferenceGateTest {
      * 2026-09-27 本迁移的 (b) 判据曾因口径写成"列位置"而报 46，当时的正确动作是修判据。
      */
     private static final int EXPECTED_SINGLE_COLUMN_LEFTOVER = 0;
-    private static final int EXPECTED_TENANT_COUPLED_COMPOSITE = 47;
+    // 🛑 2026-10-09：V24 新增 settlement_statement → store 的租户耦合复合 FK（商用开发
+    //    第二批 E1），复合总数 47 → 48。该数是"当前库态的期望值"，随边界移动而更新；
+    //    V16 迁移自身产生的 47 处由 MIGRATION_COMPOSITE_COUNT 冻结，两口径不混用。
+    private static final int EXPECTED_TENANT_COUPLED_COMPOSITE = 48;
 
     /**
      * 判别力对照值（2026-09-27 在真库实测，V16 应用前/后均成立）。
      * <p>它们的唯一作用是证明上面两个期望值的判据<b>不是恒为零/恒为某数</b>的空断言。
      */
     private static final int DIAGNOSTIC_SINGLE_COLUMN_WITHOUT_RLS_FILTER = 83;
-    private static final int DIAGNOSTIC_COMPOSITE_WITHOUT_SINGLE_PK_CONDITION = 48;
+    // 2026-10-09：随 V24 新增复合 FK 同步 +1（48 → 49）
+    private static final int DIAGNOSTIC_COMPOSITE_WITHOUT_SINGLE_PK_CONDITION = 49;
 
     /** 12 张被引用的载体表（V16 第 1 节为它们补 (tenant_id, pk) 唯一约束）。 */
     private static final List<String> CARRIER_TABLES = List.of(
@@ -325,7 +329,7 @@ class RlsCrossTenantReferenceGateTest {
     }
 
     @Test
-    @DisplayName("④ 租户耦合复合外键数必须 = 47，且『目标主键单列』这一条有判别力")
+    @DisplayName("④ 租户耦合复合外键数必须 = 48（V16 的 47 + V24 的 1），且『目标主键单列』这一条有判别力")
     void tenant_coupled_composite_fks_are_the_expected_number() {
         int threeConditions = countTenantCoupledComposite(true);
         assertEquals(EXPECTED_TENANT_COUPLED_COMPOSITE, threeConditions,

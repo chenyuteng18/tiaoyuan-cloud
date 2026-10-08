@@ -91,3 +91,51 @@ docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --
 - `auth_credential` 登录读路径是单行定点读，无状态，可直接加副本。
 - PostgreSQL 先垂直升配，再考虑主从；审计链是全局单链，**禁止**分库。
 - Nginx `upstream` 加 server 行（见 nginx.conf 注释），会话无粘性要求（JWT 无状态）。
+
+## 6. 监控与告警手册（商用开发第二批 · E2）
+
+机器可读入口：`GET /api/v1/ops/health`（总部服务账号，Bearer token）。
+一次调用返回四项自检：`db`（连通 + 已登记迁移数）/ `redis`（PING；未装配如实报
+`not_configured`）/ `audit_chain`（审计哈希链完整性，含 `checked` 条数）/
+`overall`（UP / DEGRADED）。**健康端点自身不缓存**——缓存会让"刚断的链"延迟暴露。
+
+### 6.1 巡检与阈值
+
+| 检查项 | 命令/来源 | 告警阈值 | 级别 | 告警动作 |
+| --- | --- | --- | --- | --- |
+| 服务进程 | `curl -sf http://127.0.0.1:8080/actuator/health` 或容器 healthcheck | 连续 3 次（≈1 分钟）非 200 | P1 | 重启容器；5 分钟内两次自动重启仍失败 → 值班人介入 |
+| 聚合自检 | `GET /api/v1/ops/health` → `overall` | `DEGRADED` 或非 200，连续 2 次（间隔 ≥60s） | P1 | 按 6.2 分项定位 |
+| 审计链 | `overall` 报告里的 `audit_chain.status` | `BROKEN` | **P0** | 立即冻结对应时段业务操作，按 §4 安全基线排查篡改；**禁止**任何人"重算回写"（见 audit_log 的纪律） |
+| 迁移一致性 | `db.registered_migrations` 与发布说明的迁移数比对 | 数值偏小 | P1 | 发布半途失败，重新执行部署第 1 节第 5 步 |
+| 备份产物 | `ls -l /var/backups/diaoyuanyun/` 最新文件时间 | 距今 > 26h | P2 | 手工执行 `backup.sh` 并排查 cron |
+| 登录限流 | Nginx access log 中 `/auth/login` 的 429 数 | 1 小时 > 500 次 | P2 | 疑似撞库，按 §4 处理（换密钥前先看 §3 的吊销流程） |
+| 磁盘 | `df -h /var/lib/postgresql` | 使用率 > 80% | P2 | 扩容或归档旧备份 |
+
+### 6.2 `DEGRADED` 分项定位（按报告字段）
+
+1. `db.status=DOWN` —— 数据库不可达/凭证失效：`docker compose -f docker-compose.prod.yml ps`
+   看容器状态 → `docker compose logs postgres --tail 50`；**先看日志再重启**（重启会掩盖 OOM 证据）。
+2. `redis.status=DOWN` —— 吊销黑名单退化为 fail-open（登出延迟生效，不是全线故障）：
+   `docker compose logs redis --tail 30`；修复前登出/强制下线依赖 12h 的 token 过期兜底。
+3. `audit_chain.status=BROKEN` —— **P0**：`broken_at` 是第一条断链记录的 ID、`reason`
+   是断链种类（HASH_MISMATCH=记录被改写 / PREV_HASH_MISMATCH=中间有删除 /
+   GENESIS_MISMATCH=链头被动）。保留现场，导出 `docker compose logs dy-app` 与
+   该时段访问日志，再谈恢复。
+4. `redis.status=not_configured` —— 不是故障：吊销黑名单未装配（可选项），
+   按 §1 第 3 步的 `DY_AUTH_REVOCATION` 配置项补配即可。
+
+### 6.3 巡检脚本骨架（cron 每 5 分钟）
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+# TOKEN：用总部服务账号走 /auth/login 获取（过期前重登），不要把 token 写进 cron 文件
+REPORT=$(curl -sf -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/ops/health)
+echo "$REPORT" | grep -q '"overall":"UP"' || {
+  echo "[P1] ops/health not UP: $REPORT" | tee -a /var/log/dy-alert.log
+  # 接告警通道（邮件/IM webhook），P0 时同时电话值班人
+}
+```
+
+> 🛑 告警纪律：`audit_chain=BROKEN` 永远是 P0 —— 证据链完整性是合规审计的底线，
+> 任何"先修链再说"的操作都可能把一次篡改洗成一次故障。先取证，后恢复。

@@ -51,9 +51,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   其中登记出范围（Non-goal）     2   （F3 稽核信号 / F4 稽核覆盖率）
  *   其中登记待上游冻结             1   （H1 电子签回调 —— 契约禁止此刻编码）
  *   ────────────────────────────────
- *   实现侧端点总数               69
+ *   实现侧端点总数               74
  *   其中对应契约行               42
- *   其中登记为内部端点           27
+ *   其中登记为内部端点           32
  * </pre>
  *
  * <h2>🛑 三种"出范围"的语义不可混用（这是本台账的核心区分）</h2>
@@ -150,7 +150,7 @@ class EndpointCoverageLedgerTest {
         put("POST /demo/order", demo);
         put("GET /demo/refund", demo);
 
-        // ---- 自建能力面（9）：域内自检 / 结算预演 / 判定回放等，非契约 45 端点 ----
+        // ---- 自建能力面（14）：域内自检 / 结算预演与落账 / 判定回放 / 运维自检等，非契约 45 端点 ----
         put("GET /audit/log-chain",
                 "【自建能力面·C-1】审计日志哈希链自检端点。audit_log 已含 prev_hash/hash（写入侧完备），"
                         + "本端点让『链是否连续』可被外部校验 —— 合规审计的必需件。"
@@ -177,6 +177,25 @@ class EndpointCoverageLedgerTest {
                 "【自建能力面·S2-8】判定回放闭环（ADR-11 threshold_version）。四态 "
                         + "REPRODUCED/DRIFTED/DIVERGED/INCOMPARABLE_DOMAIN；内部自描述端点，"
                         + "customerFacing 恒 false。契约未声明该端点。");
+
+        // ---- 结算落账与对账报表（4）：商用开发第二批 E1（2026-10-09）----
+        put("POST /settlement/commit",
+                "【自建能力面·E1】结算结论落账（settlement_statement，V24）。预演与落账是两个显式动作："
+                        + "preview 只算不落，commit 落账（幂等键 tenant+request_hash，服务端重算比对后才收账）。"
+                        + "总部专属（M5）。契约 45 端点未含结算落账面。");
+        put("GET /settlement/statements",
+                "【自建能力面·E1】按周期取对账清单（窄记录，不含 payload 快照）。总部专属（M5）。"
+                        + "对账报表的查询面，契约未声明该端点。");
+        put("GET /settlement/statements.csv",
+                "【自建能力面·E1】周期对账 CSV 导出（RFC 4180，列序冻结）。总部专属（M5）。"
+                        + "对账方按列序做机器解析，契约未声明该端点。");
+        put("GET /settlement/statements/{}/payload",
+                "【自建能力面·E1】定点读取单条结算单的不可变快照（落账当时的结论，ADR-11 同源："
+                        + "算法演进后历史报表读快照不重算）。契约未声明该端点。");
+        put("GET /ops/health",
+                "【自建能力面·E2】运维健康自检（DB 连通+迁移登记数 / Redis 可选装配如实报 / "
+                        + "审计链完整性）。只读、总部+StaffOnly；deploy/DEPLOY.md 告警手册的"
+                        + "机器可读入口。契约未声明该端点。");
     }};
 
     // ======================================================================
@@ -360,8 +379,9 @@ class EndpointCoverageLedgerTest {
                         + "归零要求显式动作 —— 端点被删后必须同步删掉登记，否则本表会慢慢变成"
                         + "一份『曾经存在过什么』的考古记录，而不是当前的边界声明。");
 
-        assertEquals(27, INTERNAL_ENDPOINTS.size(),
-                "INTERNAL_ENDPOINTS 应为 27 条，实际 " + INTERNAL_ENDPOINTS.size());
+        // 2026-10-09: E1 结算落账与对账 4 端点 + E2 运维自检 1 端点，27 → 32
+        assertEquals(32, INTERNAL_ENDPOINTS.size(),
+                "INTERNAL_ENDPOINTS 应为 32 条，实际 " + INTERNAL_ENDPOINTS.size());
     }
 
     // ======================================================================
@@ -400,8 +420,10 @@ class EndpointCoverageLedgerTest {
                 "实现侧多出的端点数（" + extraCount + "）与 INTERNAL_ENDPOINTS 登记数（"
                         + INTERNAL_ENDPOINTS.size() + "）不一致");
         // 2026-10-08: A1 authLogin 落地，实现侧 68 → 69（42 契约 + 27 内部）
-        assertEquals(69, impl.size(),
-                "实现侧端点总数应为 69（42 契约 + 27 内部），实际 " + impl.size());
+        // 2026-10-09: E1 结算落账与对账报表 4 端点 + E2 运维自检 1 端点落地，
+        //             实现侧 69 → 74（42 契约 + 32 内部）
+        assertEquals(74, impl.size(),
+                "实现侧端点总数应为 74（42 契约 + 32 内部），实际 " + impl.size());
     }
 
     // ======================================================================

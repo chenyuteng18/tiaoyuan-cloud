@@ -226,6 +226,7 @@
                                      ISOLATION_TESTS 登记；漏掉本 exclude 会让它被"默认执行"一遍，
                                      与 ② 的 rls-isolation-gate 重复跑（且并发争用同一条库）。 -->
                                 <exclude>**/rls/RlsV14ConfigTruthSourceIsolationTest.java</exclude>
+                                <exclude>**/rls/RlsV24SettlementIsolationTest.java</exclude>
                                 <!-- C-4 退款工单受控 UPDATE 的真库并发门禁。它与其它 Rls* 类共用
                                      门禁库（同 provision），故必须排除出 default-test，
                                      否则会与 ② 的 rls-isolation-gate 重复跑并争用同一条库。 -->
@@ -284,6 +285,12 @@
                                      配置表的隔离断言与"编号域/留痕纪律"断言全部静默失效
                                      —— 这正是"登记表变一纸空文"的形态。 -->
                                 <include>**/rls/RlsV14ConfigTruthSourceIsolationTest.java</include>
+                                <!-- V24 跨店通兑结算单（settlement_statement）的真库隔离门禁
+                                     （商用开发第二批 E1，2026-10-09）。同样被 ISOLATION_TESTS
+                                     登记；不加本 include 则该类"存在但不执行"，结算单的
+                                     隔离断言与幂等键/CHECK 牙齿断言全部静默失效 ——
+                                     这正是"登记表变一纸空文"的形态。 -->
+                                <include>**/rls/RlsV24SettlementIsolationTest.java</include>
                                 <!-- C-4 退款工单受控 UPDATE 的真库并发 + 改写约束门禁。
                                      它不新增租户表（复用 refund 表），故【不】登记进
                                      RlsCoverageGateTest.ISOLATION_TESTS（那是"表→测试"的映射，

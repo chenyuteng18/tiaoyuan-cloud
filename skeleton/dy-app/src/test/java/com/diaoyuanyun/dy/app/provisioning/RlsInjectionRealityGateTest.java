@@ -367,6 +367,13 @@ class RlsInjectionRealityGateTest {
             "dy-app/src/main/java/com/diaoyuanyun/dy/app/refund/repository/RefundReceiptLedger.java",
             "dy-app/src/main/java/com/diaoyuanyun/dy/app/refund/repository/RefundSubjectLedger.java",
             "dy-app/src/main/java/com/diaoyuanyun/dy/app/refund/repository/RefundWorkOrderLedger.java",
+            // 🛑 E1 新增（2026-10-09）：settlement_statement（跨店通兑结算单）写入方载体
+            //    （商用开发第二批）。形态与 StoreRepository 同款：短事务 SET LOCAL +
+            //    显式传 tenantId。其 INSERT 是该表唯一生产写入路径（幂等键
+            //    (tenant_id, request_hash)，ON CONFLICT DO NOTHING + 回读）；
+            //    表已在 RlsCoverageGateTest.ISOLATION_TESTS 登记（RlsV24SettlementIsolationTest
+            //    真库隔离覆盖）。见 V24 迁移头注与 SettlementStatementLedger 类注释。
+            "dy-app/src/main/java/com/diaoyuanyun/dy/app/settlement/repository/SettlementStatementLedger.java",
             "dy-app/src/main/java/com/diaoyuanyun/dy/app/scale/repository/ScaleItemBankRepository.java",
             // 🛑 B-12 新增（2026-09-27）：scale 表写入方载体。
             //    inTenant 承担【读侧】上下文（statusOf / versionOf /

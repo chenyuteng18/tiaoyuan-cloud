@@ -155,7 +155,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>本类为纯静态检查，<b>不连数据库</b>，归入 {@code dy-app} 的常规单测。
  */
-@DisplayName("组织主数据开通边界：43 张迁移表 × 生产代码写入方（未开通的归零必须显式）")
+@DisplayName("组织主数据开通边界：44 张迁移表 × 生产代码写入方（未开通的归零必须显式）")
 class ProvisioningBoundaryGateTest {
 
     // ==================================================================
@@ -365,14 +365,22 @@ class ProvisioningBoundaryGateTest {
             //    🛑 本表豁免 RLS（登录先于租户上下文，豁免理由见
             //    RlsCoverageGateTest.NON_TENANT_TABLES 注释），故其写入方
             //    不依赖 RLS 上下文 —— 与本账其他"短事务 SET LOCAL 后写"的表形态不同。
-            "auth_credential"));
+            "auth_credential",
+            // —— 由结算落账服务写入（2026-10-09，商用开发第二批 E1）——
+            //    载体 = V24 建表 + SettlementStatementService.commit()
+            //    （INSERT ... ON CONFLICT (tenant_id, request_hash) DO NOTHING，
+            //    幂等键命中回读既有单 —— CREATED / ALREADY_EXISTS，返回值不撒谎）。
+            //    预演端点 /settlement/preview 依旧只读不落库（算、账分离）。
+            //    本表是租户宿主表（V24 RLS + tenant_isolation），写入方走
+            //    短事务 SET LOCAL —— 与本账主流形态一致。
+            "settlement_statement"));
 
     /**
      * 生产代码里<b>确认无任何写入方</b>的表（<b>0 张</b>）。
      *
      * <p>🛑 这不是"待办清单"，而是"<b>差异真的还在</b>"的机械事实：
      * 一旦某张表出现了写入方而没从本表移除，第 ③ 例会红；
-     * 一旦迁移里冒出第 43 张表而两账都没登记，第 ① 例会红。
+     * 一旦迁移里冒出第 44 张表而两账都没登记，第 ① 例会红。
      *
      * <p>🛑🛑 <b>2026-09-30 第七次边界移动（A-3 收口）—— 本账首次归零。</b>
      * <ul>
@@ -592,7 +600,7 @@ class ProvisioningBoundaryGateTest {
     // ==================================================================
 
     @Test
-    @DisplayName("② 登记为「已开通」的 43 张表，生产代码里必须真的有 INSERT INTO（否则账本在骗人）")
+    @DisplayName("② 登记为「已开通」的 44 张表，生产代码里必须真的有 INSERT INTO（否则账本在骗人）")
     void tables_declared_as_provisioned_are_actually_written() throws IOException {
         Map<String, String> java = productionSourcesStrippedOfComments();
         Map<String, String> sql = deliverySqlStrippedOfComments();

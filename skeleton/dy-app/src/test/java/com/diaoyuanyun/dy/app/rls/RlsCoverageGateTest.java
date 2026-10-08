@@ -132,6 +132,9 @@ class RlsCoverageGateTest {
      */
     private static final String V14 = "com.diaoyuanyun.dy.app.rls.RlsV14ConfigTruthSourceIsolationTest";
 
+    /** V24 · 跨店通兑结算单（商用开发第二批 E1，2026-10-09）。 */
+    private static final String V24 = "com.diaoyuanyun.dy.app.rls.RlsV24SettlementIsolationTest";
+
     /**
      * 租户表 → 覆盖它的隔离测试类（FQN）。
      *
@@ -248,7 +251,12 @@ class RlsCoverageGateTest {
             // 🛑 只登记这 2 张。config_slot 是总部层声明表（无 tenant_id、无 RLS），
             //    登记它会被下方的"僵尸登记"检查报红 —— 详见 V14 常量的 javadoc。
             Map.entry("app_config", V14),
-            Map.entry("app_config_history", V14));
+            Map.entry("app_config_history", V14),
+            // ---- V24 · 跨店通兑结算单 1 表（商用开发第二批 E1，2026-10-09）----
+            // 结算单是"钱"的账本（哪家店分多少业绩与退款损失），串租户 = 总部财务
+            // 把 A 店的账结到 B 店头上 —— 隔离必须真库实测。V24 迁移自证守卫
+            // 断言 RLS 恰一策略 + relrowsecurity 为真（与 V23 豁免守卫互为镜像）。
+            Map.entry("settlement_statement", V24));
 
     /** 租户宿主表本身不参与 RLS（它是租户的容器，见 V1 脚本无策略），故豁免。 */
     private static final Set<String> TENANT_HOST_TABLES = Set.of("tenant");
