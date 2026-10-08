@@ -123,6 +123,23 @@ jobs:
             psql --version
           fi
 
+      # 🛑 第 80 条（第 77 条同族第三处）：本 job 必须先备好一个装得上 PyYAML 的 python。
+      #   step 1 的 `mvn -B -pl dy-app -am test` 的 reactor **第 1 个就是聚合根**
+      #   diaoyuanyun-skeleton（`-am` 连带 + 聚合结构 ⇒ 根 pom 必被构建），而根
+      #   pom.xml 的 4 个 validate 阶段 exec 门禁（inherited=false，只在聚合根跑）
+      #   要求**真 YAML 解析器**，缺 PyYAML 一律 exit 2 且刻意不退化成正则
+      #   ⇒ 本机实测 `mvn -pl dy-crypto -am test`（同族命令）逐字复现：
+      #       [GATE-ERROR] PyYAML is not available (No module named 'yaml').
+      #       [ERROR] ... Process exited with an error: 2 ⇒ BUILD FAILURE
+      #   ⇒ 干净 runner 上本 job 必然红在与 RLS 毫无关系的地方。
+      #   与 build-and-test.yml 的 backend job 同因、同款修法（第 77 条①）。
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install the gates' YAML parser
+        run: python -m pip install --disable-pip-version-check -r "${{ github.workspace }}/skeleton/requirements.txt"
+
       # step 1 —— 实现者证据。
       # 🛑🛑 2026-09-30 修正（本命令此前是【错的】，会让本 workflow 恒红）。
       #    旧写法 `-Dtest='Rls*Test' -DfailIfNoTests=false` 在本仓【结构上不可能通过】，

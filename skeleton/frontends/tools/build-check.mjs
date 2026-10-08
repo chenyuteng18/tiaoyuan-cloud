@@ -479,6 +479,166 @@ for (const rel of cfg.required) {
 }
 
 // ---------------------------------------------------------------------------
+// 🛑 第 80 条（第二十五类）：**跑 mvn 的 CI job 缺 Python 准备步**
+//
+// 缺口的形状（第 77 条同族，第三处 —— 这一次是「结论没有推广到同族」）：
+//   `build-and-test.yml` 的 backend / frontend 两个 job 在 2026-10-08 补上了
+//   `setup-python` + `pip install`（第 77 条），但**同样跑 mvn 的另两个 workflow
+//   没有被一起修**：
+//     · `.github/workflows/crypto-adversarial-gate.yml`   2 处 mvn，0 处 setup-python
+//     · `.github/workflows/rls-isolation-gate.yml`        3 处 mvn，0 处 setup-python
+//
+// 🛑 为什么它们是「干净 runner 上必红」（本机实测，不是推理）：
+//   根 `skeleton/pom.xml` 的 4 个 exec 门禁绑在 **validate** 阶段、靠
+//   `<inherited>false</inherited>` **只在聚合根跑一次**（实测：单独跑
+//   `mvn -pl dy-common validate` → 0.344s BUILD SUCCESS、零门禁输出，
+//   证明"门禁不跟着子模块重复跑"）。**但 `-pl <模块> -am` 的 reactor 第 1 个
+//   就是聚合根** —— 实测 `mvn -pl dy-crypto -am test` 逐字：
+//       [INFO] Building diaoyuanyun-skeleton 0.0.1-SNAPSHOT        [1/2]
+//       ADR-12 BUILD-TIME COMPLIANCE SCAN  --  PASS
+//       [GATE-ERROR] PyYAML is not available (No module named 'yaml'). ...
+//       [S1-8-GATE] FAIL (misconfigured, no PASS printed)
+//       [ERROR] ... exec-maven-plugin:3.1.0:exec (s18-contract-conformance) ...
+//               Process exited with an error: 2 (Exit value: 2)
+//       [INFO] BUILD FAILURE
+//   ⇒ 与第 77 条①「后端 4 个门禁要求真 PyYAML、缺则 exit 2 且刻意不退化成正则」
+//     是**同一件事**，只是发生在另外两个 workflow 上。而 CI 一旦被触发，
+//     这两个 workflow 会**同时**红在一个与代码毫无关系的地方。
+//
+// 判据（第 52 条：判形态，不判词）：**凡 job 里出现 mvn 命令，该 job 就必须在
+// 该 mvn 步骤【之前】先有 `actions/setup-python` 与一次 `pip install`。**
+// 刻意**不判**"装的是哪个包"（`requirements.txt` 与内联 `"pyyaml>=6.0"` 都可），
+// 只判三件事：① 有 setup-python；② 有 pip install；③ 两者都排在 mvn **之前**
+// —— 顺序反了等于没装，而"顺序错了"正是重排 YAML 时最容易发生的事。
+//
+// 🛑 覆盖面自证（第 53 条）：① 解析出的 job 数必须与 `runs-on:` 出现次数一致
+//   （不一致 ⇒ job 切分口径坏了）；② 必须至少识别出 1 个跑 mvn 的 job
+//   （识别不到 ⇒ mvn 识别口径坏了）。任一成立即报红并写明「不得当作通过」。
+//
+// 📌 为什么不读 YAML 库：本文件是**零依赖**的 node 脚本（`android-check` 那条
+//    同款纪律），而 js-yaml 不在依赖里。故用「2 空格键名 + runs-on 交叉校验」
+//    的行级切分，并把"切分是否可信"本身变成覆盖面自证的一部分。
+// ---------------------------------------------------------------------------
+{
+  const ITEM = 'ci-mvn-jobs-have-python';
+  const WF_DIR2 = join(REPO_ROOT, '.github', 'workflows');
+  const problems = [];
+  const coverage = [];
+  let wfCount = 0;
+  let jobCount = 0;
+  let runsOnCount = 0;
+  const mvnJobs = [];
+
+  /** 剥掉整行注释 —— 注释里出现 `mvn` / `pip install` 是常态（本仓注释极密），
+   *  不剥就会把"文档里的命令"当成"真执行的命令"（第 48 条族）。 */
+  const stripComments = (t) => t.split('\n')
+    .filter((l) => !/^\s*#/.test(l))
+    .join('\n');
+
+  /** 取一个 job 内的所有 `run:` 块，返回 {at, text}；at = 在 job.lines 中的起始下标，
+   *  用于判「setup-python 是否排在 mvn 之前」。终止条件用缩进回退（YAML map 同级键
+   *  缩进相同），因此 `env:` / `with:` 不会把子项误吞进来。 */
+  const extractRuns = (jobLines) => {
+    const out = [];
+    for (let i = 0; i < jobLines.length; i++) {
+      const m = /^(\s*)run:\s*(.*)$/.exec(jobLines[i]);
+      if (!m) continue;
+      const base = m[1].length;
+      const inline = m[2];
+      if (inline && !/^[|>]/.test(inline)) { out.push({ at: i, text: inline }); continue; }
+      const buf = [];
+      for (let j = i + 1; j < jobLines.length; j++) {
+        const l = jobLines[j];
+        if (l.trim() === '') { i = j; continue; }
+        if (l.length - l.trimStart().length <= base) break;
+        buf.push(l.trim());
+        i = j;
+      }
+      out.push({ at: i, text: buf.join('\n') });
+    }
+    return out;
+  };
+
+  if (!existsSync(WF_DIR2)) {
+    coverage.push(`找不到 ${relative(REPO_ROOT, WF_DIR2)}`);
+  } else {
+    const files = readdirSync(WF_DIR2).filter((f) => /\.ya?ml$/i.test(f)).sort();
+    wfCount = files.length;
+
+    for (const f of files) {
+      const text = readFileSync(join(WF_DIR2, f), 'utf8');
+      runsOnCount += (text.match(/^\s*runs-on:/gm) || []).length;
+
+      const lines = text.split('\n');
+      const jobs = [];
+      let inJobs = false;
+      let cur = null;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/^jobs:\s*$/.test(line)) { inJobs = true; continue; }
+        if (!inJobs) continue;
+        if (/^\S/.test(line)) { if (cur) { jobs.push(cur); cur = null; } inJobs = false; continue; }
+        const m = /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(line);
+        if (m) { if (cur) jobs.push(cur); cur = { name: m[1], lines: [] }; continue; }
+        if (cur) cur.lines.push(line);
+      }
+      if (cur) jobs.push(cur);
+      jobCount += jobs.length;
+
+      for (const job of jobs) {
+        const runs = extractRuns(job.lines);
+        const mvnRun = runs.find((r) => /\bmvn\b/.test(stripComments(r.text)));
+        if (!mvnRun) continue;
+
+        const setupAt = job.lines.findIndex((l) => /uses:\s*actions\/setup-python@/.test(l));
+        const pipAt = job.lines.findIndex((l) => !/^\s*#/.test(l) && /\bpip\s+install\b/.test(l));
+        mvnJobs.push(`${f}#${job.name}`);
+
+        if (setupAt < 0) {
+          problems.push(`${f} 的 job「${job.name}」跑了 mvn，但**没有** actions/setup-python`
+            + ' ⇒ 干净 runner 上根 pom 的 4 个 validate 门禁会因缺 PyYAML exit 2（BUILD FAILURE）');
+        } else if (pipAt < 0) {
+          problems.push(`${f} 的 job「${job.name}」有 setup-python 但**没有** pip install`
+            + ' ⇒ PyYAML 仍装不上，门禁照样 exit 2（"装了 python" 不等于 "装了解析器"）');
+        } else if (setupAt > mvnRun.at) {
+          problems.push(`${f} 的 job「${job.name}」的 setup-python 排在 mvn 步骤**之后**（下标 ${setupAt} > ${mvnRun.at}）`
+            + ' ⇒ 顺序反了等于没装');
+        } else if (pipAt > mvnRun.at) {
+          problems.push(`${f} 的 job「${job.name}」的 pip install 排在 mvn 步骤**之后**（下标 ${pipAt} > ${mvnRun.at}）`
+            + ' ⇒ 顺序反了等于没装');
+        }
+      }
+    }
+  }
+
+  if (wfCount === 0) coverage.push('.github/workflows/ 下没有任何 workflow 文件');
+  if (jobCount === 0) coverage.push('一个 job 都没解析出来');
+  if (jobCount > 0 && jobCount !== runsOnCount) {
+    coverage.push(`解析出的 job 数（${jobCount}）与 runs-on 出现次数（${runsOnCount}）不一致`
+      + ' ⇒ job 切分口径坏了，扫出来的结论不可信');
+  }
+  if (mvnJobs.length === 0) coverage.push('一个跑 mvn 的 job 都没识别到 ⇒ mvn 识别口径坏了');
+
+  if (coverage.length) {
+    fail(ITEM,
+      '判据覆盖面不足，**不得当作通过**：\n      - ' + coverage.join('\n      - ')
+      + '\n      ⇒ 先修扫描口径（workflow 被移动/改名？job 写法变了？），再谈"Python 准备是否齐全"。');
+  } else if (problems.length) {
+    fail(ITEM, '有 job 会在干净 runner 上因缺 PyYAML 而红：\n      - ' + problems.join('\n      - ')
+      + '\n      ⇒ 修法：该 job 的 mvn 步骤之前补两步 ——\n'
+      + '         - uses: actions/setup-python@v5\n'
+      + '           with: { python-version: "3.11" }\n'
+      + '         - run: python -m pip install --disable-pip-version-check -r "${{ github.workspace }}/skeleton/requirements.txt"\n'
+      + '         （与 build-and-test.yml 的 backend job 完全同款；第 77 条已在本机实测过缺 PyYAML 的后果。）');
+  } else {
+    ok(ITEM,
+      `扫了 ${wfCount} 个 workflow / ${jobCount} 个 job（与 ${runsOnCount} 处 runs-on 一致）`
+      + `；其中 ${mvnJobs.length} 个 job 跑 mvn，**全部**在 mvn 之前有 setup-python + pip install`
+      + `（${mvnJobs.join(' · ')}）`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // ② 契约层与冻结契约一致（调生成器 --check）
 // ---------------------------------------------------------------------------
 const spawnOk = await canSpawn();

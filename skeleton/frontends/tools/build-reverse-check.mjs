@@ -522,6 +522,22 @@ const CASES = [
       String.raw`distributionUrl=https\\://services.gradle.org/distributions/gradle-9.3.1-bin.zip`,
       String.raw`distributionUrl=https\\://mirrors.cloud.tencent.com/gradle/gradle-9.3.1-bin.zip`),
   },
+  {
+    id: 'R29',
+    end: 'client-mp',
+    rel: '../../../.github/workflows/crypto-adversarial-gate.yml',
+    title: 'CI：删掉 crypto workflow 的 setup-python 步（第 80 条复活 ⇒ 干净 runner 上 mvn 必因缺 PyYAML 红）',
+    expectItem: 'ci-mvn-jobs-have-python',
+    // 🛑 与 R27 同型："有人觉得多此一举顺手删了"的最真实形态。
+    //    删掉后该 job 的 `mvn -pl dy-crypto -am test` 的 reactor 第 1 个是聚合根，
+    //    根 pom 的 4 个 validate 门禁在干净 runner 上因缺 PyYAML exit 2 ⇒ BUILD FAILURE。
+    //    本机实测过同族命令 `mvn -pl dy-crypto -am test` 的逐字失败输出（第 80 条登记）。
+    //    只删 setup-python、**不动** pip install 那一步 ⇒ 判据命中"没有 setup-python"分支，
+    //    与"有 setup-python 没 pip install"是两条独立子规则。
+    mutate: (s) => s.replace(
+      / {6}- name: Set up Python\r?\n {8}uses: actions\/setup-python@v5\r?\n {8}with:\r?\n {10}python-version: "3\.11"\r?\n/,
+      ''),
+  },
 ];
 
 // ---------------------------------------------------------------------------

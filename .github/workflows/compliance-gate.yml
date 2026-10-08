@@ -55,10 +55,14 @@ jobs:
       # same file (42 vs 2 fields), and a probe that contradicts itself cannot
       # underpin a gate. So PyYAML is a hard prerequisite here -- the gate exits 2
       # when it is missing rather than degrading to regexes and still printing
-      # PASS. Installed explicitly so the requirement is visible in CI rather than
-      # inherited from whatever the runner image happens to ship.
+      # PASS.
+      # 🛑 第 80 条顺手收口：此处原先内联写死 "pyyaml>=6.0"，与
+      #    skeleton/requirements.txt（2026-10-08 建立，附 5 条 Python 门禁清单
+      #    与解释器覆盖方式说明）构成**同一依赖的两套说法** —— 而"多套说法"
+      #    正是第 77/79/80 三条能各自潜伏的土壤。统一改走 requirements.txt，
+      #    让版本约束只有一个真相源。内容等价（该文件就是 pyyaml>=6.0 + 注释）。
       - name: Install the gate's YAML parser
-        run: python -m pip install --disable-pip-version-check "pyyaml>=6.0"
+        run: python -m pip install --disable-pip-version-check -r "${{ github.workspace }}/skeleton/requirements.txt"
 
       - name: Write the scan report directory
         run: mkdir -p compliance/reports

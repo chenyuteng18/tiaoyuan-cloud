@@ -59,6 +59,31 @@ jobs:
           java-version: "17"
           cache: maven
 
+      # 🛑 第 80 条（第 77 条同族第三处）：本 job 必须先备好一个装得上 PyYAML 的 python。
+      #   step 1 的 `mvn -pl dy-crypto -am test` 的 reactor **第 1 个就是聚合根**
+      #   diaoyuanyun-skeleton（本机实测逐字：`Building diaoyuanyun-skeleton [1/2]`），
+      #   而根 pom.xml 的 4 个 validate 阶段 exec 门禁（inherited=false，只在聚合根跑）
+      #   要求**真 YAML 解析器**，缺 PyYAML 一律 exit 2 且刻意不退化成正则
+      #   ⇒ 实测本机（PATH python 无 PyYAML）逐字复现：
+      #       [GATE-ERROR] PyYAML is not available (No module named 'yaml').
+      #       [S1-8-GATE] FAIL (misconfigured, no PASS printed)
+      #       [ERROR] ... (s18-contract-conformance) ... Process exited with an error: 2
+      #       [INFO] BUILD FAILURE
+      #   ⇒ 干净 runner 上本 job 必然红在与代码毫无关系的地方。与 build-and-test.yml
+      #     的 backend job 同因、同款修法（第 77 条①）。
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install the gates' YAML parser
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        # 显式绝对路径而非相对 defaults.working-directory —— 不让"装依赖"这种
+        # 前置步骤依赖 YAML 里 defaults 的隐式行为（判据 ci-mvn-jobs-have-python
+        # 只认"setup-python 与 pip install 排在 mvn 之前"，路径写显式最稳）。
+        run: python -m pip install --disable-pip-version-check -r "${{ github.workspace }}/skeleton/requirements.txt"
+
       # step 1 —— 实现者证据：模块自己的 23 例。
       # --batch-mode 让日志里不出现进度动画，"Tests run" 行才好 grep。
       # -Dfile.encoding 不能写在命令行（会被 Maven 误解析为生命周期阶段），
