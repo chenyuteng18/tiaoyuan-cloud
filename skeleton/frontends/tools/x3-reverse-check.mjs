@@ -8,7 +8,7 @@
  * （第 41/42/43 条：静默假绿）。唯一能证明门禁承重的做法是：
  * **主动注入一个必须被抓住的错误，断言门禁确实变红**；然后再断言还原后变绿。
  *
- * 本脚本做 6 组注入，每组都改一处**真实文件**，跑门禁，记录退出码，
+ * 本脚本做 17 组注入，每组都改一处**真实文件**，跑门禁，记录退出码，
  * 然后**逐字节还原**并复验绿。
  *
  * 🛑 关于"注入必须带来可观测差异"（第 46 条的教训）
@@ -331,6 +331,37 @@ await injection({
   from: "{ key: 'intake', label: '客户建档', requires: 'createCustomer' },",
   to: "{ key: 'intake', label: '客户建档', requires: 'createRefund' },",
   expectGate: 'reach-by-role',
+});
+
+// ---------------------------------------------------------------------------
+// 注入 15~17：⑫ `x3-role-label-from-contract`（第 78 条）的三条子规则各守一次
+// ---------------------------------------------------------------------------
+// 🛑 为什么要拆成三组而不是一组：⑫ 内部有**三条互相独立**的规则
+//    （① 构造体须引用生成物 · ② 构造体不得含手写中文 · ③ 生成物覆盖面自证）。
+//    只注入一组，会出现"三条里只有一条真的在承重、另两条是装饰"的情况
+//    —— 那正是本仓第 53 条（判据覆盖面必须自证）要防的。
+await injection({
+  name: 'I15 角色展示名不再取自生成物（改用 role 码自身，仍无中文）',
+  path: ACCESS,
+  from: '    END_TOKEN_ROLES.map((r): [string, string] => [r, roleDisplay(r)]),',
+  to: '    END_TOKEN_ROLES.map((r): [string, string] => [r, r.toUpperCase()]),',
+  expectGate: 'x3-role-label-from-contract',
+});
+
+await injection({
+  name: 'I16 展示名仍取自契约，但加一个手写中文兜底（第二份权威）',
+  path: ACCESS,
+  from: '    END_TOKEN_ROLES.map((r): [string, string] => [r, roleDisplay(r)]),',
+  to: "    END_TOKEN_ROLES.map((r): [string, string] => [r, roleDisplay(r) || '调理师']),",
+  expectGate: 'x3-role-label-from-contract',
+});
+
+await injection({
+  name: 'I17 生成物里某个角色的 display 被清空（运行时将静默回退成原码）',
+  path: GEN,
+  from: '    display: "经络师（APP）",',
+  to: '    display: "",',
+  expectGate: 'x3-role-label-from-contract',
 });
 
 // ---------------------------------------------------------------------------

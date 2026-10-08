@@ -46,7 +46,7 @@ import {
   type DailyReport,
 } from '../services/domain';
 import { describe } from '../services/errors';
-import type { AppRole } from '../contract/access';
+import { roleDisplay, type AppRole } from '../contract/access';
 import { COLOR, FONT, SPACE } from '../ui/tokens';
 import { Badge, buttonGhostStyle, Card, Empty, ErrorBar, inputStyle, KV, labelStyle, Page } from '../ui/components';
 
@@ -400,7 +400,7 @@ export default function ServicePage({
         </button>
         <p style={{ ...labelStyle, marginTop: SPACE.md }}>
           🛑 出具后不能直接下发设备 —— 契约 D6 逐字「需方案已审核」，审核动作
-          （D5-c）<strong>仅经络师</strong>可用，入口在「专属动作」页。
+          （D5-c）<strong>仅{roleDisplay('meridian')}</strong>可用，入口在「专属动作」页。
         </p>
       </Card>
 
@@ -440,7 +440,7 @@ export default function ServicePage({
       {/* ---------------- D6 设备参数下发 ---------------- */}
       <Card
         title="D6 设备参数下发"
-        hint="前置：方案已审核（D5-c，仅经络师）。契约未声明 requestBody ⇒ 字段名对齐控制器 DispatchRequest。"
+        hint={`前置：方案已审核（D5-c，仅${roleDisplay('meridian')}）。契约未声明 requestBody ⇒ 字段名对齐控制器 DispatchRequest。`}
       >
         <Field label="方案 ID（plan_id）">
           <input

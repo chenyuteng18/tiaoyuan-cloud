@@ -25,6 +25,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ROLE_LABEL,
+  roleDisplay,
   endpointsDeniedForRole,
   endpointsForRole,
   groupByDomain,
@@ -261,11 +262,11 @@ export default function WorkbenchPage({
             .join('  ·  ')}
         />
         <KV
-          k="仅经络师可用"
+          k={`仅${roleDisplay('meridian')}可用`}
           v={summary.meridianOnly.length ? summary.meridianOnly.join(' · ') : '（无）'}
         />
         <KV
-          k="仅调理师可用"
+          k={`仅${roleDisplay('therapist')}可用`}
           v={summary.therapistOnly.length ? summary.therapistOnly.join(' · ') : '（无）'}
         />
       </Card>

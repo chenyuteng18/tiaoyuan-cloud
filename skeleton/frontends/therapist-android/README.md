@@ -630,6 +630,46 @@ Gson 反射面（`type = X::class.java` / `element = X::class.java` /
 （顶栏是否真的不被压、键盘是否真的不遮输入框、API 24/25 导航栏按钮是否可读）
 **仍是未收口项**，已登记在第七节。形态对 ≠ 观感对，这一点不能含糊。
 
+### ✅ 已收口（留痕）：角色展示名收敛到契约 `x-roles.display`（第 78 条）
+
+**缺口**：同一个角色，在**同一套系统的两个端**上显示成两个名字。
+
+- 契约 `x-roles.<role>.display` 逐字给出 `调理师（APP）` / `经络师（APP）`
+  —— 它是"角色 × 端"的**展开名**（带端后缀）。
+- **本端**（原生 Android）的 `Access.roleDisplay()` 一直取自
+  `Endpoints.ROLE_EXPANSION[*].display`（`x-roles` 的机械转录），不手写中文。
+- **Web 端**（`therapist-app/src/contract/access.ts`）却手写了一张短形表
+  `ROLE_LABEL = { therapist: '调理师', meridian: '经络师' }`。
+
+两者**都不算错**，但属"五源对齐"的漂移。🛑 **它为什么能在门禁下活很久**：
+不报错、不违约、`tsc` / `vite build` / 全部判据 / 全部反向验证**一律是绿的**
+—— 这种漂移**只有把两端界面并排看才发现**，属"绿得完整但不一致"。
+
+**收口（2026-10-08）**：Web 端改为与本端**同源的取法**，中文角色名在整个仓库里只剩契约一份。
+
+| 落点 | 收敛前 | 收敛后 |
+|---|---|---|
+| `contract/access.ts` 的 `ROLE_LABEL` | 手写 `{ therapist: '调理师', meridian: '经络师' }` | `END_TOKEN_ROLES` 遍历 + `roleDisplay(r)`（键取自生成物、值取自契约 `display`） |
+| 新增 `roleDisplay(role)` | 不存在 | 遍历 `ROLE_EXPANSION` → 按 **token** 匹配 → **取不到回退原码**（与端 D 语义逐条一致） |
+| 4 处界面静态文案（`ServicePage` ×2 / `WorkbenchPage` ×2 / `MeridianActionsPage` ×1） | 硬写「仅经络师」「仅调理师」 | 改走 `roleDisplay('meridian')` / `roleDisplay('therapist')` —— 否则**同一个端内部**又会不一致 |
+
+🛑 **为什么连界面文案也要改**：只改 `ROLE_LABEL` 的话，同一个端里会出现
+「经络师（APP）」与「经络师」并存 —— 那是**把跨端漂移换成了端内漂移**，更糟。
+
+**并且被门禁钉住了**：端 B 门禁新增 **`x3-role-label-from-contract`**，三条子规则**互相独立**：
+
+1. `ROLE_LABEL` 的构造体**必须引用** `roleDisplay` / `ROLE_EXPANSION`（真的取自生成物）；
+2. 构造体内**不得出现任何 CJK 字符**（手写的才是第二份权威）；
+3. **覆盖面自证**：生成物里声明的每个 `ROLE_EXPANSION` 条目都必须被解析到，
+   且 `END_TOKEN_ROLES` 的每个角色都必须有**非空** `display`
+   —— 否则运行时会**静默回退成原码**，而所有判据都看不见它。
+
+**回归注入**：**I15**（不再取自生成物，仍无中文 ⇒ 只触发规则 1）/
+**I16**（仍取自契约但加手写中文兜底 ⇒ 只触发规则 2）/
+**I17**（生成物某个 `display` 被清空 ⇒ 只触发规则 3）。
+🛑 **为什么拆三组而不是一组**：合成一组会出现"三条里只有一条真在承重、
+另两条是装饰"的情况 —— 那正是第 53 条要防的。
+
 ## 七、已登记的未收口项（不得当成已完成）
 
 | 项 | 现状 | 收敛路径 |
@@ -642,7 +682,6 @@ Gson 反射面（`type = X::class.java` / `element = X::class.java` /
 | `Content-Type: application/json` | 出站层字面量；它**不在**契约 `x-api-protocol` 里，故未纳入判据 | 若契约将来声明它，须同步纳入 |
 | R8 与反射的**其余**面 | **已逐项核对**（实测）：① 无 `res/layout/` ⇒ 页面全是代码构造，无 XML inflate 反射；② 5 个 enum 走 `proguard-android-optimize.txt` 内置的 `values()` / `valueOf()` keep 规则；③ `Map::class.java`（5 处）走 Gson 内置 MapTypeAdapter，不反射字段 | 引入 DataBinding / ViewBinding / 新序列化库 / 注解式 DI 时，须**重新逐项核对**并同步判据 |
 | 消息触达（推送） | **未实现**：本端无推送依赖。一线要"及时处理客户请求"目前只能靠主动打开 APP | 接推送时，需同步补：隐私清单、`POST_NOTIFICATIONS` 权限、到达率验收口径 |
-| Web 端 `ROLE_LABEL` | 与契约 `x-roles.display` 不一致（见第五节） | 收敛 Web 端到契约 `display` |
 | Gradle 10 弃用警告 | 构建输出里有 `multi-string notation` 弃用警告，**来源是 AGP 8.12.0 内部**声明 `com.android.tools.lint:lint-gradle` / `com.android.tools.build:aapt2` 的方式，**不是本工程代码**（本端 6 条依赖全部是单字符串形式，已逐条核对） | 等 AGP 9.x；当前 Gradle 9.3.1 下只是警告，不影响构建 |
 | CI 出包 | 门禁已接入 CI；**GitHub Actions 本身仍未跑过**（本机无法跑 Actions）。但 CI job 里的**关键是 `assembleDebug` 能否在"干净环境"里出包**，这一条已用**全新克隆**在本机模拟验证：`git clone` 到干净目录 → 端 D 门禁绿 → `./gradlew assembleDebug` **BUILD SUCCESSFUL**（2m51s / 35 tasks / **无 `local.properties`**，仅靠 `ANDROID_HOME`）→ 产出 `app-debug.apk` **7,338,658 字节**。同一轮实跑还补出 CI 的 **Python 准备步整块缺失**（见 `frontends/README.md` §8.28 / 骨架 README §5.1 第 76 条） | 首次真跑 Actions 后回填结论；若 SDK/Gradle 镜像在海外 runner 上不可达，改用 `setup-gradle` 缓存 |
 

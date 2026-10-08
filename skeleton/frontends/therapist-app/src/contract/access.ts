@@ -52,19 +52,51 @@
  * 本就如此界定的，不是"少做一道检查"。
  */
 
-import { ENDPOINTS, END_TOKEN_ROLES, endpointById, type Endpoint } from './endpoints';
+import { ENDPOINTS, END_TOKEN_ROLES, ROLE_EXPANSION, endpointById, type Endpoint } from './endpoints';
 
 /** 本端可用的角色。由生成物的 token-roles 收紧而来，不另立声明。 */
 export type AppRole = 'therapist' | 'meridian';
 
 /**
- * 角色显示名。这是**唯一的**手写内容，且只是给界面看的标签；
- * 它不参与任何准入判定（判定只看 `grantedRoles`）。
+ * 角色展示名 —— 取自契约 `x-roles.display`（生成物 `ROLE_EXPANSION`），本端**不手写中文**。
+ *
+ * 🛑 为什么必须取自契约，而不是手写一张短形表
+ * ---------------------------------------------------------------------------
+ * 契约 `x-roles.<role>.display` 逐字给出 `调理师（APP）` / `经络师（APP）`
+ * —— 它是"角色 × 端"的**展开名**（带端后缀）。端 D（原生 Android）的
+ * `Access.roleDisplay()` 已经这样取（`Endpoints.ROLE_EXPANSION`）。
+ * 本文件此前手写 `{ therapist: '调理师', meridian: '经络师' }`，
+ * 于是**同一个角色在同一套系统的两个端上显示成两个名字**。
+ * 这类漂移是本仓"五源对齐"里最容易被放过的一种：
+ * 它**不报错、不违约、构建与门禁全绿**，只有并排看两端界面才发现。
+ * ⇒ 本端取舍与端 D 一致：**以契约为准**，让中文名在整个仓库里只有一份。
+ *
+ * 🛑 取不到时返回【原码】而不是猜一个中文
+ * ---------------------------------------------------------------------------
+ * 猜出来的名字会掩盖"契约根本没声明这个角色"这个事实；返回原码则界面直接暴露它。
+ * 与契约"不得模糊报错"同一条纪律。
  */
-export const ROLE_LABEL: Readonly<Record<AppRole, string>> = Object.freeze({
-  therapist: '调理师',
-  meridian: '经络师',
-});
+export function roleDisplay(role: string | null | undefined): string {
+  if (!role) return '—';
+  for (const spec of Object.values(ROLE_EXPANSION)) {
+    if (spec.tokens.includes(role)) return spec.display || role;
+  }
+  return role;
+}
+
+/**
+ * 本端角色的展示名表。**键集合取自生成物**（`END_TOKEN_ROLES`），值取自契约 `display`。
+ *
+ * 🛑 这里唯一的类型断言（`as Record<AppRole, string>`）为什么是安全的：
+ *    键来自 `END_TOKEN_ROLES` 的遍历，而 `AppRole` 的定义域**就是**它
+ *    ⇒ 断言不会掩盖"少了一个键"。该等式由本端门禁 `x3-role-label-from-contract`
+ *    第 ③ 条（覆盖面自证）机械守护，不靠这句话的自觉。
+ */
+export const ROLE_LABEL: Readonly<Record<AppRole, string>> = Object.freeze(
+  Object.fromEntries(
+    END_TOKEN_ROLES.map((r): [string, string] => [r, roleDisplay(r)]),
+  ) as Record<AppRole, string>,
+);
 
 /** 失败原因：两种必须分开（见文件头）。 */
 export type AccessFailure =

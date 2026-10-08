@@ -852,6 +852,91 @@ if (therOnly.length > 0) {
       + `面板外渲染的页面豁免 ${NON_NAV_PAGES.length} 个（${NON_NAV_PAGES.join(', ') || '无'}）。`);
   }
 }
+// ---------------------------------------------------------------------------
+// ⑫ 【角色展示名必须有唯一权威】第 78 条 —— 中文名只允许来自契约 `x-roles.display`
+// ---------------------------------------------------------------------------
+// 🛑 它防的是哪一类缺陷：**同一套系统的两个端，把同一个角色显示成两个名字**。
+//    契约 `x-roles.<role>.display` 逐字给出「调理师（APP）」/「经络师（APP）」
+//    （它是"角色 × 端"的**展开名**，带端后缀），端 D（原生 Android）的
+//    `Access.roleDisplay()` 已经这样取；而本端此前手写了一张短形表
+//    `{ therapist: '调理师', meridian: '经络师' }`。
+//    这类漂移**不报错、不违约、构建与全部判据全绿** ——
+//    只有把两端界面并排看才发现，正是"五源对齐"里最容易被放过的一种。
+//
+// 🛑 判据形态（第 52 / 53 条）：判 `ROLE_LABEL` 的**构造形态**，不判"文本里有没有中文"。
+//    ① 构造体必须引用 `roleDisplay` / `ROLE_EXPANSION`（即真的取自生成物）；
+//    ② 构造体内**不得出现任何 CJK 字符**（手写中文名 = 第二份权威）；
+//    ③ **覆盖面自证**：生成物里声明的每个 ROLE_EXPANSION 条目都必须被本判据解析到，
+//       且 `END_TOKEN_ROLES` 的每个角色都能找到**非空** display —— 否则运行时会
+//       **静默回退成原码**，而所有判据都看不见。
+{
+  const accessCode = stripComments(readFileSync(ACCESS, 'utf8'));
+  const genText = readFileSync(GEN, 'utf8');
+  const problems = [];
+  const covered = [];
+
+  // ---- ① / ②：ROLE_LABEL 的构造体形态 ----
+  const start = accessCode.indexOf('export const ROLE_LABEL');
+  const after = start >= 0 ? accessCode.slice(start) : '';
+  const nextTop = after.slice(1).search(/\nexport /);
+  const stmt = after ? (nextTop >= 0 ? after.slice(0, nextTop + 1) : after) : '';
+  if (!stmt) {
+    problems.push('未能圈定 `export const ROLE_LABEL` 的声明 —— 判据不认识当前写法，'
+      + '【不得】当作通过（第 52/53 条：判据太宽 ⇒ 假绿）。');
+  } else {
+    if (!/roleDisplay\s*\(|ROLE_EXPANSION/.test(stmt)) {
+      problems.push('ROLE_LABEL 的构造体没有引用 roleDisplay / ROLE_EXPANSION'
+        + ' ⇒ 展示名不是取自契约（构成第二份权威）。');
+    }
+    const cjk = /[\u4e00-\u9fff]/.exec(stmt);
+    if (cjk) {
+      problems.push('ROLE_LABEL 的构造体里出现中文字符：'
+        + `「${stmt.slice(Math.max(0, cjk.index - 20), cjk.index + 20).replace(/\s+/g, ' ')}」`
+        + '\n        中文角色名必须来自契约 x-roles.display，不得手写。');
+    }
+  }
+
+  // ---- ③：覆盖面自证（生成物侧） ----
+  const body = (genText.match(/export const ROLE_EXPANSION[\s\S]*?\n\}\);/) ?? [])[0] ?? '';
+  const entryRe = /"([A-Za-z_][A-Za-z0-9_]*)":\s*\{[\s\S]*?tokens:\s*Object\.freeze\(\[([^\]]*)\]\)[\s\S]*?display:\s*"([^"]*)"/g;
+  const entries = [...body.matchAll(entryRe)].map((m) => ({
+    role: m[1], tokens: m[2], display: m[3],
+  }));
+  const declared = (body.match(/"[A-Za-z_][A-Za-z0-9_]*":\s*\{/g) ?? []).length;
+  const tokBody = (genText.match(/export const END_TOKEN_ROLES[\s\S]*?\]\)/) ?? [])[0] ?? '';
+  const tokenRoles = [...tokBody.matchAll(/"([A-Za-z_][A-Za-z0-9_]*)"/g)].map((m) => m[1]);
+
+  if (!body) {
+    problems.push('生成物里找不到 ROLE_EXPANSION —— 判据不认识当前生成形态，【不得】当作通过。');
+  } else if (entries.length !== declared) {
+    problems.push(`生成物 ROLE_EXPANSION 解析覆盖不全：解析到 ${entries.length} 条、`
+      + `实际声明 ${declared} 条 ⇒ 判据覆盖面不足，【不得】当作通过（第 53 条）。`);
+  }
+  if (!tokenRoles.length) {
+    problems.push('生成物里没解析出 END_TOKEN_ROLES 的任何元素 —— 判据不认识当前生成形态。');
+  }
+  for (const t of tokenRoles) {
+    const hit = entries.find((e) => e.tokens.includes(t));
+    if (!hit) {
+      problems.push(`角色 ${t} 在 ROLE_EXPANSION 里找不到 tokens 含它的条目`
+        + ' ⇒ 运行时 roleDisplay 会【静默回退成原码】。');
+    } else if (!hit.display) {
+      problems.push(`角色 ${t} 的 display 为空 ⇒ 运行时 roleDisplay 会【静默回退成原码】。`);
+    } else {
+      covered.push(`${t}→${hit.display}`);
+    }
+  }
+
+  if (problems.length) {
+    fail('x3-role-label-from-contract', '角色展示名未收敛到契约：\n      ' + problems.join('\n      '));
+  } else {
+    ok('x3-role-label-from-contract',
+      `ROLE_LABEL 取自契约 x-roles.display（构造体无手写中文）；`
+      + `已核 ${covered.length} 个角色（${covered.join(' · ')}），`
+      + `生成物 ROLE_EXPANSION 声明 ${declared} 条全部解析到。`);
+  }
+}
+
 console.log('== 端 B · X-3 角色级装载自检 ==');
 for (const l of oks) console.log(l);
 for (const l of notes) console.log(l);

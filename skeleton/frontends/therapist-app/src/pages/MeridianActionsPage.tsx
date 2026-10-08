@@ -32,6 +32,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import {
   ROLE_LABEL,
+  roleDisplay,
   canCall,
   solelyGrantedEndpoints,
   type AppRole,
@@ -144,7 +145,7 @@ export default function MeridianActionsPage({
       <Page title="专属动作" roleLabel={roleLabel}>
         <Card
           title="本角色在本端没有专属动作"
-          hint="这不是报错，而是契约事实：本端目前没有任何「仅调理师」端点。"
+          hint={`这不是报错，而是契约事实：本端目前没有任何「仅${roleDisplay('therapist')}」端点。`}
         >
           <p style={{ ...labelStyle, margin: 0 }}>
             本端「只授予单一角色」的端点共 {sole.length} 项，

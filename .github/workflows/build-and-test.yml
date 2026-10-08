@@ -121,7 +121,7 @@ jobs:
 
       # 门禁有牙齿的反向验证：注入故障必须被逐一抓住（含还原校验）。
       # 🛑 必须【串行】：这些脚本对同一批文件做「注入 → 还原」，并行会互相踩踏。
-      - name: 门禁反向验证（build 26/26 · a 21/21 · x3 14/14 · android 43/43）
+      - name: 门禁反向验证（build 26/26 · a 21/21 · x3 17/17 · android 43/43）
         working-directory: skeleton/frontends/admin-web
         run: |
           node ../tools/build-reverse-check.mjs
