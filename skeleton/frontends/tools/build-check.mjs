@@ -45,6 +45,9 @@ import { resolvePython, NO_PYTHON_MESSAGE } from './py.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FRONTENDS = resolve(HERE, '..');
 const SKELETON_ROOT = resolve(FRONTENDS, '..');
+// 🛑 第 79 条：判据需要看**仓库根**下的 `.github/workflows/`（"CI 里有没有把
+//    依赖源归一"这件事的**唯一**证据面）。这也是本脚本唯一一处跳出 skeleton/ 的读取。
+const REPO_ROOT = resolve(SKELETON_ROOT, '..');
 const COMPLIANCE = join(SKELETON_ROOT, 'compliance');
 
 /**
@@ -334,6 +337,143 @@ for (const rel of cfg.required) {
     } else {
       ok('no-bare-python-script',
         `package.json 的 ${Object.keys(scripts).length} 条脚本里无裸调 python（生成器一律经 tools/gen-endpoints.mjs）`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 🛑 第 79 条（第二十四类）：**构建依赖的「源」被烤进了版本库**
+//
+// 缺口的形状：仓库里三处构建输入写的是**中国镜像**（本机在中国，这是刻意的
+// 优化，不是错）——
+//   · `admin-web/package-lock.json` 182 条 + `therapist-app/package-lock.json`
+//     122 条 `resolved`，**全部**指向 `registry.npmmirror.com`（0 条官方源）；
+//   · `therapist-android/gradle/wrapper/gradle-wrapper.properties` 的
+//     `distributionUrl` 指向 `mirrors.cloud.tencent.com`。
+// 而 CI runner 在**境外**。两处都会让"能不能装 / 能不能拉"取决于一个我们不受控的
+// 第三方 CDN —— 一旦它慢或挂，红的位置离代码十万八千里。
+//
+// 🛑 为什么本机全绿却抓不到（第 77 条同族，第二处）
+//   · 本机的 npm registry **本来就配成 npmmirror**（`npm config get registry`），
+//     所以 `npm ci` 无论走锁文件还是走配置都落到同一个 host ⇒ **差异永远不显形**；
+//     只有在"配置与锁文件不一致"的机器上才暴露 —— 而那台机器就是 CI。
+//   · `npm ci` 的语义是**逐字沿用**锁文件里的 `resolved` URL，不是"按 registry 重解析"。
+//     实测（最小复现，`_work/npmhost-probe`，单包 `is-number@7.0.0`）：
+//       不覆盖 → 真去拉的地址是 `registry.npmmirror.com/...` 与 `cdn.npmmirror.com/...`
+//       覆盖后 → `registry.npmjs.org/...`
+//     ⇒ 这不是理论风险，是**已观测的取包路径**。
+//
+// 判据（第 52 条：判形态，不判词）：**允许**仓库保留镜像（中国开发者的真实需要，
+// 也是本轮验证过的本机路径），但**必须**在 CI 里显式归一。两件事绑起来：
+//   ① 锁文件里存在非官方 host ⇒ workflow 必须设 `npm_config_replace_registry_host: always`
+//      （npm ≥ 8.8 的官方开关：用配置的 registry 覆盖锁文件 host，**不重写锁文件**）
+//      且必须同时把 `npm_config_registry` 指到官方源；
+//   ② wrapper 的 `distributionUrl` 非官方 ⇒ workflow 必须显式改写该文件。
+//
+// 🛑 覆盖面自证（第 53 条）：若找不到任何锁文件 / 读不到 wrapper / 读不到任何
+//   workflow，说明**是扫描口径坏了**（不是"没问题"），此时一律报红并写明
+//   "判据覆盖面不足，不得当作通过"。
+// ---------------------------------------------------------------------------
+{
+  const OFFICIAL_NPM = 'registry.npmjs.org';
+  const OFFICIAL_GRADLE = 'services.gradle.org';
+  const ITEM = 'ci-dependency-source-normalized';
+
+  // —— 覆盖面：三份可能的锁文件（端 C 零依赖，本来就没有锁文件）——
+  const LOCK_ENDS = ['admin-web', 'therapist-app', 'client-mp'];
+  const locks = [];
+  for (const e of LOCK_ENDS) {
+    const p = join(FRONTENDS, e, 'package-lock.json');
+    if (existsSync(p)) locks.push({ end: e, path: p, text: readFileSync(p, 'utf8') });
+  }
+  const WRAPPER = join(FRONTENDS, 'therapist-android', 'gradle', 'wrapper', 'gradle-wrapper.properties');
+  const WF_DIR = join(REPO_ROOT, '.github', 'workflows');
+  let wfFiles = [];
+  let wfText = '';
+  if (existsSync(WF_DIR)) {
+    wfFiles = readdirSync(WF_DIR).filter((f) => /\.ya?ml$/i.test(f)).sort();
+    wfText = wfFiles.map((f) => readFileSync(join(WF_DIR, f), 'utf8')).join('\n');
+  }
+
+  const hostCount = new Map();
+  const parseErrors = [];
+  for (const l of locks) {
+    let j = null;
+    try {
+      j = JSON.parse(l.text);
+    } catch (err) {
+      parseErrors.push(`${l.end}/package-lock.json 无法解析：${err.message}`);
+      continue;
+    }
+    for (const v of Object.values(j.packages || {})) {
+      const r = v && v.resolved;
+      if (typeof r !== 'string') continue;
+      const m = /^https?:\/\/([^/]+)\//.exec(r);
+      if (m) hostCount.set(m[1], (hostCount.get(m[1]) || 0) + 1);
+    }
+  }
+  const totalResolved = [...hostCount.values()].reduce((a, b) => a + b, 0);
+  const npmHosts = [...hostCount.keys()].sort();
+  const nonOfficialNpm = npmHosts.filter((h) => h !== OFFICIAL_NPM);
+
+  let gradleUrlHost = null;
+  if (existsSync(WRAPPER)) {
+    const m = /^distributionUrl=\s*(.+)$/m.exec(readFileSync(WRAPPER, 'utf8'));
+    if (m) {
+      const hm = /^https?:\/\/([^/]+)\//.exec(m[1].replace(/\\:/g, ':'));
+      gradleUrlHost = hm ? hm[1] : null;
+    }
+  }
+
+  // —— ① 覆盖面自证：缺任何一面都说明口径坏了 ——
+  const coverage = [];
+  if (locks.length === 0) coverage.push('三端一个 package-lock.json 都没找到');
+  if (totalResolved === 0) coverage.push('锁文件里一条 resolved 都没解析到');
+  if (!existsSync(WRAPPER)) coverage.push(`找不到 ${relative(REPO_ROOT, WRAPPER)}`);
+  if (gradleUrlHost === null) coverage.push('wrapper 里没解析到 distributionUrl');
+  if (wfFiles.length === 0) coverage.push('.github/workflows/ 下读不到任何 workflow 文件');
+
+  if (coverage.length) {
+    fail(ITEM,
+      '判据覆盖面不足，**不得当作通过**：\n      - ' + coverage.join('\n      - ')
+      + '\n      ⇒ 先修扫描口径（文件被移动/改名？），再谈"依赖源是否归一"。');
+  } else if (parseErrors.length) {
+    fail(ITEM, '锁文件不可解析（判据无法成立）：\n      - ' + parseErrors.join('\n      - '));
+  } else {
+    const needsNpm = nonOfficialNpm.length > 0;
+    const needsGradle = gradleUrlHost !== OFFICIAL_GRADLE;
+    const npmNormalized = /npm_config_replace_registry_host\s*:\s*always/.test(wfText)
+      && new RegExp(`npm_config_registry\\s*:\\s*https://${OFFICIAL_NPM.replace(/\./g, '\\.')}`).test(wfText);
+    const gradleNormalized = /distributionUrl=[^\n]*services\.gradle\.org/.test(wfText);
+
+    const missing = [];
+    if (needsNpm && !npmNormalized) {
+      missing.push(`锁文件里有非官方 registry host（${nonOfficialNpm.join(' / ')}，`
+        + `${nonOfficialNpm.reduce((a, h) => a + hostCount.get(h), 0)}/${totalResolved} 条），`
+        + '而 workflow 里没有 `npm_config_replace_registry_host: always` + `npm_config_registry` '
+        + '（`npm ci` 会逐字沿用锁文件 URL ⇒ 境外 runner 的"能不能装"取决于那个镜像）');
+    }
+    if (needsGradle && !gradleNormalized) {
+      missing.push(`wrapper 的 distributionUrl 指向非官方 host（${gradleUrlHost}），`
+        + '而 workflow 里没有任何一处改写 gradle-wrapper.properties '
+        + '（境外 runner 会去拉那个镜像的发行版）');
+    }
+
+    if (missing.length) {
+      fail(ITEM, 'CI 会依赖一个不受控的第三方镜像源：\n      - ' + missing.join('\n      - ')
+        + '\n      ⇒ 二选一：① 把提交的源改成官方源；② 在 workflow 里显式归一'
+        + '（推荐：仓库保留镜像供中国开发者，CI 侧归一 —— 与 `*.bat eol=crlf` 同一思路）。');
+    } else {
+      const notes = [];
+      notes.push(`${locks.length} 份锁文件 · ${totalResolved} 条 resolved · host=${npmHosts.join('/')}`);
+      notes.push(`wrapper host=${gradleUrlHost}`);
+      notes.push(needsNpm
+        ? `锁文件含非官方 host ⇒ CI 已显式归一（replace-registry-host=always + 官方 registry）`
+        : '锁文件本就全官方 host ⇒ 无需归一');
+      notes.push(needsGradle
+        ? 'wrapper 非官方 ⇒ CI 已显式改写为官方源'
+        : 'wrapper 本就官方源 ⇒ 无需改写');
+      ok(ITEM, notes.join('；'));
     }
   }
 }

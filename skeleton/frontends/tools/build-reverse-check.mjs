@@ -119,13 +119,16 @@ async function runBuildCheck(end) {
 async function caseInject({ id, end, rel, title, mutate, expectItem }) {
   const abs = join(FRONTENDS, end, rel);
   if (!existsSync(abs)) {
-    return { id, ok: false, why: `文件不存在: ${end}/${rel}` };
+    return { id, title, ok: false, why: `文件不存在: ${end}/${rel}` };
   }
   const before = backup(abs);
   const after = mutate(before);
   if (after === before) {
     restore(abs);
-    return { id, ok: false, why: '变异未生效（mutate 返回了原文）—— 用例本身失效，须修正' };
+    // 🛑 `title` 必须带出来：本行此前不带，运行器打印 `${r.id} ${r.title}` 就成了
+    //    `R28 undefined` —— 一条**说不出自己是哪条用例**的失败，与第 24 条同族
+    //    （"报错不指向真因"）。诊断信息里的 `undefined` 一律视为 bug。
+    return { id, title, ok: false, why: '变异未生效（mutate 返回了原文）—— 用例本身失效，须修正' };
   }
   writeFileSync(abs, after, { encoding: 'utf8', newline: '\n' });
 
@@ -474,6 +477,50 @@ const CASES = [
     mutate: (s) => s.replace(
       /"gen:endpoints":\s*"node \.\.\/tools\/gen-endpoints\.mjs"/,
       '"gen:endpoints": "python ../tools/gen-endpoints.py"'),
+  },
+
+  // -------------------------------------------------------------------------
+  // 🛑 第 79 条（第二十四类）：**构建依赖的「源」被烤进版本库**。
+  //
+  //    形态：两份 package-lock.json 的 304 条 resolved 全指向 npmmirror、
+  //    gradle-wrapper.properties 的 distributionUrl 指向腾讯云镜像；而 runner 在境外。
+  //    修法**不是**把仓库里的镜像改掉（那是中国开发者的真实需要、且本机路径已实测），
+  //    而是**在 CI 里显式归一**。于是"归一还在不在"本身必须被守住。
+  //
+  //    🛑 为什么拆两组而不是合成一组（第 53 条）：npm 侧与 gradle 侧是**两条
+  //       互相独立的规则**，合成一组会出现"只有一条真在承重、另一条是装饰"。
+  //       下面两组各自只破坏一条，分别证明两条都承重。
+  //
+  //    🛑 注入目标在 `frontends/` **之外**（仓库根的 workflow）：这不是笔误 ——
+  //       这两条规则唯一的证据面就在那里。故用 `../../../` 显式跳出。
+  // -------------------------------------------------------------------------
+  {
+    id: 'R27',
+    end: 'client-mp',
+    rel: '../../../.github/workflows/build-and-test.yml',
+    title: 'CI：删掉 npm 源归一（replace-registry-host）⇒ 锁文件的 npmmirror 又变成实际取包源',
+    expectItem: 'ci-dependency-source-normalized',
+    // 🛑 只删这一行、**不动** `npm_config_registry`：模拟"有人觉得多此一举顺手删了"。
+    //    删掉后 npm 默认的 replace-registry-host=npmjs **不会**替换非官方 host
+    //    ⇒ 304 条 resolved 里的 npmmirror 又成为真实取包地址。
+    mutate: (s) => s.replace(/^[ \t]*npm_config_replace_registry_host:[ \t]*always[ \t]*\r?\n/m, ''),
+  },
+  {
+    id: 'R28',
+    end: 'client-mp',
+    rel: '../../../.github/workflows/build-and-test.yml',
+    title: 'CI：把 Gradle 发行版源改回腾讯云镜像 ⇒ 境外 runner 又去拉第三方 CDN',
+    expectItem: 'ci-dependency-source-normalized',
+    // 🛑 锚点里的反斜杠是**两个**（工作流那一行给 shell 看的就是 `https\\://`，
+    //    因为 sed 的替换段里 `\\` 才会输出一个 `\`）—— 故这里必须用 `String.raw`。
+    //    🛑 第一版写成普通单引号串 `'…https\\://…'`，JS 把 `\\` 解析成**一个** `\`
+    //    ⇒ 搜索串与文件字面不匹配 ⇒ mutate 返回原文 ⇒ 用例**静默失效**
+    //    （报的是「变异未生效」）。这与 R12 注释里记的那次**同型**：
+    //    注入锚点一旦与文件字面不符，用例自己就先腐烂了，而它的表现是"漏过"，
+    //    读起来像"判据没牙齿"。⇒ 锚点必须逐字取自文件，且**转义层数要对齐**。
+    mutate: (s) => s.replace(
+      String.raw`distributionUrl=https\\://services.gradle.org/distributions/gradle-9.3.1-bin.zip`,
+      String.raw`distributionUrl=https\\://mirrors.cloud.tencent.com/gradle/gradle-9.3.1-bin.zip`),
   },
 ];
 

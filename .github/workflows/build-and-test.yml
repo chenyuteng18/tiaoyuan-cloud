@@ -77,6 +77,25 @@ jobs:
 
       - name: 安装端 A / 端 B 依赖
         working-directory: skeleton/frontends
+        # 🛑 第 79 条：**必须先归一「依赖源」，否则本步依赖一个第三方镜像。**
+        #
+        #    两份 package-lock.json 的 `resolved` 共 304 条（端 A 182 + 端 B 122）
+        #    **全部**指向 `registry.npmmirror.com`（本机在中国、生成锁文件时用的淘宝镜像），
+        #    而 `npm ci` 的语义是**逐字沿用锁文件里的 URL**，不是"按 registry 重解析"。
+        #    实测（最小复现，单包 is-number@7.0.0）：
+        #      · 不覆盖 → 真去拉的地址是 registry.npmmirror.com + cdn.npmmirror.com
+        #      · 覆盖后 → registry.npmjs.org
+        #    ⇒ 不归一，本 job 的"能不能装"就取决于一个我们不受控的 CDN。
+        #
+        #    `replace-registry-host` 是 npm ≥ 8.8 的**官方开关**（默认 `npmjs`，
+        #    意为"只替换官方 host" —— 而我们的锁文件里根本没有官方 host，所以默认值等于不生效）。
+        #    置 `always` = "用下面配置的 registry 覆盖锁文件里的 host"，**不重写锁文件**。
+        #
+        #    🛑 与本文件 android job 的 gradle 源改写是**同一族**处理，理由同一句：
+        #       仓库保留镜像供中国开发者（本机路径已实测），CI 侧显式归一。
+        env:
+          npm_config_registry: https://registry.npmjs.org/
+          npm_config_replace_registry_host: always
         run: |
           (cd admin-web && npm ci)
           (cd therapist-app && npm ci)
@@ -121,7 +140,7 @@ jobs:
 
       # 门禁有牙齿的反向验证：注入故障必须被逐一抓住（含还原校验）。
       # 🛑 必须【串行】：这些脚本对同一批文件做「注入 → 还原」，并行会互相踩踏。
-      - name: 门禁反向验证（build 26/26 · a 21/21 · x3 17/17 · android 43/43）
+      - name: 门禁反向验证（build 28/28 · a 21/21 · x3 17/17 · android 43/43）
         working-directory: skeleton/frontends/admin-web
         run: |
           node ../tools/build-reverse-check.mjs
@@ -160,6 +179,25 @@ jobs:
       #    `app/build.gradle.kts` 末尾的闸门**当场拦下**（见 README 第六节第 1 条），
       #    所以在 CI 上加这一步只会稳定报红、没有任何信息量。
       #    要核验 release 链路，请在有密钥的机器上按 README 的步骤跑一次。
+
+      # 🛑 第 79 条：与 frontend job 的 npm 源归一**同族、同理由**。
+      #    仓库里的 `gradle-wrapper.properties` 把 distributionUrl 指向
+      #    `mirrors.cloud.tencent.com`（为中国网络优化，本机实测 0.11s 命中），
+      #    但 runner 在境外，而**那是第三方 CDN**、可用性不由我们控制 ⇒ 一旦它慢或挂，
+      #    "端 D 真编译"就会红在一个与代码毫无关系的地方。
+      #
+      #    🛑 Gradle wrapper **没有**官方 env 覆盖钩子（不像 npm 有 replace-registry-host），
+      #       `distributionUrl` 只从这一份 properties 里读 ⇒ 只能显式改写 runner 上的这一份。
+      #       仓库里的默认值**不动**（本机路径不受影响）。
+      #
+      #    🛑 改写结果必须**打进日志**：否则第一次红的时候，"到底用了哪个源"
+      #       只能靠猜（第 24 条族：报错必须指向真因）。
+      - name: 依赖源归一（Gradle 发行版：镜像 → 官方，仅 runner 内生效）
+        working-directory: skeleton/frontends/therapist-android
+        run: |
+          sed -i 's#^distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-9.3.1-bin.zip#' gradle/wrapper/gradle-wrapper.properties
+          echo "--- runner 上实际使用的 distributionUrl ---"
+          grep '^distributionUrl=' gradle/wrapper/gradle-wrapper.properties
 
       # 注入一个显式基址，证明「构建期注入 → BuildConfig」这条链路真的通。
       # 用 RFC 2606 保留域名 .invalid，明确表达它不是真实可达地址 ——

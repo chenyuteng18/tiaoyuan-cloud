@@ -120,7 +120,7 @@ async function injection({ name, path, from, to, expectExit = 1, expectGate }) {
     name,
     ok,
     why: ok
-      ? `门禁 exit=${red.code}，命中失败项「${expectGate}」，还原后 exit=${back.code}`
+      ? `门禁 exit=${red.code}，${expectGate ? `命中失败项「${expectGate}」` : '未指定具体判据（本组只要求"必须变红"）'}，还原后 exit=${back.code}`
       : `期望 exit=${expectExit} + 失败项「${expectGate}」+ 还原绿；`
         + `实得 exit=${red.code} / 关键词${keywordOk ? '命中' : '未命中'} / 还原 exit=${back.code}`,
   });
