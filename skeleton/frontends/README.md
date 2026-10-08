@@ -188,7 +188,7 @@ exit 2 且不得打印 PASS）—— **W10 首跑即为红**，正是它抓出�
 
 ⚠️ 该措辞**尚未经裁定**，本文件不把它写成"已裁定"。
 
-## 8. 🛑 二十九条写作/路径/判据/管道纪律（由本仓第 50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、65、66、67、68、69、70、71、72、73、76、77、78、79 条系统性缺陷逼出，勿回退）
+## 8. 🛑 三十条写作/路径/判据/管道纪律（由本仓第 50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、65、66、67、68、69、70、71、72、73、76、77、78、79、80 条系统性缺陷逼出，勿回退）
 
 ### 8.1 客户端包内【不得写出禁词原文】—— 一律用指代（第 51 条）
 
@@ -2037,7 +2037,7 @@ Windows 的 `py` 启动器会**读脚本首行的 shebang**。而 `gen-endpoints
   `android-check` 绿（这才是"还原干净"的证明，不是靠脚本自己声称）。
   > 🛑 这是**本轮当时的**口径。同日晚些的 §8.29 又给 x3 追加了 3 组注入（I15~I17）
   > ⇒ 107 组；随后 §8.30（第 79 条）再追加 **R27 / R28** ⇒
-  > **当前总数 109 组**（build **28** · a 21 · x3 **17** · android 43），最终口径见 §8.30.8。
+  > **当前总数 110 组**（build **29** · a 21 · x3 **17** · android 43），最终口径见 §8.31.6。
 - 新判据 `no-bare-python-script` 首跑即自证覆盖面：`package.json 的 10 条脚本里无裸调 python`。
 - **全新克隆**（`git clone` 到临时目录）→ 端 D 门禁绿 → `assembleDebug`
   **BUILD SUCCESSFUL**（**无 `local.properties`**，只靠 `ANDROID_HOME`，与 CI 同条件）
@@ -2051,7 +2051,7 @@ Windows 的 `py` 启动器会**读脚本首行的 shebang**。而 `gen-endpoints
   > 📌 **口径说明（2026-10-08 补记）**：这里的 **104/104 是【本条修复当时】的口径**
   > （build 26 / a 21 / **x3 14** / android 43）。紧随其后的第 78 条为端 B 新增了
   > **I15 / I16 / I17** 三组注入 ⇒ 107/107；再往后第 79 条又新增 **R27 / R28** ⇒
-  > **当前仓库的总口径是 109/109**（build 28 / a 21 / x3 17 / android 43，见 §8.30.8）。
+  > **当前仓库的总口径是 110/110**（build 29 / a 21 / x3 17 / android 43，见 §8.31.6）。
   > 🛑 之所以**保留 104 而不改成 107**：那是**当时的实测结果**，改掉就变成了
   > "事后把自己的历史改得更好看"（第 60 条：计数是活断言，**订正必须写出来、不能悄悄改掉**）。
   > 两者不矛盾 —— 一个是**该次修复的证据**，一个是**当前基线**。
@@ -2295,7 +2295,8 @@ node ../tools/x3-reverse-check.mjs       → 合计 17/17   EXIT=0
 node ../tools/android-reverse-check.mjs  → 合计 43/43   EXIT=0
 ```
 
-- 四组合计 **109/109**（修复前 107：build 26 → **28**，新增 R27/R28）；
+- 四组合计 **109/109**（修复前 107：build 26 → **28**，新增 R27/R28；
+  📌 **本条修复当时**的口径 —— 第 80 条为 build 组追加 R29 后**当前总口径 110/110**，见 §8.31.6）；
 - 新判据首跑自证覆盖面：`2 份锁文件 · 304 条 resolved · host=registry.npmmirror.com；
   wrapper host=mirrors.cloud.tencent.com；锁文件含非官方 host ⇒ CI 已显式归一；
   wrapper 非官方 ⇒ CI 已显式改写为官方源`；
@@ -2312,12 +2313,113 @@ GitHub Actions 首跑（含本步是否生效）仍只能在 push 之后才见�
 "这条命令在我机器上绿"与"这条命令在 CI 上绿"是两句不同的话；
 而当差异只存在于**网络位置**时，本机**永远**看不到它 —— 这正是它值得被写成判据的原因。
 
+### 8.31 跑 mvn 的 CI job 缺 Python 准备步（第 80 条 · 第二十五类，2026-10-08）
+
+#### 8.31.1 缺口的形状
+
+仓库有 **4 个 workflow**（`build-and-test` / `compliance-gate` / `crypto-adversarial-gate` /
+`rls-isolation-gate`），**全部**在 push 时触发、全部从未真跑过一次（无远端）。
+第 77 条只审了 `build-and-test.yml`；本轮为"进入商用开发"做**全 job 审计**时实测出：
+
+| workflow | 跑 `mvn` | `setup-python` |
+|---|---|---|
+| `build-and-test.yml` | 2 处 | ✅ 3 处（第 77 条已修） |
+| `compliance-gate.yml` | 0 处 | ✅ 1 处 |
+| **`crypto-adversarial-gate.yml`** | **2 处** | **❌ 0 处** |
+| **`rls-isolation-gate.yml`** | **3 处** | **❌ 0 处** |
+
+第 77 条的根因分析**完全正确**（"后端 4 个 validate 门禁要求真 PyYAML"），
+但结论只落在了它当场看到的那两个 job 上 —— **没有把推论应用到同样跑 mvn 的另外两个 workflow**。
+这是"修一个实例、不修同族"的教科书形态，也是第 77 条同族的**第三处**
+（第一处：backend/frontend 两 job；第二处：三端 `package.json` 裸调 python）。
+
+#### 8.31.2 为什么它们是"干净 runner 上必红"（实测，不是推理）
+
+两个前置事实，都实测：
+
+1. **门禁只在聚合根跑一次**：根 `pom.xml` 的 4 个 exec 门禁带
+   `<inherited>false</inherited>`。实测 `mvn -B -ntp -pl dy-common validate`
+   → **0.344s BUILD SUCCESS、零门禁输出** —— 证明"门禁不会跟着子模块重复跑"。
+2. **但 `-pl <模块> -am` 的 reactor 第 1 个就是聚合根**。本机 PATH 上的 `python`
+   是 3.13.12、**无 PyYAML**（正是干净 runner 的等价物），实测
+   `mvn -B -ntp -pl dy-crypto -am test` 逐字：
+
+   ```
+   [INFO] Building diaoyuanyun-skeleton 0.0.1-SNAPSHOT        [1/2]
+   ADR-12 BUILD-TIME COMPLIANCE SCAN  --  PASS
+   [S1-6-GATE] PASS ...
+   [GATE-ERROR] PyYAML is not available (No module named 'yaml'). ...
+   [S1-8-GATE] FAIL (misconfigured, no PASS printed)
+   [S1-8 CONTRACT CONFORMANCE GATE]
+   [ERROR] ... exec-maven-plugin:3.1.0:exec (s18-contract-conformance) ...
+           Process exited with an error: 2 (Exit value: 2)
+   [INFO] BUILD FAILURE
+   ```
+
+⇒ 一旦挂远端，`crypto-adversarial` 与 `rls-isolation` 两个 job 会**同时**
+红在与加密 / 租户隔离毫无关系的地方 —— 而且红的措辞会把排查引向
+"门禁配置坏了"这个错误方向（`FAIL (misconfigured)`）。
+
+#### 8.31.3 修法
+
+- **`crypto-adversarial-gate.yml` / `rls-isolation-gate.yml`**：各补
+  `setup-python@v5` (3.11) + `pip install -r "${{ github.workspace }}/skeleton/requirements.txt"`，
+  均排在 mvn 步骤**之前**。路径写显式绝对形式，**不让装依赖这种前置步骤依赖
+  `defaults.working-directory` 的隐式行为**。
+- **`compliance-gate.yml` 顺手收口**：原先内联写死 `"pyyaml>=6.0"`，与
+  `skeleton/requirements.txt` 构成**同一依赖的两套说法** —— 而"多套说法"
+  正是 77 / 79 / 80 三条能各自潜伏的土壤。统一改走 `requirements.txt`（内容等价）。
+
+#### 8.31.4 新判据 `ci-mvn-jobs-have-python`（`build-check.mjs`）
+
+与第 79 条的 `ci-dependency-source-normalized` 同处（CI 配置守卫小节）：
+
+- **判形态不判词**：凡 job 里出现 `mvn` 命令，该 job 必须在 mvn 步骤**之前**
+  有 `actions/setup-python` 与一次 `pip install`。**刻意不判**"装的是哪个包"
+  （`requirements.txt` 与内联 `pyyaml` 都可），只判三件事：
+  ① 有 setup-python；② 有 pip install；③ 两者都排在 mvn **之前**
+  —— 顺序反了等于没装，而"顺序错了"正是重排 YAML 时最容易发生的事。
+- **注释剥离**：本仓 workflow 注释极密（`mvn` / `pip install` 在注释里是常态），
+  先剥 `#` 行再匹配 —— 不剥就会把"文档里的命令"当成"真执行的命令"（第 48 条族）。
+- **零依赖行级切分**：不引入 js-yaml（本文件是零依赖 node 脚本）。按 2 空格键名
+  切 job，`run:` 块用缩进回退终止（`env:` / `with:` 不会误吞）。
+- **覆盖面自证（第 53 条）**：① 解析出的 job 数必须与 `runs-on:` 出现次数一致
+  （不一致 ⇒ 切分口径坏了）；② 必须识别到 ≥1 个跑 mvn 的 job（识别不到 ⇒
+  mvn 识别口径坏了）。当前实测：**4 workflow / 7 job（= 7 处 runs-on），
+  其中 3 个跑 mvn，全部有 Python 准备**（`build-and-test#backend` ·
+  `crypto-adversarial-gate#crypto-adversarial` · `rls-isolation-gate#rls-isolation`）。
+
+#### 8.31.5 反向注入 R29
+
+删掉 `crypto-adversarial-gate.yml` 的 setup-python 步（只删这一步、不动
+pip install）⇒ 判据必须命中"没有 setup-python"分支。锚点用 `\r?\n` 兼容行尾，
+锚点失配会表现为"变异未生效"而当场暴露（R28 的教训已内建）。
+
+#### 8.31.6 复验（一次干净条件下的完整重跑）
+
+- 修前：判据红，**逐字点名两个 job**（`crypto-adversarial` / `rls-isolation`），
+  覆盖面自证通过（7 jobs = 7 runs-on）。
+- 修后：三份 workflow YAML 经 PyYAML 逐份 `safe_load` 校验合法；判据绿
+  （`扫了 4 个 workflow / 7 个 job（与 7 处 runs-on 一致）；其中 3 个 job 跑 mvn，
+  全部在 mvn 之前有 setup-python + pip install`）；三端 `build-check` 逐端单独重跑
+  **全部 `exit=0`**，判据行数各 **+1**（端 A 35→**36** · 端 B 34→**35** · 端 C 22→**23**）。
+- 反向验证：**R29 注入 → 红 → 命中 `ci-mvn-jobs-have-python` → 还原 → 绿**
+  （并入 build 29 组 ⇒ **当前总口径 110/110**，见 §8.30.8 口径说明的更新）。
+
+#### 8.31.7 通用规则（可复用）
+
+**修"某一处缺 X"的缺陷时，必须当场把"X 的判据"一起立起来 —— 判据扫的是形态
+（所有 job），不是实例（那两个 job）。** 第 77 条修复时若同步立了这条判据，
+第 80 条的两个 workflow 会在**当轮**就被点名，而不是等下一次全 job 审计。
+"我看到三处就修三处"永远追不上"判据替我看到所有处"。
+
 ---
 
-> 🛑 **本文件 §8 的条数已由「二十五条」增至「二十九条」**（新增 §8.27 三端测试套件收口 =
+> 🛑 **本文件 §8 的条数已由「二十五条」增至「三十条」**（新增 §8.27 三端测试套件收口 =
 > **第 76 条**、§8.28 CI/Python 工具链**五处**缺口 = **第 77 条**、
 > §8.29 角色展示名跨端收敛 = **第 78 条**、
-> §8.30 构建依赖源被烤进版本库 = **第 79 条**），标题行已同步订正为「二十九条」。
+> §8.30 构建依赖源被烤进版本库 = **第 79 条**、
+> §8.31 跑 mvn 的 CI job 缺 Python 准备步 = **第 80 条**），标题行已同步订正为「三十条」。
 >
 > 🛑 **顺带补账**：第 76 条此前**只出现在提交信息里**（`c138639`），从未登记进骨架 README §5.1
 > 的缺陷表 —— 本轮补上 `| 76 |` 行，CI/工具链那条顺延为 **第 77 条**。
