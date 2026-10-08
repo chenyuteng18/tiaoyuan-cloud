@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  端 B 自适应图标（API 26+）。API 24 / 25 走 mipmap-*/ic_launcher.png 位图。
+  背景用 res/values/colors.xml 的 dy_brand；前景是各密度的 ic_launcher_foreground.png。
+  注意：本文件是 XML，注释里不得出现连续两个连字符（本仓硬纪律）。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/dy_brand" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

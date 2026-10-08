@@ -79,14 +79,70 @@ jobs:
           npm run build
           npm test
 
+      # 端 D：原生 Android（Kotlin）——结构门禁（纯 Node，零依赖）
+      # 🛑 与真实构建**刻意分离**：门禁只读「源码 + 生成物 + 契约」，不依赖
+      #    Android SDK / emulator / JDK。这样"契约漂移 / 端点漏接 / 协议字面量 /
+      #    响应 DTO 与契约 schema 不一致 / 图标资源缺失 / R8 会抹掉 Gson 裸字段 /
+      #    targetSdk ≥ 35 强制边到边却没处理 inset"这类问题不必等到装了 SDK
+      #    才暴露（见下方 android job 的对照）。
+      - name: 端 D therapist-android 门禁
+        working-directory: skeleton/frontends
+        run: node tools/android-check.mjs
+
       # 门禁有牙齿的反向验证：注入故障必须被逐一抓住（含还原校验）。
-      # 🛑 必须【串行】：这些脚本对三端同一批文件做「注入 → 还原」，并行会互相踩踏。
-      - name: 门禁反向验证（build 25/25 · a · x3）
+      # 🛑 必须【串行】：这些脚本对同一批文件做「注入 → 还原」，并行会互相踩踏。
+      - name: 门禁反向验证（build 25/25 · a · x3 · android 43/43）
         working-directory: skeleton/frontends/admin-web
         run: |
           node ../tools/build-reverse-check.mjs
           node ../tools/a-reverse-check.mjs
           node ../tools/x3-reverse-check.mjs
+          node ../tools/android-reverse-check.mjs
+
+  android:
+    name: 端 D 原生 Android 真编译 + 出包（Kotlin → APK）
+    runs-on: ubuntu-latest
+    needs: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      # 🛑 显式装 SDK 组件，不依赖 runner 镜像恰好预装：
+      #    镜像是会变的，而 `compileSdk=36` 是工程钉死的（见 app/build.gradle.kts）。
+      #    让 AGP 自己"按需下载"会把构建成功与否交给网络，且失败信息很难懂。
+      - name: 安装 SDK 组件（platform-36 / build-tools）
+        run: sdkmanager --install "platforms;android-36" "build-tools;35.0.0"
+
+      # 🛑 必须补可执行位：本工程在 Windows 上开发，而 git 在 Windows 上默认
+      #    `core.filemode=false` ⇒ `gradlew` 的 +x 不会被记进版本库，
+      #    Linux runner checkout 后它是**不可执行**的（报 Permission denied）。
+      - name: 补 gradlew 可执行位
+        run: chmod +x skeleton/frontends/therapist-android/gradlew
+
+      # 🛑 这里**刻意只跑 debug**，不跑 assembleRelease：
+      #    release 需要签名（四个 dy.store* 属性），而签名密钥**不应**放进 CI ——
+      #    仓库里没有 keystore，CI 也不配。缺签名时 `assembleRelease` 会被
+      #    `app/build.gradle.kts` 末尾的闸门**当场拦下**（见 README 第六节第 1 条），
+      #    所以在 CI 上加这一步只会稳定报红、没有任何信息量。
+      #    要核验 release 链路，请在有密钥的机器上按 README 的步骤跑一次。
+
+      # 注入一个显式基址，证明「构建期注入 → BuildConfig」这条链路真的通。
+      # 用 RFC 2606 保留域名 .invalid，明确表达它不是真实可达地址 ——
+      # debug 包不校验 HTTPS，故这里不需要真地址（生产基址由发布流程注入）。
+      - name: Assemble debug（真编译出包）
+        working-directory: skeleton/frontends/therapist-android
+        run: ./gradlew --no-daemon -Pdy.apiBaseUrl=https://ci.invalid assembleDebug
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: therapist-android-debug-apk
+          path: skeleton/frontends/therapist-android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
 
   docker:
     name: 镜像可构建性（不推送）

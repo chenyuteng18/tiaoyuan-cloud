@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      🛑 主题里的**每一个色槽都必须指向令牌**，不得出现 #RRGGBB 字面量。
+         这样"改品牌色"是一次 colors.xml 的改动，而不是全仓 grep。
+         Material3 默认色槽有 40+ 个，此处只覆盖本端真正用到的那些 ——
+         未被覆盖的槽沿用 Material 默认值，这是**刻意**的（不做无理由的覆盖，
+         否则将来 Material 升级时无从判断哪些是我们有意定的）。
+    -->
+    <style name="Theme.DyTherapist" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">@color/dy_brand</item>
+        <item name="colorOnPrimary">@color/dy_text_inverse</item>
+        <item name="colorPrimaryContainer">@color/dy_brand_light</item>
+        <item name="colorOnPrimaryContainer">@color/dy_text_inverse</item>
+
+        <item name="colorSecondary">@color/dy_brand_dark</item>
+        <item name="colorOnSecondary">@color/dy_text_inverse</item>
+
+        <item name="colorError">@color/dy_danger</item>
+        <item name="colorOnError">@color/dy_text_inverse</item>
+
+        <item name="android:colorBackground">@color/dy_bg</item>
+        <item name="colorSurface">@color/dy_surface</item>
+        <item name="colorOnSurface">@color/dy_text</item>
+        <item name="colorOnSurfaceVariant">@color/dy_text_muted</item>
+        <item name="colorOutline">@color/dy_border</item>
+        <item name="colorOutlineVariant">@color/dy_surface_alt</item>
+
+        <!--
+          🛑 系统栏（状态栏 / 导航栏）的颜色与图标明暗**不在这里配**（原先是，已移除）
+          ============================================================================
+          原因：targetSdk ≥ 35 时，`android:statusBarColor` 与 `android:navigationBarColor`
+          处在平台「deprecated and disabled」清单（废弃且已禁用）—— 设了也**不生效**；
+          而 `android:windowLightNavigationBar` 会被运行期的
+          `isAppearanceLightNavigationBars` 覆盖。留着它们会制造一种错觉：
+          「主题在管系统栏」，而实际管不着。本仓的立场是**误导性的死配置比没有更坏**。
+          ⇒ 唯一落点改为 `ui/SystemBars.kt`（enableEdgeToEdge + inset 监听），
+            由 `frontends/tools/android-check.mjs` 的 `edge-to-edge-insets` 判据钉住。
+          原值留痕（仅供对照，勿再写回）：
+            · android:statusBarColor           = @color/dy_brand_dark
+            · android:navigationBarColor       = @color/dy_bg
+            · android:windowLightNavigationBar = true
+        -->
+    </style>
+
+</resources>

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  端 B · 调理师 / 经络师 APP —— 端级资源
+
+  🛑 哪些文案放这里、哪些**不放**（这条纪律必须写准，写宽了会变成一句空话）
+  ============================================================================
+  放这里：**端级 chrome 文案** —— 应用名、通用动作（重试 / 提交 / 查询）、
+          通用状态（加载中 / 暂无数据）。它们的特征是"与业务语义无关，
+          换一个页面还是同一句话"。
+
+  刻意**不放**这里的两类，各有理由，不是遗漏：
+
+  ① 合规敏感的枚举口径 —— ③ 组（缺口原因）7 值 / ④ 组（派生结果）5 值 /
+     `customer.status` 5 值的"枚举值 → 中文标签"映射，唯一落点是
+     `ui/theme/Labels.kt`。它必须是**一张表**（键名逐字抄契约）而不是
+     十几个散落的 string 资源：散开之后"契约新增一个 gap_reason 会漏掉哪一处"
+     就无法机械核验。该表由 android-check 的 `enum-labels-verbatim` 判据
+     直接读契约 yaml 逐值核对。
+
+  ② 页面内的条款说明文案 —— 每一条都**紧贴着它所实现的契约条款**，
+     并在同级注释里引了契约出处（第几条 / 哪个字段 / 哪句逐字）。
+     搬进 strings.xml 会让"这句文案对应哪条契约"这条线索断掉 ——
+     而本端恰恰是靠这条线索来防止"同一系统两套说法"的。
+     ⇒ 口径的收敛靠的是 Labels.kt（枚举）+ 契约注释（条款），不是资源文件。
+
+  🛑 一处如实登记的待办：若将来要做多语言，② 这一类需要一次性抽取到资源。
+     当前不做，因为它会牺牲上面那条线索，而本端暂无双语文案需求。
+-->
+<resources>
+
+    <string name="app_name">调元云 · 调理师</string>
+
+    <!-- 登录页 -->
+    <string name="login_title">登录</string>
+    <string name="login_account">账号</string>
+    <string name="login_credential">密码</string>
+    <string name="login_submit">登录</string>
+    <string name="login_end_label">端标识</string>
+    <string name="login_end_value">移动端（app）</string>
+
+    <!-- 通用 -->
+    <string name="action_retry">重试</string>
+    <string name="action_logout">退出登录</string>
+    <string name="action_submit">提交</string>
+    <string name="action_query">查询</string>
+    <string name="state_loading">加载中…</string>
+    <string name="state_empty">暂无数据</string>
+    <string name="role_label_prefix">当前角色</string>
+
+</resources>

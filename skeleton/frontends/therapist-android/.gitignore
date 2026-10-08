@@ -1,0 +1,15 @@
+# 端 B · 原生 Android —— 构建产物与本地环境
+build/
+.gradle/
+local.properties
+*.iml
+.idea/
+.kotlin/
+captures/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# 本端门禁/构建的临时日志（与骨架根目录的 _work_*.log 同族，不进版本库）
+_*.log

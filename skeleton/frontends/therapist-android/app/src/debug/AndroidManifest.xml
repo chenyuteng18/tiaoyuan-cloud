@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  端 B · **仅 debug 变体**的清单叠加（manifest merger）
+
+  🛑 为什么要单独一份
+  ============================================================================
+  联调期的后端是 `http://10.0.2.2:18080`（模拟器访问宿主机的固定地址），
+  而 Android 9(API 28) 起**默认禁止明文 HTTP**。若无条件放开明文，
+  正式包也会跟着放开 —— 那是把"联调方便"直接变成"生产可被中间人劫持"。
+
+  ⇒ 正确做法：明文放行只存在于 **debug 源集**。
+     `src/debug/` 下的资源与清单**不会**进入 release 产物（AGP 源集规则），
+     故 release 包连这个配置文件的引用都不存在。
+     这条不是"约定"，是构建系统的机械事实 —— 可被门禁核验
+     （见 tools/android-check.mjs 的 `cleartext-debug-only` 判据）。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+
+</manifest>

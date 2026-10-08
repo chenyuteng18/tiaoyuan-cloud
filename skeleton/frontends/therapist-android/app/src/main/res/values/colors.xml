@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  端 B · 设计令牌（与端 A / 端 B(Web) / 端 C 同源，勿在此另立色板）
+  ============================================================================
+  色值**逐字**取自 frontends/therapist-app/src/ui/tokens.ts 的 COLOR ——
+  这是本仓"五源对齐"纪律在原生端的落点：同一套品牌令牌，四个工程同值。
+
+  🛑 端 B 与端 C 的用色纪律不同（那不是审美差异，是合规差异）：
+     端 C（客户）契约 R8 禁用"不利"色与措辞，故端 C 色板**刻意没有**
+     警示/分级语义槽；端 B（内部）③④ 组对 staff 可见，一线必须一眼分辨
+     严重度 ⇒ 端 B **需要**语义状态色。色值同源、语义槽不同，不得互换。
+
+  🛑 代码里不得硬编码 #RRGGBB（本仓第 3 条 P0 规则）——
+     一切颜色经 R.color.* 或 Tokens.kt 引用。
+-->
+<resources>
+
+    <!-- 品牌主色 -->
+    <color name="dy_brand">#2D5A4A</color>
+    <color name="dy_brand_dark">#22463A</color>
+    <color name="dy_brand_light">#3C7360</color>
+
+    <!-- 底色 / 承载面 -->
+    <color name="dy_bg">#FAF8F4</color>
+    <color name="dy_surface">#FFFFFF</color>
+    <color name="dy_surface_alt">#F2EEE7</color>
+    <color name="dy_border">#DED7CB</color>
+
+    <!-- 文本 -->
+    <color name="dy_text">#1F2933</color>
+    <color name="dy_text_muted">#5B6670</color>
+    <color name="dy_text_inverse">#FAF8F4</color>
+
+    <!-- 语义状态（内部端专用，端 C 不得复用） -->
+    <color name="dy_ok">#2F7A4F</color>
+    <color name="dy_warn">#A96B14</color>
+    <color name="dy_danger">#A3312A</color>
+    <color name="dy_info">#2C5F8A</color>
+
+</resources>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  端 B · debug 专用网络安全配置
+  ============================================================================
+  🛑 本文件位于 `src/debug/res/`，**不会**被 release 变体引用。
+  🛑 只放行明文，不降低其它任何校验：不设置 trust-anchors 覆盖、
+     不接受用户证书作为信任锚 —— 那才是"为了联调把生产降级"的常见错误。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

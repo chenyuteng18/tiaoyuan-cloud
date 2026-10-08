@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  端 B · 调理师 / 经络师 APP —— 装载清单
+
+  🛑 本文件是第 64 条纪律在原生端的落点（"链路断在【装载】层"）
+  ============================================================================
+  Web 三端那一侧，第 63 条判的是「代码里有从界面到出站的调用链」，
+  第 64 条判的是「界面真的能被装载」（端 C 的 app.json.pages / 端 A·B 的
+  NAV ↔ 渲染分支三方一致）。原生端形态**又换了**：
+     · Activity 必须在 manifest 里声明，否则根本起不来；
+     · 页面（Fragment/View）在代码里装配，清单管不到；
+  ⇒ 故原生端的装载判据是**两段**：① manifest 声明（本文件）；
+     ② NAV ↔ 渲染分支三方一致（与端 A/B 同构，见 tools/android-check.mjs）。
+  只做①会漏"页面写了但导航进不去"；只做②会漏"页面能进但 Activity 没声明"。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 出站请求所需；本端不使用任何后台定位 / 蓝牙权限（手环能力在原生侧另行立项） -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
+      🛑 图标走 mipmap 而不是 drawable（这不是随手选的）
+      ===============================================================
+      · API 26+ 用 `mipmap-anydpi-v26/ic_launcher.xml` —— 自适应图标：
+        背景纯色 + 前景位图，由系统按各厂商的遮罩裁形（圆 / 方 / 水滴）。
+        ⇒ 前景图形刻意收在**中心 66dp 安全区**内，裁成任何形状都不会切到它。
+      · API 24 / 25 没有自适应图标，走 `mipmap-*/ic_launcher.png` 位图
+        （5 档密度：48 / 72 / 96 / 144 / 192 px）。本端 minSdk = 24，
+        所以这一套**不是**可选项 —— 少了它，Android 7.x 机器上没有图标。
+      · 为什么不能继续用一个矢量 drawable 当图标：API 26+ 会显示成带白边的
+        方块（矢量没有安全区概念），而 API < 26 的部分 launcher 根本无法
+        正确渲染 VectorDrawable 作 launcher icon。
+      `roundIcon` 供支持圆形图标的 launcher 使用；不写它时系统会退回 `icon`，
+      但部分 launcher 会因此显示方形 —— 故显式提供。
+
+      ⚠️ 这套位图当前是**几何标记**（同心环 + 中心点，象征经络环流），
+         由脚本生成、非设计稿。上架前应替换为正式品牌设计
+         （见 README 第六节第 2 条）。替换时**必须保持同样的目录结构与密度**，
+         否则 API 24/25 或自适应裁形会出问题。
+    -->
+    <application
+        android:name=".DyTherapistApp"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.DyTherapist">
+
+        <!--
+          🛑 只声明**一个** Activity
+          ===============================================================
+          本端是单 Activity 多页面（页面 = 代码装配的 View），不是多 Activity。
+          理由：多 Activity 会让"当前角色 / 已登录态"在 Activity 之间来回传递，
+          那种传递一旦漏一处就是"越权页面能直接打开"。单 Activity + 显式导航
+          让准入判定只存在于一个地方（MainActivity 的 NAV 装配）。
+          🛑 `exported="true"` 只给 LAUNCHER，其余一律不导出。
+        -->
+        <!--
+          🛑 `windowSoftInputMode="adjustResize"` 保留，但它**不再负责**适配键盘
+          ============================================================================
+          targetSdk ≥ 35 强制边到边；边到边下 `setDecorFitsSystemWindows(false)` 会让
+          Framework **不再**把内容视图适配到 inset。平台对 `SOFT_INPUT_ADJUST_RESIZE`
+          的废弃说明原文：
+            「Call Window#setDecorFitsSystemWindows(boolean) with false and install an
+              OnApplyWindowInsetsListener on your root content view that fits insets of
+              type Type#ime().」
+          ⇒ 键盘避让改由 `ui/SystemBars.kt` 吃 `WindowInsetsCompat.Type.ime()` 实现。
+            这一行只声明「窗口允许被系统重新布局」，**不是**避让实现本身。
+          ⚠️ 删掉它不会让键盘避让失效，但会改变旧 API 档位的窗口策略，故保留。
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>

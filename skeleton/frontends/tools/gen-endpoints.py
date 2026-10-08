@@ -97,6 +97,24 @@ TARGETS = [
                             "src", "contract", "endpoints.ts"),
         "flavor": "ts",
     },
+    # 🛑 原生 Android 端（Q17 裁定 B · 原生双端 · 安卓侧）
+    # -------------------------------------------------------------------------
+    # `cut` 与 `id` **刻意分开**：本端读的是**同一份**裁剪契约
+    # `_cut/therapist-app.openapi.yaml`（token-roles 同为 therapist ∪ meridian），
+    # 但报告名与产物路径独立 —— 若 id 也写成 therapist-app，`--check` 会出现
+    # 两行同名结果，既有门禁按行内关键字取行时会取错。
+    # ⇒ 一个契约真相源，两个产物（Web 骨架 + 原生 Android），各有一条独立产物线。
+    {
+        "id": "therapist-android",
+        "cut": "therapist-app",
+        "label": "端 B · 调理师 / 经络师 APP（原生 Android · Kotlin）",
+        "package": "com.diaoyuanyun.therapist.contract",
+        "token_roles": ["therapist", "meridian"],
+        "out": os.path.join(SKELETON_ROOT, "frontends", "therapist-android", "app",
+                            "src", "main", "kotlin", "com", "diaoyuanyun", "therapist",
+                            "contract", "Endpoints.kt"),
+        "flavor": "kt",
+    },
 ]
 
 HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
@@ -226,6 +244,31 @@ def load_operations(end_id: str):
                     req_body.append(str(name))
             # 去重且稳定排序（同一字段在多 media type 下重复声明是合法的）
             entry["requiredBody"] = sorted(set(req_body))
+
+            # ---------------- 🛑 200 响应 `data` 载荷的具名 schema（本仓第 66 条） ----------------
+            # 只登记"契约确实声明了形状"的那些；未声明（`data: {type: object, nullable: true}`）
+            # 保持缺省、不写这个键 —— 与 `domain/Models.kt` 头部的登记必须**一一对应**，
+            # 由门禁 `android-check.mjs` 的 `contract-schema-fields` 机械核对
+            # （声明数 / 端点→schema 名 / DTO 字段集合全等）。
+            #
+            # 🛑 为什么必须**生成**而不是让 DTO 层自己维护一份
+            # ---------------------------------------------------------------------------
+            # 本端 Kotlin **没有** SDK 代码生成（`generator-matrix` 只覆盖三端 Web/小程序），
+            # 故 DTO 是手写的。若不把"这个端点的 data 是哪个 schema"变成生成物事实，
+            # "DTO ↔ 契约 schema"就只能靠人眼，而漂移的表现是**字段静默变 null**
+            # （`@SerializedName` 拼错 / 契约改名都只是取不到值）：登录后 `token` 为 null、
+            # 列表全空、详情全白 —— 而编译 / 构建 / 门禁**全绿**。
+            # 这与第 57/58 条同族：契约写下的事实，中间任何一环丢项都不会报错。
+            resp_map = op.get("responses") or {}
+            resp_200 = resp_map.get("200") or resp_map.get(200) or {}
+            sch_200 = (((resp_200.get("content") or {}).get("application/json") or {})
+                       .get("schema")) or {}
+            for branch in (sch_200.get("allOf") or []):
+                if not isinstance(branch, dict):
+                    continue
+                data_node = (branch.get("properties") or {}).get("data")
+                if isinstance(data_node, dict) and isinstance(data_node.get("$ref"), str):
+                    entry["dataSchema"] = data_node["$ref"].rsplit("/", 1)[-1]
 
             for yaml_key, field, kind in OP_X_KEYS:
                 raw = op.get(yaml_key)
@@ -860,6 +903,337 @@ def render_ts(target, entries, spec_version, role_expansion, api_base_path, prot
     return "\n".join(lines)
 
 
+def kt_literal(value: str) -> str:
+    """Kotlin 普通字符串字面量（在 ``"..."`` 里转义）。
+
+    🛑 为什么 ``$`` 必须转义
+    ---------------------------------------------------------------------------
+    Kotlin 的 ``"..."`` 里 ``$`` 是**字符串模板起始符**。契约的 path 参数占位符
+    形如 ``{id}``（不含 ``$``），当前所有转录值也都不含 ``$`` —— 但**这不构成
+    "可以不转义"的理由**：一旦契约某天出现 ``$``（例如计价口径串），
+    生成的 Kotlin 会变成编译期模板注入，而**编译报错的位置会在别处**。
+    这与本仓第 40 条（换行污染）同类：在一个与内容无关的维度上静默出错。
+    """
+    s = (value.replace("\\", "\\\\")
+              .replace('"', '\\"')
+              .replace("$", "\\$")
+              .replace("\r", "")
+              .replace("\n", "\\n")
+              .replace("\t", "\\t"))
+    return '"%s"' % s
+
+
+def _pagination_container_field(pag):
+    """分页响应里的**列表容器键**（契约 ``pagination.response-fields`` 首位）。
+
+    🛑 位置化取值的依据与失效面
+    ---------------------------------------------------------------------------
+    契约把容器列在 ``response-fields`` 首位（``[items, total, page, page_size]``），
+    prose 与结构化块**两处同序**（``data.{items[], total, page, page_size}``）。
+    本函数与 ``request-fields[0]/[1]`` 的位置化取法同源（既有先例）。
+
+    假设一旦被破坏必须**当场报错**而不是静默换键 —— 故三条断言：
+      ① 首位不得是 request-fields 成员（否则说明容器键已被换成 page/page_size）；
+      ② request-fields 必须整体包含在 response-fields 内（契约自身的同源约束）；
+      ③ response-fields 长度须为 request-fields 长度 + 2（容器 + total）。
+
+    🛑 如实登记的**残余风险**：这三条抓不到「容器与 total 对调」（两者都不是
+       request-field）。对调后 ``ITEMS_FIELD`` 会变成 ``"total"``，出站层取到
+       整数而非数组 ⇒ 列表静默为空。该风险极低（契约已冻结，调序属 docs-only 变更），
+       且改动契约必须重跑生成器 + ``--check``，故此处只登记、不另加机制。
+    """
+    resp = [str(x) for x in pag["response_fields"]]
+    req = [str(x) for x in pag["request_fields"]]
+    if not resp:
+        raise SystemExit("MISCONFIGURED: x-api-protocol.pagination.response-fields 为空")
+    if resp[0] in req:
+        raise SystemExit(
+            "MISCONFIGURED: pagination.response-fields 首位 %r 是请求字段名，不是列表容器键"
+            " —— 「顺序即语义」的位置化取键前提已不成立" % resp[0]
+        )
+    if not set(req) <= set(resp):
+        raise SystemExit(
+            "MISCONFIGURED: pagination.request-fields %s 未被 response-fields %s 覆盖"
+            "（契约自身的同源约束）" % (req, resp)
+        )
+    if len(resp) != len(req) + 2:
+        raise SystemExit(
+            "MISCONFIGURED: pagination.response-fields 应为 request-fields + 2（容器 + total），"
+            "实际 %d vs %d" % (len(resp), len(req))
+        )
+    return resp[0]
+
+
+def _kt_envelope_const_name(field):
+    """信封字段名 → Kotlin 常量名。非合法标识符 ⇒ MISCONFIGURED（fail-closed）。"""
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", field):
+        raise SystemExit(
+            "MISCONFIGURED: 信封字段名 %r 不是合法 Kotlin 标识符，无法派生常量名"
+            "（契约 x-api-protocol.envelope-fields）" % field
+        )
+    return "ENVELOPE_FIELD_" + field.upper()
+
+
+def _kt_envelope_consts(proto):
+    """信封字段的**具名常量**（逐条取自 ``x-api-protocol.envelope-fields``）。
+
+    🛑 为什么必须拆成具名常量，而不是只留一个 ``ENVELOPE_FIELDS`` 列表
+    ---------------------------------------------------------------------------
+    实测（2026-10-08）：本端生成物里 ``ENVELOPE_FIELDS`` **零引用**，而出站层
+    ``ApiClient.unwrap()`` 手写了全部四个字段名 —— 典型的"**死权威**"：
+    权威声明在生成物里躺着，取用点却是手抄的第二份。契约把 ``trace_id`` 改名后，
+    重跑生成器**只会改这个列表**，出站层一行不动 ⇒ 信封解不开、``data`` 变 null、
+    列表全空 / 详情全白，而 debug 包完全正常、构建与门禁**全绿**。
+
+    ⇒ 拆成具名常量，出站层写 ``obj.get(Protocol.ENVELOPE_FIELD_CODE)``：
+      契约改名 ⇒ 常量跟着变 ⇒ 取用点自动正确。手写字面量由门禁
+      ``android-check.mjs`` 的 ``protocol-fields-from-generated`` 判红。
+    """
+    out = [
+        "    // ---------- 响应信封字段名（契约 x-api-protocol.envelope-fields） ----------",
+        "    // 🛑 出站层解信封【必须】引用下面的具名常量，不得写 \"code\" / \"data\" 这类字面量 ——",
+        "    //    契约改名后字面量不会跟着改，而「取不到字段」多数情况下表现为静默拿到 null",
+        "    //    （data 变 null ⇒ 列表全空 / 详情全白），且 debug 包正常、构建与门禁全绿。",
+    ]
+    names = []
+    for f in proto["envelope_fields"]:
+        const = _kt_envelope_const_name(str(f))
+        names.append(const)
+        out.append("    /** 信封字段 %s。 */" % kt_literal(str(f)))
+        out.append("    const val %s: String = %s" % (const, kt_literal(str(f))))
+    out.append("    /** 响应信封字段全集（由上面具名常量组成 —— 两处各写一份就会漂移）。 */")
+    out.append("    val ENVELOPE_FIELDS: List<String> = listOf(%s)" % ", ".join(names))
+    return out
+
+
+def _kt_opt_args(e, indent):
+    """可选契约字段 → Kotlin 具名实参（缺省即不写，与 TS 侧 OPTIONAL_FIELDS 同序）。"""
+    out = []
+    for field, kind in OPTIONAL_FIELDS:
+        if field not in e:
+            continue
+        v = e[field]
+        if kind == "bool":
+            out.append("%s%s = %s," % (indent, field, "true" if v else "false"))
+        else:
+            out.append("%s%s = %s," % (indent, field, kt_literal(v)))
+    return out
+
+
+def _render_protocol_kt(proto):
+    """跨端协议片段常量（Kotlin 形态）。
+
+    与 TS/CJS 两形态**逐字段同值**，取自同一份 ``x-api-protocol`` ——
+    第 57 条纪律：协议片段只能有一个来源，出站层不得出现字面量。
+    """
+    pag = _pag(proto)
+    out = [
+        "/**",
+        " * 跨端协议片段（契约 x-api-protocol 的机械转录）—— **出站层一律引用本组常量**。",
+        " *",
+        " * 🛑 为什么不能在本端出站层手写字面量（本仓第 57 条）",
+        " *    头名 / 令牌前缀 / 信封成功码此前在三个端各写一遍。`X-Trace-Id` 更彻底：",
+        " *    契约里一个字都没有，只活在后端 TraceIdFilter 与各端字面量里。",
+        " *    改一处 ⇒ 各处静默分叉 ⇒ 全量 401 / 幂等去重失效 / 留痕断链，而构建全绿。",
+        " */",
+        "object Protocol {",
+        "    /** 鉴权头名。 */",
+        "    const val AUTH_HEADER: String = %s" % kt_literal(proto["auth_header"]),
+        "    /** 令牌前缀 —— 拼 `${AUTH_SCHEME} ${token}`。 */",
+        "    const val AUTH_SCHEME: String = %s" % kt_literal(proto["auth_scheme"]),
+        "    /** 租户一致性校验头（服务端仅校验、不采纳其值）。 */",
+        "    const val TENANT_HEADER: String = %s" % kt_literal(proto["tenant_header"]),
+        "    /** 留痕头 —— 与响应体 trace_id 并存，用于日志双向检索。 */",
+        "    const val TRACE_HEADER: String = %s" % kt_literal(proto["trace_header"]),
+        "    /** 幂等键请求头名（写请求必带）。 */",
+        "    const val IDEMPOTENCY_HEADER: String = %s" % kt_literal(proto["idempotency_header"]),
+        *_kt_envelope_consts(proto),
+        "    /** 信封成功码 —— 契约 §2.0 逐字「code != 0 时 data 为空」，故成功码为 0。 */",
+        "    const val ENVELOPE_OK_CODE: Int = %d" % proto["envelope_ok_code"],
+        "",
+        "    // ---------------- 分页协议（权威定义见 x-api-protocol.pagination） -------------",
+        "    /** 页码参数名（出站拼接用）。 */",
+        "    const val PAGE_FIELD: String = %s" % kt_literal(pag["request_fields"][0]),
+        "    /** 每页条数参数名。 */",
+        "    const val PAGE_SIZE_FIELD: String = %s" % kt_literal(pag["request_fields"][1]),
+        "    /**",
+        "     * 分页**响应**里的列表容器键（契约 pagination.response-fields 首位）。",
+        "     *",
+        "     * 🛑 出站层取列表【必须】用本常量：`ApiClient.items()` 此前手写 `get(\"items\")`，",
+        "     *    契约改名后所有列表端点会**静默返回空列表**（取不到键 ⇒ 当成无数据），",
+        "     *    而 debug 包正常、构建与门禁全绿。",
+        "     */",
+        "    const val ITEMS_FIELD: String = %s" % kt_literal(_pagination_container_field(pag)),
+        "    /** page 下界（< 该值一律 400，不静默纠正）。 */",
+        "    const val PAGE_MIN: Int = %d" % pag["page_min"],
+        "    /** page_size 下界。 */",
+        "    const val PAGE_SIZE_MIN: Int = %d" % pag["page_size_min"],
+        "    /** page_size 上界（> 该值一律 400，不夹逼）。 */",
+        "    const val PAGE_SIZE_MAX: Int = %d" % pag["page_size_max"],
+        "    /** 未传 page_size 时的缺省值。 */",
+        "    const val PAGE_SIZE_DEFAULT: Int = %d" % pag["page_size_default"],
+        "    /** 越界处置。本仓唯一合法取值 'reject-400'（越界直接拒，不得静默夹逼）。 */",
+        "    const val OVER_RANGE_POLICY: String = %s" % kt_literal(pag["over_range_policy"]),
+        "    /** 越界对应的错误码名。 */",
+        "    const val OVER_RANGE_ERROR: String = %s" % kt_literal(pag["over_range_error"]),
+        "",
+        "    /**",
+        "     * 拒绝响应的 data 载荷字段名（第 61 条）—— 「不得模糊报错」的机器可读那一半。",
+        "     *",
+        "     * message 是给人读的；本表是给机器读的。错误层必须用",
+        "     * ERROR_DATA_FIELDS[code] 取字段名，不得手写 \"missing_items\"。",
+        "     */",
+        "    val ERROR_DATA_FIELDS: Map<Int, String> = mapOf(",
+        "        2002 to %s," % kt_literal(_err(proto, "2002")),
+        "        2001 to %s," % kt_literal(_err(proto, "2001")),
+        "    )",
+        "}",
+        "",
+    ]
+    return out
+
+
+def render_kt(target, entries, spec_version, role_expansion, api_base_path, proto):
+    """端 B 原生 Android（Kotlin）端点层。
+
+    🛑 与 TS/CJS 两形态的关键差别（不是"换个语法"，是**换一个失效面**）
+    ---------------------------------------------------------------------------
+    TS 侧靠 `tsc --noEmit` 把"类型用错"变成编译错误；Kotlin 侧同理靠编译器，
+    但**两端都挡不住"端点封装了却没人调用"**（第 63 条）、也挡不住
+    "封装了但页面打不开"（第 64 条）。故本端产物必须与三端**同受**那两条判据
+    保护 —— 见 `tools/android-check.mjs`，以及 `frontends/README.md` 新增章节。
+    """
+    pkg = target["package"]
+    lines = []
+    lines.append("// ============================================================================")
+    lines.append("// GENERATED FILE — DO NOT EDIT.")
+    lines.append("//")
+    lines.append("// 真源: contract/sdk-generator/_cut/%s.openapi.yaml" % target.get("cut", target["id"]))
+    lines.append("// 生成: frontends/tools/gen-endpoints.py")
+    lines.append("// 重跑: python frontends/tools/gen-endpoints.py")
+    lines.append("// 校验: python frontends/tools/gen-endpoints.py --check")
+    lines.append("//")
+    lines.append("// 这一份是【%s】的可用端点清单，逐条机械转录自契约 ——" % target["label"])
+    lines.append("// 一条 operation 属于本端，当且仅当它的 x-callable-roles 与")
+    lines.append("// 本端 token-roles (%s) 有交集。" % ", ".join(target["token_roles"]))
+    lines.append("//")
+    lines.append("// 🛑 手改本文件会在下次 --check 时被判红；要改请改契约后重跑生成器。")
+    lines.append("// 🛑 本文件只回答「本端可以调用哪些端点」，不回答「某个角色看见哪些字段」")
+    lines.append("//    —— 可见性永远由服务端 403 与 A2 档位解算决定（X-1）。")
+    lines.append("// ============================================================================")
+    lines.append("")
+    lines.append("package %s" % pkg)
+    lines.append("")
+    lines.append("/** 契约版本（契约 info.version 的机械转录）。 */")
+    lines.append("const val CONTRACT_VERSION: String = %s" % kt_literal(spec_version))
+    lines.append("")
+    lines.append("/**")
+    lines.append(" * 契约 servers[0].url（§2.0 Base Path）—— **本端拼 URL 的唯一前缀**。")
+    lines.append(" *")
+    lines.append(" * 🛑 出站 URL 必须写成 API_BASE_PATH + endpoint.path：")
+    lines.append(" *    endpoint.path 是契约 paths 键（如 /auth/me），**不含** /api/v1；")
+    lines.append(" *    前缀由本常量承载。漏掉它 ⇒ 全量 404，且编译/构建/门禁全绿（第 56 条）。")
+    lines.append(" */")
+    lines.append("object Contract {")
+    lines.append("    const val VERSION: String = CONTRACT_VERSION")
+    lines.append("    const val API_BASE_PATH: String = %s" % kt_literal(api_base_path))
+    lines.append("    /** 本端 token-roles（取自 generator-matrix.yaml 的声明）。 */")
+    lines.append("    val END_TOKEN_ROLES: List<String> = listOf(%s)"
+                 % ", ".join(kt_literal(r) for r in target["token_roles"]))
+    lines.append("}")
+    lines.append("")
+    lines.extend(_render_protocol_kt(proto))
+    lines.append("/** 契约 paths 允许的 HTTP 方法。 */")
+    lines.append("enum class HttpMethod { GET, POST, PUT, PATCH, DELETE }")
+    lines.append("")
+    lines.append("/** 一个契约 operation 的机械转录。 */")
+    lines.append("data class Endpoint(")
+    lines.append("    val id: String,")
+    lines.append("    val row: String,")
+    lines.append("    val method: HttpMethod,")
+    lines.append("    val path: String,")
+    lines.append("    val grantedRoles: List<String>,")
+    lines.append("    /** 契约 required 的 query 参数名（第 65 条）—— 调用点必须带上它们。 */")
+    lines.append("    val requiredQuery: List<String>,")
+    lines.append("    /** 契约 path 参数名（第 71 条）—— URL 里的 {id} 占位符，漏传会拼出字面量。 */")
+    lines.append("    val requiredPath: List<String>,")
+    lines.append("    /** 契约 requestBody schema 的 required 字段名。 */")
+    lines.append("    val requiredBody: List<String>,")
+    lines.append("    /**")
+    lines.append("     * 契约 200 响应 `data` 载荷的**具名 schema 名**（`components.schemas` 的键）。")
+    lines.append("     *")
+    lines.append("     * 未声明形状的端点（`data: {type: object, nullable: true}`）为 null ——")
+    lines.append("     * 与 `domain/Models.kt` 头部的登记**一一对应**，由门禁")
+    lines.append("     * `contract-schema-fields` 核对（声明数 / 名字 / 字段集合全等）。")
+    lines.append("     */")
+    lines.append("    val dataSchema: String? = null,")
+    lines.append("    /** 契约 x-row-scope：行级范围随 admin 子档位变化。 */")
+    lines.append("    val rowScope: String? = null,")
+    lines.append("    /** 契约 x-super-admin-only：仅超管。 */")
+    lines.append("    val superAdminOnly: Boolean? = null,")
+    lines.append("    /** 契约 x-ruling-pending：取值系推断、**待裁定** —— 不得当定论实现。 */")
+    lines.append("    val rulingPending: String? = null,")
+    lines.append("    /** 契约 x-frontier：占位待冻结 —— 不得当已冻结契约用。 */")
+    lines.append("    val frontier: String? = null,")
+    lines.append("    /** 契约 x-idempotency-key：幂等键构成说明。 */")
+    lines.append("    val idempotencyKeySpec: String? = null,")
+    lines.append(")")
+    lines.append("")
+    lines.append("/** 契约角色由哪些 token-role 构成（逐条取自契约 x-roles）。 */")
+    lines.append("data class RoleExpansion(")
+    lines.append("    val tokens: List<String>,")
+    lines.append("    val end: String,")
+    lines.append("    val display: String,")
+    lines.append(")")
+    lines.append("")
+    lines.append("/** 本端全部可用端点 + 角色展开表的唯一索引点。 */")
+    lines.append("object Endpoints {")
+    lines.append("")
+    lines.append("    val ALL: List<Endpoint> = listOf(")
+    for e in entries:
+        lines.append("        Endpoint(")
+        lines.append("            id = %s," % kt_literal(e["operationId"]))
+        lines.append("            row = %s," % kt_literal(e["row"]))
+        lines.append("            method = HttpMethod.%s," % e["method"])
+        lines.append("            path = %s," % kt_literal(e["path"]))
+        lines.append("            grantedRoles = listOf(%s),"
+                     % ", ".join(kt_literal(r) for r in e["grantedRoles"]))
+        lines.append("            requiredQuery = listOf(%s),"
+                     % ", ".join(kt_literal(x) for x in e.get("requiredQuery", [])))
+        lines.append("            requiredPath = listOf(%s),"
+                     % ", ".join(kt_literal(x) for x in e.get("requiredPath", [])))
+        lines.append("            requiredBody = listOf(%s),"
+                     % ", ".join(kt_literal(x) for x in e.get("requiredBody", [])))
+        # 只在契约确实声明了形状时写该键（缺省即不写，保持生成物最小）
+        if e.get("dataSchema"):
+            lines.append("            dataSchema = %s," % kt_literal(e["dataSchema"]))
+        lines.extend(_kt_opt_args(e, "            "))
+        lines.append("        ),")
+    lines.append("    )")
+    lines.append("")
+    lines.append("    val IDS: List<String> = ALL.map { it.id }")
+    lines.append("")
+    lines.append("    private val BY_ID: Map<String, Endpoint> = ALL.associateBy { it.id }")
+    lines.append("")
+    lines.append("    /** 按 operationId 取端点；未收录返回 null（调用方必须 fail-closed）。 */")
+    lines.append("    fun byId(id: String): Endpoint? = BY_ID[id]")
+    lines.append("")
+    lines.append("    /** 契约 x-roles 的 token-role 展开表（本端相关项）。 */")
+    lines.append("    val ROLE_EXPANSION: Map<String, RoleExpansion> = mapOf(")
+    for end_role in sorted(role_expansion):
+        spec = role_expansion[end_role]
+        lines.append("        %s to RoleExpansion(" % kt_literal(end_role))
+        lines.append("            tokens = listOf(%s),"
+                     % ", ".join(kt_literal(t) for t in spec["tokens"]))
+        lines.append("            end = %s," % kt_literal(spec["end"]))
+        lines.append("            display = %s," % kt_literal(spec["display"]))
+        lines.append("        ),")
+    lines.append("    )")
+    lines.append("}")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def write_text(path: str, text: str) -> None:
     # 🛑 Windows 换行污染（本仓第 40 条缺陷）：必须显式 newline="\n"，
     #    否则逐字比对 / 逐字节还原会在一个与内容无关的维度上报红。
@@ -884,13 +1258,18 @@ def main() -> int:
 
     ok = True
     for target in TARGETS:
-        ops = load_operations(target["id"])
+        # 🛑 `cut` 与 `id` 分开：一个契约真相源可以产出多份产物
+        #    （端 B 既有 Web 骨架也有原生 Android 端），但报告名各自独立。
+        cut_id = target.get("cut", target["id"])
+        ops = load_operations(cut_id)
         entries = allowed_roles_of(ops, target["token_roles"])
-        role_expansion = load_role_expansion(target["id"], target["token_roles"])
-        api_base_path = load_api_base_path(target["id"])
-        proto = load_api_protocol(target["id"])
+        role_expansion = load_role_expansion(cut_id, target["token_roles"])
+        api_base_path = load_api_base_path(cut_id)
+        proto = load_api_protocol(cut_id)
         if target["flavor"] == "cjs":
             text = render_cjs(target, entries, spec_version, role_expansion, api_base_path, proto)
+        elif target["flavor"] == "kt":
+            text = render_kt(target, entries, spec_version, role_expansion, api_base_path, proto)
         else:
             text = render_ts(target, entries, spec_version, role_expansion, api_base_path, proto)
 
@@ -907,11 +1286,11 @@ def main() -> int:
                     "       重跑: python frontends/tools/gen-endpoints.py\n" % target["id"])
                 ok = False
             else:
-                sys.stdout.write("[OK]   %-14s operations=%d  (与契约一致)\n"
+                sys.stdout.write("[OK]   %-18s operations=%d  (与契约一致)\n"
                                  % (target["id"], len(entries)))
         else:
             write_text(out, text)
-            sys.stdout.write("[WROTE] %-14s operations=%d -> %s\n"
+            sys.stdout.write("[WROTE] %-18s operations=%d -> %s\n"
                              % (target["id"], len(entries), os.path.relpath(out, SKELETON_ROOT)))
 
     if not ok:
