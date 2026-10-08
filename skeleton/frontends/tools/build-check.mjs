@@ -34,6 +34,13 @@ import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+// 🛑 Python 解释器解析的**唯一一份实现**（`gen-endpoints.mjs` 共用它）。
+//    为什么必须共用而不是各写一份：原先 `package.json` 的 `gen:endpoints` /
+//    `check:contract` 写的是裸 `python ../tools/gen-endpoints.py`，没有任何解析，
+//    实测本机 `npm run check:contract` **exit 2**（`MISCONFIGURED: PyYAML is required`）
+//    —— 而 CI 的 frontend job 正是跑这条命令。同一件事两套写法，其中一套没走到
+//    正确的解释器。完整机制（含 `py` 启动器因 shebang 换解释器的实测）见 `py.mjs`。
+import { resolvePython, NO_PYTHON_MESSAGE } from './py.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FRONTENDS = resolve(HERE, '..');
@@ -273,26 +280,14 @@ async function canSpawn() {
 }
 
 /**
- * 找一个能 `import yaml` 的 Python。
- * 🛑 Windows PATH 里的 `python` 可能是 Microsoft Store App Execution Alias
- *    （0 字节 stub）⇒ 跑起来即报错。故逐个候选**实测**，不只看 which。
+ * 🛑 本文件**不再自带** `resolvePython()` —— 解析器的唯一实现在 `./py.mjs`。
+ *
+ * 原先这里有一份本地实现，而 `package.json` 的 `check:contract` 走的却是裸
+ * `python`；同一件事两套写法，其中一套（裸 `python`）没有走到正确解释器。
+ * 抽出去之后，`build-check.mjs` 与 `gen-endpoints.mjs` 共用同一份，
+ * 新增调用点也只应 `import { runPythonScript } from './py.mjs'`。
+ * 完整机制见 `py.mjs` 模块注释（含 `py` 启动器因 shebang 换解释器的实测）。
  */
-async function resolvePython() {
-  const candidates = [process.env.DY_PY].filter(Boolean);
-  const home = process.env.USERPROFILE || process.env.HOME || '';
-  const versionsDir = home ? join(home, '.workbuddy', 'binaries', 'python', 'versions') : '';
-  if (versionsDir && existsSync(versionsDir)) {
-    for (const v of readdirSync(versionsDir).sort().reverse()) {
-      candidates.push(join(versionsDir, v, process.platform === 'win32' ? 'python.exe' : 'bin', 'python'));
-    }
-  }
-  candidates.push('python3', 'python', 'py');
-  for (const cand of candidates) {
-    const r = await run(cand, ['-c', 'import yaml; print("yaml-ok")'], HERE);
-    if (r.code === 0 && r.out.includes('yaml-ok')) return cand;
-  }
-  return null;
-}
 
 // ---------------------------------------------------------------------------
 // ① 工程结构
@@ -300,6 +295,47 @@ async function resolvePython() {
 for (const rel of cfg.required) {
   if (!existsSync(join(END_ROOT, rel))) fail('structure', `缺少 ${rel}`);
   else ok('structure', rel);
+}
+
+// ---------------------------------------------------------------------------
+// ①b npm 脚本里**不得裸调** python（必须经 tools/gen-endpoints.mjs）
+// ---------------------------------------------------------------------------
+// 🛑 为什么这值得一条判据，而不是"写进 README 提醒一下"
+// ---------------------------------------------------------------------------
+// 实测（2026-10-08）：`package.json` 原写 `python ../tools/gen-endpoints.py --check`，
+// 而本机 PATH 上的 `python` 没有 PyYAML ⇒ **`npm run check:contract` exit 2**，
+// 提示是 `MISCONFIGURED: PyYAML is required`（指向"契约不一致"的方向）。
+// 关键在于：**CI 的 frontend job 跑的正是这条命令** —— 它在 CI 上"大概率能过"
+// 只因为 runner 的 `python` 恰好带 PyYAML；在本机则必红。
+// 这就是本仓第 48 条那一类缺陷：**写下的命令 ≠ 跑得起来的命令**，
+// 而两者的差别只能由"在真环境里执行"暴露，代码审阅看不出来。
+//
+// ⇒ 判据判【调用形态】（第 52 条）：scripts 的命令行里出现 `python` / `python3` /
+//    `py` 作为**命令**即报红；正确形态是 `node ../tools/gen-endpoints.mjs …`，
+//    由它去解析解释器（解析器唯一实现在 `tools/py.mjs`）。
+//    这样"换个机器/换个解释器"不会再把契约校验变成假红或静默跳过。
+{
+  const pkgPath = join(END_ROOT, 'package.json');
+  if (existsSync(pkgPath)) {
+    let scripts = {};
+    try {
+      scripts = JSON.parse(readFileSync(pkgPath, 'utf8')).scripts || {};
+    } catch (e) {
+      fail('no-bare-python-script', `package.json 无法解析：${e.message}`);
+    }
+    const bare = Object.entries(scripts)
+      .filter(([, v]) => /(^|&&|\|\||;|\s)(python3?|py)\s+\S/.test(String(v)))
+      .map(([k, v]) => `${k} = ${v}`);
+    if (bare.length) {
+      fail('no-bare-python-script',
+        'package.json 里有**裸调 python** 的脚本（换个没有 PyYAML 的解释器即 exit 2，'
+        + '而报错会指向"契约不一致"这个错误方向）：\n      ' + bare.join('\n      ')
+        + '\n      ⇒ 改为 node ../tools/gen-endpoints.mjs [--check]（解析器唯一实现在 tools/py.mjs）');
+    } else {
+      ok('no-bare-python-script',
+        `package.json 的 ${Object.keys(scripts).length} 条脚本里无裸调 python（生成器一律经 tools/gen-endpoints.mjs）`);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -312,12 +348,12 @@ if (!spawnOk) {
     'ENV-BLOCKED: 当前环境禁止【异步】派生子进程，无法调用生成器做契约一致性校验。\n'
     + '      这【不代表】契约一致或不一致 —— 该项本轮【未验证】。\n'
     + '      请在可派生进程的环境中重跑，或手动确认：\n'
-    + '        python frontends/tools/gen-endpoints.py --check');
+    + '        node frontends/tools/gen-endpoints.mjs --check');
 } else {
   const PY = await resolvePython();
   if (!PY) {
     envBlocked = true;
-    fail('contract', '找不到可执行的 Python（且需含 PyYAML）。可用环境变量 DY_PY 指定。该项【未验证】。');
+    fail('contract', `${NO_PYTHON_MESSAGE}      该项【未验证】。`);
   } else {
     const r = await run(PY, [join(FRONTENDS, 'tools', 'gen-endpoints.py'), '--check'], SKELETON_ROOT);
     if (r.code !== 0) {
@@ -540,7 +576,7 @@ if (cfg.outbound && cfg.envFile) {
     if (!gm) {
       fail('base-path-wiring',
         `${genRel} 缺少 API_BASE_PATH —— 生成器没有转录契约 servers[0].url。\n`
-        + '      请先跑 python frontends/tools/gen-endpoints.py（生成器会读 servers）。');
+        + '      请先跑 node frontends/tools/gen-endpoints.mjs（生成器会读 servers）。');
     } else {
       const genValue = gm[1];
       if (!/^\/[A-Za-z0-9._~\-/]*$/.test(genValue) || genValue === '/') {
@@ -683,7 +719,7 @@ if (cfg.outbound) {
     if (badGen.length) {
       fail('cross-end-protocol',
         `${genRel2} 的 PROTOCOL 常量组与契约 x-api-protocol 不一致:\n      ${badGen.join('\n      ')}\n`
-        + '      请先跑 python frontends/tools/gen-endpoints.py（生成器会读 x-api-protocol）。');
+        + '      请先跑 node frontends/tools/gen-endpoints.mjs（生成器会读 x-api-protocol）。');
     } else {
       // ②③ 出站层：必须引用 PROTOCOL.*，且不得残留协议字面量（剥注释后判）
       const ob = stripComments2(readFileSync(outboundPath, 'utf8'));

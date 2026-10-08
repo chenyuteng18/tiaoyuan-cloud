@@ -1,0 +1,47 @@
+# ============================================================================
+# 骨架的 Python 前置依赖（唯一声明处）
+# ============================================================================
+#
+# 🛑 为什么必须有这个文件
+# ---------------------------------------------------------------------------
+# 本仓有多条门禁是 **Python 写的**，且都**刻意**要求一个**真正的 YAML 解析器**，
+# 而不是正则：
+#
+#   · compliance/contract-conformance-gate.py   （由根 pom.xml 的
+#     `s18-contract-conformance` exec 门禁在 validate 阶段调用）
+#   · compliance/client-zero-derived-gate.py    （s16）
+#   · compliance/sdk-surface-gate.py            （s19）
+#   · compliance/scan_compliance.py             （validate 阶段 ADR-12 扫描）
+#   · frontends/tools/gen-endpoints.py          （三端 + 原生端的端点层生成；
+#     端 C 的 `npm run build` 会以 `--check` 方式调用它）
+#
+# 它们**缺 PyYAML 时一律 exit 2**，而不是"退化成正则后照常打印 PASS"。这是刻意的：
+# 实测两个手写正则探针在**同一份契约文件**上互相矛盾（42 vs 2 个字段），
+# 一个自相矛盾的探针不配给门禁当底座。故：缺依赖 ⇒ 报"未验证"，不报"通过"。
+#
+# 🛑 未声明时的实际后果（2026-10-08 实跑抓到）
+# ---------------------------------------------------------------------------
+# `.github/workflows/build-and-test.yml` 的 `backend` 与 `frontend` 两个 job
+# **都没有准备 Python**，而：
+#   · backend  job 的 `mvn clean install` 会在 validate 阶段撞上 s18 门禁；
+#   · frontend job 的端 C `npm run build` 会调 gen-endpoints.py --check。
+# ⇒ 在一个干净的 runner 上，这两个 job **必然红**，而红的措辞是
+#   "MISCONFIGURED: PyYAML is required"、指向"契约不一致"的方向 ——
+#   真实原因却是"环境缺一个 Python 包"。与另两个 workflow
+#   （compliance-gate.yml / rls-isolation-gate.yml）不同：compliance-gate.yml
+#   一直有 `python -m pip install "pyyaml>=6.0"` 这一步，build-and-test.yml 漏了。
+#
+# 🛑 本机（Windows 开发机）还要额外注意一条**解释器**层面的坑
+# ---------------------------------------------------------------------------
+# PATH 上的 `python` 未必是"有 PyYAML 的那个"，而 Windows 的 `py` 启动器会读脚本
+# 首行的 shebang（`#!/usr/bin/env python`）→ 用 PATH 上的 `python` 重新解析，
+# 于是 `py -c "import yaml"` 与 `py <脚本>` **会落到两个不同的解释器**。
+# ⇒ 本机请用显式解释器，二者都支持覆盖：
+#     frontends/tools/build-check.mjs : 环境变量 DY_PY=<绝对路径>
+#     根 pom.xml                      : -Dcompliance.python.executable=<绝对路径>
+#
+# 安装（任选其一）：
+#     python -m pip install -r requirements.txt
+#     python -m venv .venv && .venv/Scripts/python -m pip install -r requirements.txt
+#
+pyyaml>=6.0

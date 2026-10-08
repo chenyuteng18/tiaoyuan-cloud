@@ -105,7 +105,9 @@ for (const [label, p] of [
 ]) {
   if (!existsSync(p)) {
     console.error(`MISCONFIGURED: ${label}缺失 ${p}`);
-    console.error('  （生成物缺失时先跑 python frontends/tools/gen-endpoints.py）');
+    console.error('  （生成物缺失时先跑 node frontends/tools/gen-endpoints.mjs）');
+    console.error('   🛑 不要直接写 `python .../gen-endpoints.py`：本仓的解释器由 tools/py.mjs 统一解析');
+    console.error('      （Windows 上 `python` 与 `py` 会落到两个不同解释器，其中一个没有 PyYAML）。');
     process.exit(2);
   }
 }
@@ -202,7 +204,7 @@ const entries = [];
     fail('parse-coverage',
       `裁剪契约与生成物不一致：\n      ${bad.join('\n      ')}\n`
       + '      ⇒ 下游判据跑在残缺集合上会**照样绿**（第 53 条同型）。'
-      + '\n      修法：改契约后重跑 python frontends/tools/gen-endpoints.py');
+      + '\n      修法：改契约后重跑 node frontends/tools/gen-endpoints.mjs');
   } else {
     ok('parse-coverage', `裁剪契约 ${cutOps.length} 个 operation === 生成物 ${entries.length} 条，id 逐条命中`);
   }
@@ -356,7 +358,7 @@ const entries = [];
     fail('required-args-parsed',
       `生成物与契约的必需参数不一致：\n      ${bad.join('\n      ')}\n`
       + '      ⇒ 漏掉的 path 参数会拼出字面量 `{id}` 发出去（第 71 条），'
-      + '且漏传在客户端毫无症状。修法：重跑 python frontends/tools/gen-endpoints.py');
+      + '且漏传在客户端毫无症状。修法：重跑 node frontends/tools/gen-endpoints.mjs');
   } else {
     ok('required-args-parsed',
       `契约 ${cutReq.length} 个 operation 的必需参数与生成物逐条一致`

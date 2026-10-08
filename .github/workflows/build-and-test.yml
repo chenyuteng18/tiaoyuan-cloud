@@ -23,6 +23,25 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
+      # 🛑 本 job 必须有 Python，且必须带 PyYAML —— 不是"顺手装一个"，是两处硬依赖：
+      #    ① `mvn clean install` 在 **validate** 阶段就跑若干 Python 门禁
+      #       （根 pom.xml 的 s16 / s18 / s19 exec 门禁 + ADR-12 词表扫描）；
+      #    ② 这些门禁**刻意**要求一个真正的 YAML 解析器（实测两个手写正则探针在同一份
+      #       契约上互相矛盾，42 vs 2 个字段），缺 PyYAML 一律 **exit 2**，
+      #       **不会**退化成正则后照常打印 PASS。
+      #    ⇒ 此前本 job 一个 Python 步骤都没有，在干净 runner 上**必然红**，
+      #      而且红的措辞会把排查引向"契约不一致"这个完全错误的方向。
+      #    另：裸 ubuntu-latest 上 `python` 未必存在（通常只有 `python3`），
+      #    而根 pom.xml 的 `compliance.python.executable` 默认值**就是** `python`
+      #    ⇒ 不 setup-python 还会额外撞上"找不到命令"。setup-python 会同时提供
+      #    `python` 与 `python3` 两个入口。
+      #    参照：`.github/workflows/compliance-gate.yml` 一直有这一步，本文件此前漏了。
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install the gates' YAML parser
+        run: python -m pip install --disable-pip-version-check -r skeleton/requirements.txt
       - name: Build & test (clean install)
         working-directory: skeleton
         run: mvn -B -ntp clean install
@@ -44,6 +63,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      # 🛑 与 backend job 同因：端 C 的 `npm run build`
+      #    （tools/build-check.mjs --end=client-mp）会调
+      #    `gen-endpoints.py --check` 校验"契约改了但端点层没重跑"，
+      #    而生成器缺 PyYAML 时 exit 2 ⇒ 本 job 也会红。
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install the gates' YAML parser
+        run: python -m pip install --disable-pip-version-check -r skeleton/requirements.txt
 
       - name: 安装端 A / 端 B 依赖
         working-directory: skeleton/frontends
@@ -91,7 +121,7 @@ jobs:
 
       # 门禁有牙齿的反向验证：注入故障必须被逐一抓住（含还原校验）。
       # 🛑 必须【串行】：这些脚本对同一批文件做「注入 → 还原」，并行会互相踩踏。
-      - name: 门禁反向验证（build 25/25 · a · x3 · android 43/43）
+      - name: 门禁反向验证（build 26/26 · a 21/21 · x3 14/14 · android 43/43）
         working-directory: skeleton/frontends/admin-web
         run: |
           node ../tools/build-reverse-check.mjs

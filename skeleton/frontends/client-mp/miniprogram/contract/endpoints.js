@@ -3,8 +3,8 @@
  *
  * 真源: contract/sdk-generator/_cut/client-mp.openapi.yaml
  * 生成: frontends/tools/gen-endpoints.py
- * 重跑: python frontends/tools/gen-endpoints.py
- * 校验: python frontends/tools/gen-endpoints.py --check
+ * 重跑: node frontends/tools/gen-endpoints.mjs
+ * 校验: node frontends/tools/gen-endpoints.mjs --check
  *
  * 这一份是【端 端 C · 客户小程序】的可用端点清单，逐条机械转录自契约 ——
  * 一条 operation 属于本端，当且仅当它的 x-callable-roles 与

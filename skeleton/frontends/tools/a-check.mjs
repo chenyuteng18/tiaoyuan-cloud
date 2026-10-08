@@ -54,7 +54,7 @@ const GEN = join(SRC, 'contract', 'endpoints.ts');
 const SCOPE = join(SRC, 'contract', 'scope.ts');
 for (const [label, p] of [['生成物', GEN], ['范围层', SCOPE]]) {
   if (!existsSync(p)) {
-    console.error(`MISCONFIGURED: ${label}缺失 ${p}（先跑 python ../tools/gen-endpoints.py）`);
+    console.error(`MISCONFIGURED: ${label}缺失 ${p}（先跑 node ../tools/gen-endpoints.mjs）`);
     process.exit(2);
   }
 }

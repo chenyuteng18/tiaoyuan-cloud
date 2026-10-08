@@ -51,7 +51,7 @@ function note(msg) { notes.push(`  – ${msg}`); }
 const GEN = join(SRC, 'contract', 'endpoints.ts');
 const ACCESS = join(SRC, 'contract', 'access.ts');
 if (!existsSync(GEN)) {
-  console.error(`MISCONFIGURED: 生成物缺失 ${GEN}（先跑 python ../tools/gen-endpoints.py）`);
+  console.error(`MISCONFIGURED: 生成物缺失 ${GEN}（先跑 node ../tools/gen-endpoints.mjs）`);
   process.exit(2);
 }
 if (!existsSync(ACCESS)) {

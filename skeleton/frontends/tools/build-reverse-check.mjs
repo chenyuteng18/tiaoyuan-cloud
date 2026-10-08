@@ -459,6 +459,22 @@ const CASES = [
       return s.replace(anchor, "request.call('getCustomer', { params: {} })");
     },
   },
+  {
+    id: 'R26',
+    end: 'client-mp',
+    rel: 'package.json',
+    title: '端 C：npm 脚本退回**裸调 python**（换个没有 PyYAML 的解释器即 exit 2）',
+    expectItem: 'no-bare-python-script',
+    // 🛑 这正是本轮实测到的那条：`package.json` 原写
+    //    `python ../tools/gen-endpoints.py --check`，而本机 PATH 上的 `python`
+    //    没有 PyYAML ⇒ `npm run check:contract` exit 2，提示却是
+    //    "MISCONFIGURED: PyYAML is required"（指向"契约不一致"这个错误方向）。
+    //    而 **CI 的 frontend job 跑的正是这条命令**。
+    //    本条注入把修复后的形态退回缺陷形态，判据必须抓住它。
+    mutate: (s) => s.replace(
+      /"gen:endpoints":\s*"node \.\.\/tools\/gen-endpoints\.mjs"/,
+      '"gen:endpoints": "python ../tools/gen-endpoints.py"'),
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -543,7 +559,7 @@ process.stdout.write(`还原后三端构建自检：${Object.entries(finalCodes)
   + `${allGreen ? '（全绿 ✓，已按内存备份还原）' : '（异常 ✗）'}${staleNotice}\n`);
 
 if (passed === results.length && allGreen) {
-  process.stdout.write('\nbuild-check 反向验证 PASS —— 八条判据（base-path-wiring / cross-end-protocol / pagination-protocol / error-data-fields / endpoint-reachability / page-registry / required-args-wired / required-args-carrier）确实有牙齿，且还原干净。\n');
+  process.stdout.write('\nbuild-check 反向验证 PASS —— 九条判据（base-path-wiring / cross-end-protocol / pagination-protocol / error-data-fields / no-bare-python-script / endpoint-reachability / page-registry / required-args-wired / required-args-carrier）确实有牙齿，且还原干净。\n');
   process.exit(0);
 }
 process.stdout.write('\nbuild-check 反向验证 FAIL。\n');

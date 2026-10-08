@@ -42,8 +42,16 @@ S1-8 FACE 1 的立项动机）：一份**手写**的"客户端可达路径清单
 
 用法
 =============================================================================
-    python frontends/tools/gen-endpoints.py            # 写出三端产物
-    python frontends/tools/gen-endpoints.py --check    # 只校验产物与契约一致（不写）
+    node frontends/tools/gen-endpoints.mjs            # 写出三端产物（推荐入口）
+    node frontends/tools/gen-endpoints.mjs --check    # 只校验产物与契约一致（不写）
+
+    🛑 为什么推荐走 `.mjs` 而不是直接 `python .../gen-endpoints.py`：
+       Windows 上 `python` 与 `py` 落到**两个不同解释器**（实测其中一个没有 PyYAML），
+       且 `py` 启动器还会读本文件首行的 shebang `#!/usr/bin/env python` 再改一次解释器
+       ⇒ 探针与真调用**不同形**。`tools/py.mjs` 用"自报 sys.executable 绝对路径"的方式解析，
+       是本仓访问本脚本的**唯一**入口。
+       若你确信自己的解释器已装 PyYAML，直接跑本脚本是**等价**的：
+           python frontends/tools/gen-endpoints.py [--check]
 
 退出码
 =============================================================================
@@ -704,8 +712,8 @@ def render_cjs(target, entries, spec_version, role_expansion, api_base_path, pro
     lines.append(" *")
     lines.append(" * 真源: contract/sdk-generator/_cut/%s.openapi.yaml" % target["id"])
     lines.append(" * 生成: frontends/tools/gen-endpoints.py")
-    lines.append(" * 重跑: python frontends/tools/gen-endpoints.py")
-    lines.append(" * 校验: python frontends/tools/gen-endpoints.py --check")
+    lines.append(" * 重跑: node frontends/tools/gen-endpoints.mjs")
+    lines.append(" * 校验: node frontends/tools/gen-endpoints.mjs --check")
     lines.append(" *")
     lines.append(" * 这一份是【端 %s】的可用端点清单，逐条机械转录自契约 ——" % target["label"])
     lines.append(" * 一条 operation 属于本端，当且仅当它的 x-callable-roles 与")
@@ -786,8 +794,8 @@ def render_ts(target, entries, spec_version, role_expansion, api_base_path, prot
     lines.append(" *")
     lines.append(" * 真源: contract/sdk-generator/_cut/%s.openapi.yaml" % target["id"])
     lines.append(" * 生成: frontends/tools/gen-endpoints.py")
-    lines.append(" * 重跑: python frontends/tools/gen-endpoints.py")
-    lines.append(" * 校验: python frontends/tools/gen-endpoints.py --check")
+    lines.append(" * 重跑: node frontends/tools/gen-endpoints.mjs")
+    lines.append(" * 校验: node frontends/tools/gen-endpoints.mjs --check")
     lines.append(" *")
     lines.append(" * 这一份是【端 %s】的可用端点清单，逐条机械转录自契约 ——" % target["label"])
     lines.append(" * 一条 operation 属于本端，当且仅当它的 x-callable-roles 与")
@@ -1110,8 +1118,8 @@ def render_kt(target, entries, spec_version, role_expansion, api_base_path, prot
     lines.append("//")
     lines.append("// 真源: contract/sdk-generator/_cut/%s.openapi.yaml" % target.get("cut", target["id"]))
     lines.append("// 生成: frontends/tools/gen-endpoints.py")
-    lines.append("// 重跑: python frontends/tools/gen-endpoints.py")
-    lines.append("// 校验: python frontends/tools/gen-endpoints.py --check")
+    lines.append("// 重跑: node frontends/tools/gen-endpoints.mjs")
+    lines.append("// 校验: node frontends/tools/gen-endpoints.mjs --check")
     lines.append("//")
     lines.append("// 这一份是【%s】的可用端点清单，逐条机械转录自契约 ——" % target["label"])
     lines.append("// 一条 operation 属于本端，当且仅当它的 x-callable-roles 与")
@@ -1283,7 +1291,7 @@ def main() -> int:
             if current != text:
                 sys.stderr.write(
                     "[FAIL] %s: 产物与契约不一致（契约已改但未重跑生成器？）\n"
-                    "       重跑: python frontends/tools/gen-endpoints.py\n" % target["id"])
+                    "       重跑: node frontends/tools/gen-endpoints.mjs\n" % target["id"])
                 ok = False
             else:
                 sys.stdout.write("[OK]   %-18s operations=%d  (与契约一致)\n"

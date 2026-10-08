@@ -116,6 +116,13 @@ node tools/android-check.mjs            # 结构自检：25 条判据
 node tools/android-reverse-check.mjs    # 反向验证：43 组注入
 ```
 
+> 🛑 **生成物缺失时不要自己敲 `python`。** 四端共用同一个生成器入口：
+> 在 `skeleton/` 下 `node frontends/tools/gen-endpoints.mjs`，
+> 或在任一端目录内 `npm run gen:endpoints`（`--check` 只校验不写）。
+> `tools/py.mjs` 会解析出**带 PyYAML 的那个解释器**；直接敲
+> `python ../tools/gen-endpoints.py` 在本机会 `No module named 'yaml'`。
+> 理由见第八节第 10 条与 `frontends/README.md` §8.28。
+
 **`android-check.mjs`** 管的是"写下的东西 == 契约里那个东西"：
 
 | 判据 | 防的是哪一类真实缺陷 |
@@ -637,7 +644,7 @@ Gson 反射面（`type = X::class.java` / `element = X::class.java` /
 | 消息触达（推送） | **未实现**：本端无推送依赖。一线要"及时处理客户请求"目前只能靠主动打开 APP | 接推送时，需同步补：隐私清单、`POST_NOTIFICATIONS` 权限、到达率验收口径 |
 | Web 端 `ROLE_LABEL` | 与契约 `x-roles.display` 不一致（见第五节） | 收敛 Web 端到契约 `display` |
 | Gradle 10 弃用警告 | 构建输出里有 `multi-string notation` 弃用警告，**来源是 AGP 8.12.0 内部**声明 `com.android.tools.lint:lint-gradle` / `com.android.tools.build:aapt2` 的方式，**不是本工程代码**（本端 6 条依赖全部是单字符串形式，已逐条核对） | 等 AGP 9.x；当前 Gradle 9.3.1 下只是警告，不影响构建 |
-| CI 出包 | 门禁已接入 CI；**`assembleDebug` 的 CI job 未在本机验证过**（本机无法跑 GitHub Actions） | 首次 CI 跑通后回填结论；若 SDK/Gradle 镜像在海外 runner 上不可达，改用 `setup-gradle` 缓存 |
+| CI 出包 | 门禁已接入 CI；**GitHub Actions 本身仍未跑过**（本机无法跑 Actions）。但 CI job 里的**关键是 `assembleDebug` 能否在"干净环境"里出包**，这一条已用**全新克隆**在本机模拟验证：`git clone` 到干净目录 → 端 D 门禁绿 → `./gradlew assembleDebug` **BUILD SUCCESSFUL**（2m51s / 35 tasks / **无 `local.properties`**，仅靠 `ANDROID_HOME`）→ 产出 `app-debug.apk` **7,338,658 字节**。同一轮实跑还补出 CI 的 **Python 准备步整块缺失**（见 `frontends/README.md` §8.28 / 骨架 README §5.1 第 76 条） | 首次真跑 Actions 后回填结论；若 SDK/Gradle 镜像在海外 runner 上不可达，改用 `setup-gradle` 缓存 |
 
 ## 八、纪律备忘（写代码前先读）
 
@@ -675,3 +682,17 @@ Gson 反射面（`type = X::class.java` / `element = X::class.java` /
    另：**"已废弃"与"已禁用"是两回事**。`android:statusBarColor` 属于后者，
    留着它不只是无效，还会让下一个维护者以为"系统栏由主题控制"
    （本仓立场：**误导性的死配置比没有更坏**）。
+9. **`*.bat` 是第 5 条的唯一例外，必须 CRLF。** `.gitattributes` 首行
+   `* text=auto eol=lf` 会把 `gradlew.bat` 也归一成 LF，而 **cmd.exe 对只有 LF 的
+   批处理在 `goto` / `:label` 跳转上有已知错行行为**（跳转落到相邻行，症状是
+   "明明写了却走进别的分支"）。故文件里显式加了一条反向规则：
+   `*.bat text eol=crlf`。实测 `git ls-files --eol`：`gradlew` → `i/lf w/lf`，
+   `gradlew.bat` → `i/lf w/crlf`。⇒ 读第 5 条时不要顺手把 `.bat` 也"统一"掉。
+10. **不要自己敲 `python .../gen-endpoints.py`。** 本端与另外三端共用同一个生成器
+    入口 —— 在 `skeleton/` 下跑 `node frontends/tools/gen-endpoints.mjs`，
+    或在任一端目录内 `npm run gen:endpoints`。
+    `tools/py.mjs` 会解析出**带 PyYAML 的那个解释器**；而 Windows 上 `python` 与 `py`
+    会落到**两个不同解释器**（实测其中一个没有 PyYAML），且 `py` 启动器还会读脚本首行
+    shebang 再改一次 ⇒ **探针与真调用不同形**。直接敲会 `No module named 'yaml'`。
+    同一轮实跑还发现：**CI 里整块缺 Python 准备步**（两个 job 都没有 `setup-python`），
+    详见 `frontends/README.md` **§8.28** 与骨架 README §5.1 **第 77 条**。

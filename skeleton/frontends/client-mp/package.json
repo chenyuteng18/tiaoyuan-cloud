@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node ../tools/build-check.mjs --end=client-mp",
     "test": "node --test",
-    "gen:endpoints": "python ../tools/gen-endpoints.py",
+    "gen:endpoints": "node ../tools/gen-endpoints.mjs",
     "check:build-reverse": "node ../tools/build-reverse-check.mjs"
   },
   "dependencies": {},

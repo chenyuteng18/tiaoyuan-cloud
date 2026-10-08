@@ -1,20 +1,35 @@
-# 三端前端工程骨架（契约驱动）
+# 四端前端工程骨架（契约驱动）
 
 > 对应 `缺口修复总规划-2026-09-27.md` §三 **G-B**（标注「✅ 可以 / 可立即动工」）。
 > 本轮落地的是 **B-1**（工程骨架 · 构建可跑 · 目录约定 · 环境配置分离）
 > 与契约驱动端点层；**B-2/B-3/B-4** 见文末「阶段顺序」。
+>
+> 🛑 **标题里的"四端"**：本文件初版写的是"三端"，只有 Web ×2 + 小程序。**端 D
+> （原生 Android · Kotlin）后加入，且已整端入库** —— 它是契约驱动的第二份
+> 端 B 产物（同一份裁剪契约、同一批 token-roles，**不同语言与不同形态**）。
+> 文件里其余仍写"三端"的地方（历史小节标题、纪律条目里的引用）**保留原文不追改**
+> —— 它们描述的是当时那一轮的事实（例如"三端 Web/小程序"，原生端本就不在其射程内）。
+> 判据与计数一律以本节表格为准。
 
-## 1. 三端定义（逐条转录自 `contract/sdk-generator/generator-matrix.yaml`）
+## 1. 四端定义（逐条转录自 `contract/sdk-generator/generator-matrix.yaml`）
 
 | 端 | 目录 | 形态 | 契约角色 | 可用 operation | 生成物 |
 |---|---|---|---|---|---|
 | 端 A 管理后台 | `admin-web/` | Vite + React + TS | `admin` | **39**（34 paths） | `src/contract/endpoints.ts` |
-| 端 B 门店 / 经络师 | `therapist-app/` | Vite + React + TS | `therapist`, `meridian` | **29**（26 paths） | `src/contract/endpoints.ts` |
+| 端 B 门店 / 经络师（Web） | `therapist-app/` | Vite + React + TS | `therapist`, `meridian` | **29**（26 paths） | `src/contract/endpoints.ts` |
 | 端 C 客户端 | `client-mp/` | 微信小程序（原生） | `client` | **15**（14 paths） | `miniprogram/contract/endpoints.js` |
+| 端 D 门店 / 经络师（原生） | `therapist-android/` | 原生 Android（Kotlin） | `therapist`, `meridian` | **29**（26 paths） | `app/src/main/kotlin/com/diaoyuanyun/therapist/contract/Endpoints.kt` |
+
+**端 B 与端 D 的关系（一条契约、两份产物）**：二者读的是**同一份**裁剪契约
+`contract/sdk-generator/_cut/therapist-app.openapi.yaml`，token-roles 也**完全相同**。
+在生成器里它们**刻意是两个 target**（`therapist-app` / `therapist-android`），
+因为 `--check` 按行报告结果，若 `id` 也相同会出现两行同名结果、既有门禁取行会取错。
+⇒ **一个契约真相源，两条独立产物线**，互不 churn。
 
 **角色准入的判定口径**：一个 operation 属于某端，当且仅当它的 `x-callable-roles`
 与该端的 token-roles **有交集**。token-roles 取自 `generator-matrix.yaml`
-（`client-mp: [client]` · `therapist-app: [therapist, meridian]` · `admin-web: [admin]`）。
+（`client-mp: [client]` · `therapist-app: [therapist, meridian]` ·
+`admin-web: [admin]` · **原生端同端 B**：`[therapist, meridian]`）。
 
 ## 2. 契约驱动：端点层是【生成】的，不是手抄的
 
@@ -25,9 +40,15 @@ contract/openapi-v1.0.0.yaml
 ```
 
 ```bash
-python frontends/tools/gen-endpoints.py           # 写出三端端点层
-python frontends/tools/gen-endpoints.py --check   # 只校验产物与契约一致（不写）
+node frontends/tools/gen-endpoints.mjs           # 写出四端端点层（推荐入口）
+node frontends/tools/gen-endpoints.mjs --check   # 只校验产物与契约一致（不写）
 ```
+
+> 🛑 **不要改写成 `python frontends/tools/gen-endpoints.py`。** 本仓的解释器由
+> `tools/py.mjs` 统一解析（Windows 上 `python` 与 `py` 会落到**两个不同解释器**，
+> 且 `py` 启动器会读脚本首行 shebang 再改一次 ⇒ **探针与真调用不同形**）。
+> 裸调在本机会 `No module named 'yaml'`；**这条写法曾经同时存在于三端 `package.json`、
+> 5 处门禁报错文案、以及生成器烧进每份产物的文件头里**，见 §8.28 ⑤。
 
 **为什么必须生成**：本仓已有一次同型失败，记在 `client-package/api/clientPaths.js`
 的文件头（并酿成 S1-8 FACE 1 的立项动机）——手写的"客户端可达路径清单"会腐烂，
@@ -38,14 +59,36 @@ python frontends/tools/gen-endpoints.py --check   # 只校验产物与契约一�
 
 生成器因此自带 `--check`：契约一改而产物未重跑，检查即红。
 
-## 3. B-1 验收：三端构建
+## 3. B-1 验收：四端构建
 
 | 端 | 命令 | 说明 |
 |---|---|---|
 | client-mp | `npm run build` → `node ../tools/build-check.mjs --end=client-mp` | 零第三方依赖 |
 | therapist-app | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` · `npm run check:x3` · `npm run check:x3-reverse` | 需 `npm install`；X-3 两组门禁 |
 | admin-web | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` · `npm run check:a` · `npm run check:a-reverse` | 需 `npm install` |
-| 三端通用 | `npm run check:build-reverse` → `node ../tools/build-reverse-check.mjs` | `base-path-wiring`（6 组 R1–R6）+ `cross-end-protocol`（4 组 R7–R10）+ `pagination-protocol`（3 组 R11–R13）+ **`error-data-fields`（3 组 R14–R16）** 反向验证，**常驻**；且能抓住「判据被删」|
+| therapist-android | `node tools/android-check.mjs`（**25 条判据**，纯 Node 零依赖）· `tools/android-reverse-check.mjs`（**43 组**受控注入）· 真编译 `./gradlew assembleDebug` | 🛑 门禁与真编译**刻意分离**：门禁只读「源码 + 生成物 + 契约」，**不依赖 Android SDK / JDK / 模拟器** |
+| 四端通用 | `npm run check:build-reverse` → `node ../tools/build-reverse-check.mjs` | `base-path-wiring`（6 组 R1–R6）+ `cross-end-protocol`（4 组 R7–R10）+ `pagination-protocol`（3 组 R11–R13）+ **`error-data-fields`（3 组 R14–R16）** 反向验证，**常驻**；且能抓住「判据被删」|
+
+**Python 前置（四端门禁都吃这一条）**：
+
+```bash
+python -m pip install -r ../requirements.txt     # 从 skeleton/frontends 运行
+```
+
+🛑 **为什么一个前端骨架需要 Python**：端 C 的构建（`build-check.mjs --end=client-mp`）
+与生成器的 `--check` 都是 Python 写的，且**刻意**要求一个真正的 YAML 解析器
+（缺 PyYAML 一律 `exit 2`，**不**退化成正则后照常打印 PASS）。
+依赖清单与完整理由见 `skeleton/requirements.txt`。
+
+🛑 **本机（Windows）还要注意"哪个 Python"**：PATH 上的 `python` 未必含 PyYAML，
+且 Windows 的 `py` 启动器会读脚本首行 shebang（`#!/usr/bin/env python`）→ 用 PATH 上的
+`python` 重新解析 ⇒ `py -c "import yaml"` 与 `py <脚本>` **会落到两个不同的解释器**
+（实测：前者 Python312 有 yaml，后者 3.13.12 没有）。两处都支持显式覆盖：
+
+| 调用方 | 覆盖方式 |
+|---|---|
+| `frontends/tools/build-check.mjs` | 环境变量 `DY_PY=<绝对路径>`（候选顺序：`DY_PY` → 受管 venv → 受管裸解释器 → `python3` / `python` / `py`） |
+| 根 `pom.xml` 的 exec 门禁 | `-Dcompliance.python.executable=<绝对路径>` |
 
 **依赖安装（本机实测可用的一条命令）**：
 
@@ -118,6 +161,8 @@ exit 2 且不得打印 PASS）—— **W10 首跑即为红**，正是它抓出�
 | 端 B 通道 | `typescript-fetch` | fetch（一致） | — |
 | 端 A 通道 | `typescript-axios` | **fetch** | 阶段性：通道实现属 B-2（接入生成 SDK 时按该端生成器落通道）。在 SDK 接入前引入 axios 只是多一个未被使用的运行时依赖 |
 | 端 C 通道 | 由端内实现 `wx.request` | `wx.request`（一致） | 与 matrix 注释逐字一致 |
+| 端 D 端本身 | matrix **未覆盖原生端**（只有三端 Web/小程序，见 `gen-endpoints.py` 注释） | 原生 Android（Kotlin）**已整端入库** | 生成器**新增 kt target**：读**同一份** `_cut/therapist-app.openapi.yaml`（token-roles 同为 therapist ∪ meridian），产出 `Endpoints.kt`。故端 D 的契约来源与端 B 同源，**不是**第四份契约 |
+| 端 D 数据层 | matrix 声明 Swift/Kotlin SDK 生成（原生双端） | Kotlin **DTO 手写**，但"端点 → 响应 schema"由生成物 `Endpoint.dataSchema` 提供 | 冻结契约里没有原生 SDK 生成器；手写 DTO 的漂移面由判据 `contract-schema-fields`（响应 DTO ↔ 契约 schema 双向相等）+ `gson-reflect-surface`（R8/Gson 反射面）钉住 |
 | 三端 SDK 产物 | `contract/sdk/<端>` | 已生成（9/27）但**未接入工程** | B-2 |
 
 ## 6. 阶段顺序（照规划 §3.3，避免返工）
@@ -143,7 +188,7 @@ exit 2 且不得打印 PASS）—— **W10 首跑即为红**，正是它抓出�
 
 ⚠️ 该措辞**尚未经裁定**，本文件不把它写成"已裁定"。
 
-## 8. 🛑 二十五条写作/路径/判据/管道纪律（由本仓第 50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、65、66、67、68、69、70、71、72、73 条系统性缺陷逼出，勿回退）
+## 8. 🛑 二十七条写作/路径/判据/管道纪律（由本仓第 50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、65、66、67、68、69、70、71、72、73 条系统性缺陷逼出，勿回退）
 
 ### 8.1 客户端包内【不得写出禁词原文】—— 一律用指代（第 51 条）
 
@@ -1792,7 +1837,7 @@ const visibleNav = NAV.filter((n) => n.requires === null || canCall(n.requires, 
 
 ---
 
-### 8.27 三端"零测试"缺口收口（2026-10-08）：把「构建通过」升级为「行为被断言」
+### 8.27 三端"零测试"缺口收口（第 76 条 · 2026-10-08）：把「构建通过」升级为「行为被断言」
 
 #### 8.27.1 缺口：三端只有"契约一致 + 类型构建"，**没有一行运行时行为断言**
 
@@ -1851,7 +1896,165 @@ const visibleNav = NAV.filter((n) => n.requires === null || canCall(n.requires, 
 - 后端全量 `mvn -o clean install` **BUILD SUCCESS**（8 模块全 SUCCESS，`Tests run: 859, Failures: 0, Errors: 0`；
   码级锚点 `TOTAL 1227` 对齐）。CI `build-and-test.yml` 已把「三端测试 + 反向验证」纳入流水线。
 
+### 8.28 「写下的命令」第三次（第 77 条）：CI 里那条 `npm run check:contract` 在本机是红的（2026-10-08）
+
+本轮把"全链路实跑"作为唯一入口（后端 `mvn clean install` + 四端门禁 + 四组反向验证），
+**一次跑出五处"能写出来、但跑不起来"的缺口**。五处都不是产品代码问题，
+全是**构建/工具链自身**的问题，且**全都没有任何编译或门禁会报**。
+
+#### ① `build-and-test.yml` 两个 job 都没有准备 Python（阻断级）
+
+`backend` job 跑 `mvn clean install`，而根 `pom.xml` 的 **validate 阶段**有 4 个
+Python 门禁（ADR-12 词表扫描 / s16 零派生 / s18 契约一致性 / s19 SDK 表面）；
+`frontend` job 里端 C 的 `npm run build` 会调 `gen-endpoints.py --check`。
+这些门禁**刻意**要求一个真正的 YAML 解析器，缺 PyYAML **一律 exit 2**、
+**不**退化成正则后照常打印 PASS。
+
+⇒ 在一个干净的 runner 上这两个 job **必然红**，而红的措辞是
+`MISCONFIGURED: PyYAML is required` —— 指向"契约不一致"这个**完全错误**的方向。
+
+**对照证据**：同一个仓库里的 `.github/workflows/compliance-gate.yml` **一直**有
+`actions/setup-python` + `python -m pip install "pyyaml>=6.0"` 两步；`build-and-test.yml` 漏了。
+**修法**：两个 job 各补 setup-python + `pip install -r skeleton/requirements.txt`。
+
+#### ② `package.json` 里裸调 `python`（第 48 条同族）
+
+`admin-web` / `therapist-app` 的 `gen:endpoints` / `check:contract` 原写
+`python ../tools/gen-endpoints.py [--check]`。实测本机：
+
+```
+$ npm run check:contract      → EXIT=2
+MISCONFIGURED: PyYAML is required (exit 2)
+```
+
+而**端 C 的构建走的是 `build-check.mjs`，那里早就有 `resolvePython()` 解析器** ——
+同一件事两套写法，其中一套（裸 `python`）没走到正确解释器。
+
+**修法**：抽 `tools/py.mjs`（解析器唯一实现）+ `tools/gen-endpoints.mjs`（Node 入口），
+`package.json` 一律改为 `node ../tools/gen-endpoints.mjs [--check]`；
+并把这条**做成判据** `no-bare-python-script`（判 scripts 里的**调用形态**，不判词出现）
++ 反向注入 **R26**。
+
+#### ③ 🛑 新机制：**探针与真调用不同形** ⇒ 解释器换了一个人（本轮最值钱的一条）
+
+这不是"忘了装包"，而是一个**平台层级的陷阱**：
+
+- 探针跑的是 `py -c "import yaml"`（**没有脚本文件**）；
+- 真实跑的是 `py gen-endpoints.py`（**是一个脚本文件**）。
+
+Windows 的 `py` 启动器会**读脚本首行的 shebang**。而 `gen-endpoints.py` 首行是
+`#!/usr/bin/env python` ⇒ 启动器用 **PATH 上的 `python`** 重新解析。实测三连：
+
+| 命令 | 实际解释器 | yaml |
+|---|---|---|
+| `py -c "import sys;print(sys.executable)"` | Python312 | ✅ 6.0.3 |
+| `py <**带** shebang 的 .py>` | 受管 3.13.12（PATH 上那个） | ❌ No module named 'yaml' |
+| `py <**去掉** shebang 的 .py>` | Python312 | ✅ 6.0.3 |
+
+⇒ 旧版 `resolvePython()` 的探针**通过**、紧接着的真调用 `exit 2`。
+**"探针通过"与"真调用能跑"是两件事** —— 这正是本仓反复记的"验证手段本身会骗人"。
+
+**修法**（不是删 shebang —— 那是把宿主平台的怪癖写进语言规范）：
+**让候选自报 `sys.executable` 绝对路径，之后一律用该绝对路径执行脚本** ——
+从此不经过 `py` 启动器，shebang 也就不参与解释器选择。
+候选顺序也改为**受管 venv 先于受管裸解释器**（裸解释器往往没 PyYAML）。
+
+#### ④ `Dockerfile` 在两条**独立**理由下都不可能构建成功
+
+`docker build` 的上下文是 `skeleton/`，而门禁要读的 `contract/openapi-v1.0.0.yaml`
+在**上一级**（`.dockerignore` 还显式排除了 `frontends` / `.github`）
+⇒ 门禁的 docs-root 向上探测必然失败、exit 2 —— 在镜像里跑它们**不是难，是不可能**。
+叠加第二条：`maven:*` 基础镜像里既没有 `python` 这个可执行名、也没有 PyYAML。
+
+**修法**：`-Dexec.skip=true` **显式**跳过（与同行 `-DskipTests` 同性质：本 RUN 的定位是**打包**），
+并把两条理由逐条写进 Dockerfile 注释 —— 门禁的归属是 CI 的 `backend` job
+（那里构建上下文是整个仓库、契约在场、Python 已备好）。
+🛑 **本机 Docker daemon 未运行 ⇒ 这一条【未本机实测】**，已如实登记。
+
+#### ⑤ 「修法」写在**报错文案**里，那也是一句"写下的命令"（同一轮的第五处）
+
+门禁在"生成物缺失"时会给出一句**修复指引**。本仓共 5 处 JS 报错文案
+（`a-check` 1 处 / `x3-check` 1 处 / `build-check` 3 处）；
+更隐蔽的是 `gen-endpoints.py` 自己会把"重跑 / 校验"两行**烧进每一份产物的文件头**
+（Kotlin 一处、TS/JS 一处），外加 `--check` 不一致时的一行 stderr —— 合计 **5 + 4 + 1 = 10 处**。
+
+这些字面量此前**一律是裸 `python frontends/tools/gen-endpoints.py`**。
+⇒ **你照着报错去修，反而会踩进同一个坑**；而它比"文案不好看"严重得多：
+
+- 那几行就印在产物里 `GENERATED FILE — DO NOT EDIT` 的**正下方**，
+  下一个维护者会把它当**权威指引**，而指引本身**跑不起来**；
+- **判据管不到它**（判据不扫自己的报错文案），review 也容易放过（"只是句话"）。
+
+**修法**：10 处全部改为 `node frontends/tools/gen-endpoints.mjs [--check]`；
+`gen-endpoints.py` 的 docstring 把 `.mjs` 列为**推荐入口**、把裸 `.py` 降为
+"等价形式（须自备 PyYAML）"，并写明三条理由（两个解释器 / 启动器读 shebang / 探针与真调用不同形）。
+🛑 **改完必须重跑生成器**（产物文件头已变），再用 `--check` 证明"生成物 == 契约"仍成立 ——
+否则就是把"文案修好、产物过期"换了个新缺陷。
+
+#### 🛑 一段自曝：我本轮**亲手**把 `build-reverse` 跑红了一次
+
+诚实登记，因为它正是 §8.27.4 那条规则的实证。
+
+第一次跑四组反向验证时，`build-reverse` 报 **19/26**：`R20~R26` 全部呈现
+"注入后 `exit=1` 且**命中判据 ✓**，但**还原后 `exit=1`**"，而 `R1~R19` 还原干净。
+
+那个形态很特别：**"抓得住"与"还原不了"同时成立** ⇒ 不是判据没牙齿，
+而是**还原之后，树本来就是红的**。
+
+**根因**：我在该脚本**运行期间**编辑了 `tools/gen-endpoints.py`
+（把烧进产物的头注释从 `python ...` 改成 `node ...`）⇒ 磁盘上四份产物仍是旧头、
+生成器已吐新头 ⇒ `gen-endpoints.py --check` **全局变红**
+⇒ 每一项测完再还原，也回不到绿。时序也对得上（编辑落在 R19 与 R20 之间）。
+
+**三条可复用结论**：
+
+1. **§8.27.4「反向验证脚本禁止并行」不只是"别同时跑两个脚本"** ——
+   它同样禁止**在它运行期间编辑任何被它注入、或它依赖的文件**。本条的实测代价就是一次假 FAIL。
+2. **`build-reverse-check.mjs` 的注入目标包含 `gen-endpoints.py` 自身**
+   （R4 一族就是"让生成器不再转录契约"）⇒ 这个文件在反向验证期间**必须冻结**。
+3. **判读"还原后 `exit≠0`"时，先问一句"基线现在绿吗"**。若还原目标本身是红的，
+   那不是判据的毛病，是**基线被弄脏了**。事后一行
+   `gen-endpoints.mjs --check` 就把真因钉死了（四端同时报 `[FAIL] ... 契约已改但未重跑生成器？`）。
+
+> 顺带一个正面结论：`android-check` / `android-reverse` **不受**此影响
+> —— 它直接读契约与生成物结构，**不做** `--check` 对拍，故同一次运行里
+> `android-reverse` 仍 **43/43 PASS**。这也说明"谁依赖对拍、谁不依赖"必须分清。
+
+#### 复验（逐字）
+
+- 后端 `mvn -B -ntp clean install` **BUILD SUCCESS**（9 模块全 SUCCESS，
+  `Tests run: 2454, Failures: 0, Errors: 0`，含真库 RLS 隔离套件）。
+- **四端门禁全绿，逐条 `exit=0`**：端 A `check:contract` + `check:build` + `check:a` + `npm test`（**18 例**）·
+  端 B `check:build` + `check:x3` + `npm test`（**18 例**）· 端 C `build` + `npm test`（**12 例**）·
+  端 D `android-check`（25 条判据）。（三端行为测试合计 **48 例**，与 §8.27.2 同数。）
+- **四组反向验证共 104 组全部 PASS、还原干净**：build **26/26** · a **21/21** · x3 **14/14** ·
+  android **43/43**；且**还原后再次复证** —— `gen-endpoints.mjs --check` 四端全绿 +
+  `android-check` 绿（这才是"还原干净"的证明，不是靠脚本自己声称）。
+- 新判据 `no-bare-python-script` 首跑即自证覆盖面：`package.json 的 10 条脚本里无裸调 python`。
+- **全新克隆**（`git clone` 到临时目录）→ 端 D 门禁绿 → `assembleDebug`
+  **BUILD SUCCESSFUL**（**无 `local.properties`**，只靠 `ANDROID_HOME`，与 CI 同条件）
+  → 产出 `app-debug.apk` 7,338,658 字节。**这条同时是端 D 整端入库的收口证据**。
+- **⑤ 改完重跑生成器**（`node frontends/tools/gen-endpoints.mjs`，四端
+  `operations = 15 / 29 / 39 / 29`）→ `--check` **四端全绿**；
+  四份产物的 diff **各为 2 行增 2 行删**，逐字只有那两条头注释
+  （`重跑:` / `校验:`），**零语义变更**。
+- 四组反向验证**在「无并发编辑」的干净条件下重跑**：**104/104** 全部 PASS、还原干净
+  （见上方"自曝"一节 —— 第一次跑出的 build 19/26 是**并发编辑**导致的**假 FAIL**，不是判据问题）。
+
+#### 教训（可复用）
+
+1. **"CI 写了"不等于"CI 跑得起来"** —— 与第 48 条同族，本轮是第三次。
+   唯一可靠的验法是**在干净环境里真跑一遍**（本机用克隆模拟）。
+2. **探针必须与被测的真实调用【同形】**。`-c` 与"脚本文件"在 Windows 上是两条路。
+   凡探针通过的项，问一句："我真跑的时候，命令行长这样吗？"
+3. **同一件事两套写法 ⇒ 其中一套一定会漏**。解析器抽出唯一实现，并加判据钉形态。
+
 ---
 
-> 🛑 **本文件 §8 的条数已由「二十五条」增至「二十六条」**（新增 §8.27，对应本轮三端测试套件收口），标题行已同步订正。
+> 🛑 **本文件 §8 的条数已由「二十五条」增至「二十七条」**（新增 §8.27 三端测试套件收口 =
+> **第 76 条**、§8.28 CI/Python 工具链**五处**缺口 = **第 77 条**），标题行已同步订正为「二十七条」。
+>
+> 🛑 **顺带补账**：第 76 条此前**只出现在提交信息里**（`c138639`），从未登记进骨架 README §5.1
+> 的缺陷表 —— 本轮补上 `| 76 |` 行，本条（CI/工具链）顺延为 **第 77 条**。
+> ⇒ 教训：**提交信息里引用的编号也是"活断言"**，没人守它就会与登记册脱节（第 60 条同族）。
 
