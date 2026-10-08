@@ -209,13 +209,19 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-      # 🛑 显式装 SDK 组件，不依赖 runner 镜像恰好预装：
-      #    镜像是会变的，而 `compileSdk=36` 是工程钉死的（见 app/build.gradle.kts）。
-      #    让 AGP 自己"按需下载"会把构建成功与否交给网络，且失败信息很难懂。
+      # 🛑 CI 第二轮实测（run 37798224165，2026-10-08）：android-actions/setup-android@v3
+      #    内部执行 `sdkmanager tools`，而遗留的 'tools' 包已从 SDK 仓库移除
+      #    （日志逐字：`Warning: Failed to find package 'tools'`）⇒ exit 1 ⇒ job 红。
+      #    这是该 action 遇上较新 runner 镜像（cmdline-tools 16.0）后的已知失效。
+      #    ubuntu-latest 镜像本就预装 Android SDK（ANDROID_HOME 已配好、sdkmanager 在
+      #    PATH 上），本步骤在此已无存在价值；"不依赖镜像恰好预装"的确定性意图由
+      #    下一步的显式 `sdkmanager --install` 继续承担（compileSdk=36 仍被钉死）。
       - name: 安装 SDK 组件（platform-36 / build-tools）
-        run: sdkmanager --install "platforms;android-36" "build-tools;35.0.0"
+        run: |
+          # 许可证一并显式接受：不赌镜像是否预接受过 platform-36 的许可证，
+          # `yes |` 供自动应答，失败不吞（sdkmanager 对已接受项是幂等的）。
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager --install "platforms;android-36" "build-tools;35.0.0"
 
       # 🛑 必须补可执行位：本工程在 Windows 上开发，而 git 在 Windows 上默认
       #    `core.filemode=false` ⇒ `gradlew` 的 +x 不会被记进版本库，
