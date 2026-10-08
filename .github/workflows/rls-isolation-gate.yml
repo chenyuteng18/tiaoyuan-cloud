@@ -140,6 +140,26 @@ jobs:
       - name: Install the gates' YAML parser
         run: python -m pip install --disable-pip-version-check -r "${{ github.workspace }}/skeleton/requirements.txt"
 
+      # 🛑 CI 首跑实证（run 37796021650，2026-10-08）：postgres 服务容器只有超级用户
+      #   postgres（服务 env 只给了 POSTGRES_PASSWORD），而 dy-app 的 @SpringBootTest
+      #   E2E 门禁族（BandRefetchGateTest / AgreementGateTest / DerivedVisibilityE2ETest
+      #   等）按 application.yml 连 `localhost:5432/diaoyuanyun_dev`（dev profile），
+      #   用户/密码取 ${DB_USERNAME:diaoyuanyun}/${DB_PASSWORD:diaoyuanyun}
+      #   ⇒ `FATAL: password authentication failed for user "diaoyuanyun"`
+      #   ⇒ Spring 上下文加载失败，E2E 门禁整族 ERROR（13 例连带 + 上下文阈值跳过）。
+      #   服务容器本身【不能动】：postgres/postgres 超级口径是下方 RLS 真库步骤
+      #   与负控的依赖。故在跑 mvn 之前用超级用户补建测试期望的角色与两个库
+      #   （默认 profile 的 diaoyuanyun 与 dev profile 的 diaoyuanyun_dev 都建，
+      #   不赌"测试走哪个 profile"）。CI 是一次性环境，无需幂等。
+      - name: Provision the diaoyuanyun role and databases (dy-app E2E expectations)
+        run: |
+          PGPASSWORD="$DY_PG_SUPER_PASSWORD" psql -X -h "$DY_PG_HOST" -p "$DY_PG_PORT" \
+            -U postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE diaoyuanyun LOGIN PASSWORD 'diaoyuanyun';" \
+            -c "CREATE DATABASE diaoyuanyun OWNER diaoyuanyun;" \
+            -c "CREATE DATABASE diaoyuanyun_dev OWNER diaoyuanyun;"
+          echo "已就绪：role diaoyuanyun + db diaoyuanyun / diaoyuanyun_dev"
+
       # step 1 —— 实现者证据。
       # 🛑🛑 2026-09-30 修正（本命令此前是【错的】，会让本 workflow 恒红）。
       #    旧写法 `-Dtest='Rls*Test' -DfailIfNoTests=false` 在本仓【结构上不可能通过】，

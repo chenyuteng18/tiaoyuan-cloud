@@ -15,6 +15,33 @@ jobs:
   backend:
     name: 后端 8 模块 clean install（含全量测试 + 码级门禁）
     runs-on: ubuntu-latest
+    # 🛑 CI 首跑实证（run 37796021603，2026-10-08）：clean install 的测试面里有
+    #   三族**真库门禁**，它们按 ADR-09 fail-closed —— 连不上 PostgreSQL 就视为
+    #   "缺少链完整性测试"，构建必须失败（这是设计，不是 flaky）：
+    #     ① dy-audit 的 AuditChainGateTest —— 用 psql 以超级用户 postgres /
+    #        ${DY_PG_SUPER_PASSWORD:postgres} 自建角色与库，但服务器必须先在；
+    #     ② dy-app 的 RlsGateSupport 族 —— 同为 fail-closed，自建库（连 /postgres）；
+    #     ③ dy-app 的 @SpringBootTest E2E 族 —— 按 application.yml 连
+    #        localhost:5432/diaoyuanyun_dev，用户 ${DB_USERNAME:diaoyuanyun}。
+    #   本机一直绿，是因为本机常驻一个配置好的 Postgres；runner 是一次性环境，
+    #   必须把"库"作为服务显式声明出来 —— 第 48 条（写下的命令 ≠ 跑得起来的命令）
+    #   在 CI 侧的又一实例：命令没错，错的是"命令依赖的环境没有被声明"。
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DY_PG_HOST: 127.0.0.1
+      DY_PG_PORT: "5432"
+      DY_PG_SUPER_PASSWORD: postgres
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 17
@@ -42,6 +69,29 @@ jobs:
           python-version: '3.11'
       - name: Install the gates' YAML parser
         run: python -m pip install --disable-pip-version-check -r skeleton/requirements.txt
+      # psql 是 AuditChainGateTest 自建角色/库的硬前提（它 shell 出去调 psql）。
+      # 先探测、缺了才装 —— 与 rls-isolation-gate.yml 同款，不为一个通常已存在的
+      # 二进制白等一次 apt。
+      - name: Ensure the psql client is available
+        run: |
+          if command -v psql >/dev/null 2>&1; then
+            echo "psql already present: $(psql --version)"
+          else
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+            psql --version
+          fi
+      # 补建 dy-app E2E 门禁期望的角色与库（与 rls-isolation-gate.yml 同款同因，
+      # 详见该文件的 Provision 步骤注释）。AuditChainGateTest / RlsGateSupport
+      # 的角色与库由测试自己建，这里只补 @SpringBootTest 族要的 diaoyuanyun。
+      - name: Provision the diaoyuanyun role and databases (dy-app E2E expectations)
+        run: |
+          PGPASSWORD="$DY_PG_SUPER_PASSWORD" psql -X -h "$DY_PG_HOST" -p "$DY_PG_PORT" \
+            -U postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE diaoyuanyun LOGIN PASSWORD 'diaoyuanyun';" \
+            -c "CREATE DATABASE diaoyuanyun OWNER diaoyuanyun;" \
+            -c "CREATE DATABASE diaoyuanyun_dev OWNER diaoyuanyun;"
+          echo "已就绪：role diaoyuanyun + db diaoyuanyun / diaoyuanyun_dev"
       - name: Build & test (clean install)
         working-directory: skeleton
         run: mvn -B -ntp clean install

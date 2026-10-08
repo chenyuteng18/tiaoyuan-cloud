@@ -38,6 +38,14 @@ jobs:
     #   必须显式声明工作目录，否则所有 `python compliance/...` 都会因路径不存在而红。
     #   注意 upload-artifact 的 path: 是【相对 GITHUB_WORKSPACE】而非本 defaults，
     #   故那些 path: 仍写完整相对仓库根的路径（skeleton/compliance/...），见下文。
+    # 🛑 CI 首跑实证（run 37796021582，2026-10-08）：defaults 只改 **cwd**，
+    #   而每个门禁步骤又【显式】传了 `--repo-root ${{ github.workspace }}`（仓库根）
+    #   ⇒ manifest 声明的扫描根 `client-package` 被解析到仓库根下（不存在）
+    #   ⇒ `[GATE-ERROR] client package root not found: .../client-package`，exit 2。
+    #   这不是内容违规，是**扫描面没递到位**：门禁刻意拒绝对不存在的树下判词。
+    #   修法：--repo-root 必须指向 **skeleton/**（client-package 与 compliance/ 的
+    #   真实父目录）；报告路径仍是相对 cwd（skeleton）的 `compliance/reports/...`，
+    #   与 upload-artifact 的仓库根相对路径（skeleton/compliance/reports/）两不相扰。
     defaults:
       run:
         working-directory: skeleton
@@ -78,7 +86,7 @@ jobs:
           PYTHONUTF8: "1"
         run: |
           python compliance/scan_compliance.py \
-            --repo-root "${{ github.workspace }}" \
+            --repo-root "${{ github.workspace }}/skeleton" \
             --report compliance/reports/ci-scan.json
 
       # Driven as a separate step so that the assertion failures are reported
@@ -117,7 +125,7 @@ jobs:
           PYTHONUTF8: "1"
         run: |
           python compliance/client-zero-derived-gate.py \
-            --repo-root "${{ github.workspace }}" \
+            --repo-root "${{ github.workspace }}/skeleton" \
             --json-report compliance/reports/ci-zero-derived.json
 
       # Same reasoning as the ADR-12 witness: a green gate proves nothing until
@@ -159,7 +167,7 @@ jobs:
           PYTHONUTF8: "1"
         run: |
           python compliance/contract-conformance-gate.py \
-            --repo-root "${{ github.workspace }}" \
+            --repo-root "${{ github.workspace }}/skeleton" \
             --json-report compliance/reports/ci-contract-conformance.json
 
       # 17 assertions, each destroying a piece of the gate's protection -- in the
@@ -214,7 +222,7 @@ jobs:
           PYTHONUTF8: "1"
         run: |
           python compliance/sdk-surface-gate.py \
-            --repo-root "${{ github.workspace }}"
+            --repo-root "${{ github.workspace }}/skeleton"
 
       # X5 is the case that matters most: deleting one method literal makes
       # paths and methods stop pairing 1:1, and the gate must REFUSE (exit 2)
@@ -249,6 +257,6 @@ jobs:
             echo ''
             echo '```text'
             python compliance/scan_compliance.py \
-              --repo-root "${{ github.workspace }}" || true
+              --repo-root "${{ github.workspace }}/skeleton" || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
