@@ -33,6 +33,10 @@
 var env = require('./env.js');
 var bandSync = require('./services/band-sync.js');
 var request = require('./services/request.js');
+// 🛑 令牌一律经 `./services/token-store.js`（本端唯一权威点）读取 —— 本文件此前
+//    三处各自写裸键名 `'token'`（onLaunch / onShow / resolveCustomerId），
+//    与会话层各定义一次（当时恰好同值，故静默）。第 84 条：改一处即分叉。
+var tokenStore = require('./services/token-store.js');
 
 /**
  * 取当前客户自身的 customer_id。
@@ -54,12 +58,7 @@ function resolveCustomerId(profile) {
   if (p.customer_id) return String(p.customer_id);
   if (p.data && p.data.customer_id) return String(p.data.customer_id);
 
-  var token = '';
-  try {
-    token = wx.getStorageSync('token') || '';
-  } catch (e) {
-    token = '';
-  }
+  var token = tokenStore.readToken();
   var seg = token.split('.');
   if (seg.length === 3) {
     try {
@@ -105,14 +104,14 @@ App({
 
   onLaunch: function () {
     this.globalData.envName = env.currentEnv();
-    this.globalData.token = wx.getStorageSync('token') || '';
+    this.globalData.token = tokenStore.readToken();
     // 冷启动视为新的前台周期
     _syncedThisForeground = false;
   },
 
   onShow: function () {
     var self = this;
-    var token = wx.getStorageSync('token') || '';
+    var token = tokenStore.readToken();
     this.globalData.token = token;
 
     // 未登录：不发起同步（也会是 401）。交给页面引导登录。

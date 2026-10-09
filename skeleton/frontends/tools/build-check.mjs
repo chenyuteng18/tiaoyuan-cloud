@@ -94,6 +94,11 @@ const ENDS = {
       'miniprogram/env.js',
       'miniprogram/contract/endpoints.js',
       'miniprogram/services/request.js',
+      // 🛑 2026-10-09（批次 G · 第 84 条）：令牌键名的**唯一权威点**。
+      //    此前键名在本端有四处分头定义（app.js ×3 + request.js ×1），且没有任何
+      //    判据在看 —— 必须同步登记在此，否则"文件被删了门禁也不会红"（第 53 条同型）。
+      'miniprogram/services/token-store.js',
+      'miniprogram/services/session.js',
     ],
     // 端 C 受 ADR-12 三面约束（scan1/2/3 的 SCOPE 就是"客户端包"）。
     scanWords: true,
@@ -102,6 +107,14 @@ const ENDS = {
     // 出站层 URL 拼接点 + 环境层（第 56 条 base-path 判据用）
     outbound: 'miniprogram/services/request.js',
     envFile: 'miniprogram/env.js',
+    // 🛑 错误码 → 客户可见文案的映射层（契约 x-error-codes 的落点）。
+    //    本条判据（④k）要核对"契约每个 code 都有本端文案、且没有契约外 code"——
+    //    缺了它，契约新增一个 code 时三端会【静默】落到兜底文案而全部门禁全绿。
+    codeMap: {
+      file: 'miniprogram/services/codes.js',
+      block: /var CODE_COPY\s*=\s*\{([\s\S]*?)\n\};/,
+      label: 'CODE_COPY',
+    },
     // 小程序产物由微信开发者工具编译，本机没有通用打包器 ⇒ 不做"真实构建"这一项。
     realBuild: null,
   },
@@ -154,6 +167,12 @@ const ENDS = {
       { name: 'tsc --noEmit', bin: 'node_modules/typescript/bin/tsc', argv: ['--noEmit'] },
       { name: 'vite build', bin: 'node_modules/vite/bin/vite.js', argv: viteBuildArgv() },
     ],
+    // 🛑 错误码 → 内部使用者文案的映射层（契约 x-error-codes 的落点，判据 ④k）。
+    codeMap: {
+      file: 'src/services/errors.ts',
+      block: /export const COPY[\s\S]*?Object\.freeze\(\s*\{([\s\S]*?)\n\}\)\s*;/,
+      label: 'COPY',
+    },
   },
   'admin-web': {
     label: '端 A · 管理员 Web',
@@ -210,6 +229,12 @@ const ENDS = {
       { name: 'tsc --noEmit', bin: 'node_modules/typescript/bin/tsc', argv: ['--noEmit'] },
       { name: 'vite build', bin: 'node_modules/vite/bin/vite.js', argv: viteBuildArgv() },
     ],
+    // 🛑 错误码 → 管理端文案的映射层（契约 x-error-codes 的落点，判据 ④k）。
+    codeMap: {
+      file: 'src/services/errors.ts',
+      block: /export const COPY[\s\S]*?Object\.freeze\(\s*\{([\s\S]*?)\n\}\)\s*;/,
+      label: 'COPY',
+    },
   },
 };
 
@@ -766,49 +791,125 @@ if (existsSync(appJsonPath)) {
 //       排查者会先去怀疑账号权限，而不是"两个文件用了两个键名"。
 //    修法两层：① 键名收敛到一个模块（端 A = `services/token-store.ts`，
 //    端 B = `services/session.ts` 内的 TOKEN_KEY）；② 本条判据禁止**别处**
-//    再出现令牌语义的裸 localStorage 键名字面量。
+//    再出现令牌语义的裸键名字面量。
 // 🛑 判据形态（第 52 条教训）：判【存储访问形态】，不判"词是否出现"。
+//
+// ---------------------------------------------------------------------------
+// 🛑 2026-10-09（批次 G · 本仓第 84 条）：端 C 曾被本判据判成"不适用"—— 那是假的
+// ---------------------------------------------------------------------------
+// 上文那句"端 A / 端 B 的 `services/session.ts` 写 `localStorage...`"把扫描根写死成
+// `src/`，而**端 C 的源码在 `miniprogram/`** ⇒ 端 C 走到 `files.length === 0` 分支，
+// 打印 `– 本端无 src/（不适用）` 然后**跳过**。
+//
+// 🛑 这不是"不适用"，是【判据不认识本端的目录形态】。而"不适用"与"没写"在输出上
+//    **无法区分** —— 这正是第 45 条（白名单漏项）与第 71 条（受保护集由认字能力决定）
+//    的同族形态，只是这次的"认字能力"换成了"认目录名"。
+//
+// 实测后果（改前，逐字）：
+//   · 端 A（`src/`）✓ 有守护 · 端 B（`src/`）✓ 有守护 · 端 D（Kotlin）✓ 有守护
+//     （`android-check.mjs` 的 `session-key-single-source`）；
+//   · **端 C 既没有守护，又恰好有【四处】权威点之外的裸键名** ——
+//     `miniprogram/app.js` ×3 + `miniprogram/services/request.js` ×1。
+//     🛑 其中 `request.js` 那处**在出站层**：即"给请求装 Authorization 头"这一步
+//     自己读键名，绕开了 `services/session.js`。今天它与 `TOKEN_KEY` 恰好同值
+//     （都是 `'token'`）⇒ 没有暴露；**改一处即静默分叉**，表现是全量 401，
+//     而 tsc / 构建 / 全部判据当时一律绿。
+//
+// ⇒ 本条判据的两条改造（都是把"判据自身"修对，不是放宽）：
+//   ① **扫描根按端形态补齐**：`src/` 与 `miniprogram/` 各自存在即纳入；
+//      访问形态也补齐端 C 的 `wx.*StorageSync`。
+//   ② **找不到权威点 ⇒ 报红**，不得当作"不适用"。并把扫描根与文件数**打印出来** ——
+//      "悄悄少扫一批文件"与"判据有牙"在输出上必须可区分（第 53 条）。
 {
   const TOKEN_SEMANTIC = /token|jwt|auth/i;
-  const walkTs = (dir, acc = []) => {
+  // 各端源码扩展名：端 A/B = ts/tsx；端 C = js（小程序原生）。
+  const SRC_EXTS = /\.(ts|tsx|js|jsx)$/i;
+  const walkSrc = (dir, acc = []) => {
     if (!existsSync(dir)) return acc;
     for (const name of readdirSync(dir)) {
       if (name === 'node_modules' || name.startsWith('.')) continue;
       const p = join(dir, name);
-      if (statSync(p).isDirectory()) walkTs(p, acc);
-      else if (/\.(ts|tsx)$/i.test(name)) acc.push(p);
+      if (statSync(p).isDirectory()) walkSrc(p, acc);
+      else if (SRC_EXTS.test(name)) acc.push(p);
     }
     return acc;
   };
-  const srcDir = join(END_ROOT, 'src');
-  const files = walkTs(srcDir);
-  if (files.length === 0) {
-    notes.push('  – token-single-source: 本端无 src/（不适用）');
+  // 扫描根 = **各端真实源码根**（存在即纳入）。漏一个根的后果与端 C 原先的"不适用"同型。
+  const ROOTS = ['src', 'miniprogram']
+    .map((r) => join(END_ROOT, r))
+    .filter((d) => existsSync(d));
+
+  if (ROOTS.length === 0) {
+    // 真有端没有这两个根（如端 D 是 Kotlin，由 android-check 的
+    // `session-key-single-source` 守）—— 此处如实记"不适用"。
+    notes.push('  – token-single-source: 本端无 src/ 也无 miniprogram/（不适用）');
   } else {
-    // 权威点：端 A 是 token-store.ts；端 B 是 services/session.ts（含 TOKEN_KEY 常量）
-    const AUTH_FILES = new Set([
-      join(srcDir, 'services', 'token-store.ts'),
-      join(srcDir, 'services', 'session.ts'),
-    ]);
-    const hits = [];
-    for (const f of files) {
-      if (AUTH_FILES.has(f)) continue;
-      const code = readFileSync(f, 'utf8');
-      const re = /localStorage\.(?:get|set|remove)Item\(\s*(['"])((?:[^'"\\]|\\.)*)\1/g;
-      let m;
-      while ((m = re.exec(code))) {
-        if (TOKEN_SEMANTIC.test(m[2])) {
-          hits.push(`${relative(END_ROOT, f)} :: ${JSON.stringify(m[2])}`);
-        }
+    const files = ROOTS.flatMap((r) => walkSrc(r));
+    const rootRel = ROOTS.map((r) => relative(END_ROOT, r).replace(/\\/g, '/') + '/').join(' + ');
+
+    // 权威点候选（按端形态）：端 A = token-store.ts；端 B = session.ts；
+    // 端 C = token-store.js（本批新增的唯一权威点）+ session.js（鉴权层，与端 A 同形）。
+    const AUTH_NAMES = [
+      'services/token-store.ts', 'services/token-store.js',
+      'services/session.ts', 'services/session.js',
+    ];
+    const AUTH_FILES = new Set();
+    for (const r of ROOTS) {
+      for (const n of AUTH_NAMES) {
+        const p = join(r, n);
+        if (existsSync(p)) AUTH_FILES.add(p);
       }
     }
-    if (hits.length) {
+
+    if (AUTH_FILES.size === 0) {
+      // 🛑 关键改造②：不认识的形态**不得**算通过，也不得算"不适用"。
       fail('token-single-source',
-        `令牌键名出现了权威点之外的第二处定义:\n      ${hits.join('\n      ')}\n`
-        + '      ⇒ 写与读的键名若不一致，Authorization 头会【静默为空】（全量 401），\n'
-        + '        而 tsc / 构建 / 其它判据都不会报。');
+        `扫描到 ${files.length} 个源文件（根：${rootRel}），但**找不到令牌权威点**`
+        + `（候选：${AUTH_NAMES.join(' / ')}）。\n`
+        + '      ⇒「写进去的键」与「读出来的键」是不是同一个，本判据**无法判定** ——\n'
+        + '        【不得】当作通过，也不得当作"本端不适用"。\n'
+        + '      ⇒ 目录改名 / 权威点被删都会让本判据静默失效，而这正是本条要防的形态（第 84 条）。');
     } else {
-      ok('token-single-source', `令牌键名仅存在于权威点（已扫 ${files.length} 个源文件）`);
+      const scanned = files.filter((f) => !AUTH_FILES.has(f));
+      if (scanned.length === 0) {
+        // 🛑 覆盖面自证：扫描面若只剩权威点自己，本判据事实上没在查任何东西。
+        fail('token-single-source',
+          `扫描面只剩令牌权威点自身（共 ${files.length} 个文件，权威点 ${AUTH_FILES.size} 个）`
+          + ' ⇒ 本判据事实上没有在检查任何消费方，输出"通过"会是假绿。\n'
+          + '      ⇒ 请核对扫描根（' + rootRel + '）是否写错。');
+      } else {
+        // 两种存储形态：浏览器 localStorage（端 A / 端 B）· 小程序 wx 同步存储（端 C）。
+        const FORMS = [
+          /localStorage\.(?:get|set|remove)Item\(\s*(['"])((?:[^'"\\]|\\.)*)\1/g,
+          /wx\.(?:get|set|remove)StorageSync\(\s*(['"])((?:[^'"\\]|\\.)*)\1/g,
+        ];
+        const hits = [];
+        for (const f of scanned) {
+          // 🛑 先剥注释再判：注释里**解释**"为什么不能写 xxx"是合法写法，
+          //    不剥注释会把它判红（第 55 条：判据太窄 ⇒ 假红 ⇒ 判据被删）。
+          const code = stripComments2(readFileSync(f, 'utf8'));
+          for (const re of FORMS) {
+            re.lastIndex = 0;
+            let m;
+            while ((m = re.exec(code))) {
+              if (TOKEN_SEMANTIC.test(m[2])) {
+                hits.push(`${relative(END_ROOT, f).replace(/\\/g, '/')} :: ${JSON.stringify(m[2])}`);
+              }
+            }
+          }
+        }
+        if (hits.length) {
+          fail('token-single-source',
+            `令牌键名出现了权威点之外的第二处定义:\n      ${hits.join('\n      ')}\n`
+            + '      ⇒ 写与读的键名若不一致，Authorization 头会【静默为空】（全量 401），\n'
+            + '        而 tsc / 构建 / 其它判据都不会报。\n'
+            + `      ⇒ 修法：一律经 ${[...AUTH_FILES].map((f) => relative(END_ROOT, f).replace(/\\/g, '/')).join(' / ')} 读写。`);
+        } else {
+          ok('token-single-source',
+            `令牌键名仅存在于权威点（扫 ${scanned.length} 个消费方文件 · 根：${rootRel} · `
+            + `权威点 ${[...AUTH_FILES].map((f) => relative(END_ROOT, f).replace(/\\/g, '/')).join(' + ')}）`);
+        }
+      }
     }
   }
 }
@@ -1490,6 +1591,220 @@ if (cfg.outbound) {
 
   if (problems.length) fail('page-registry', problems.join('\n      '));
   else ok('page-registry', summary);
+}
+
+// ---------------------------------------------------------------------------
+// ④j 【页面可被走到】端 C —— 声明了、文件在、调用链在，但**没有任何入口**
+// ---------------------------------------------------------------------------
+// 🛑 与 ④h `page-registry` 的分工：同一层的**两个相反方向**
+// ---------------------------------------------------------------------------
+//   · ④h 判"**磁盘**上有的页面有没有被**声明**"（漏声明 ⇒ 小程序不加载 ⇒ 打不开）；
+//   · 本条判"**声明了**的页面有没有被**走到**"（没有入口 ⇒ 用户永远到不了）。
+//
+// 🛑 受控注入实测的形态（这不是理论风险）
+// ---------------------------------------------------------------------------
+//   把 `profile.js` 里指向 `pages/visits/visits` 的 `wx.navigateTo` 删掉 ——
+//   文件在、`app.json` 在、④g 的端点调用链在、④h 三方一致 ⇒ **全部门禁全绿**，
+//   而客户再也进不去「到店记录」。与第 63/64 条同族：链路的每一层都换一个藏身处。
+//
+// 🛑 判据形态与**如实登记的边界**（不得假装它比实际更严）
+// ---------------------------------------------------------------------------
+//   入口集合 = 「**本页自身文件之外**、且含导航调用的文件」里出现的 `/pages/...` 路径字面量。
+//   两点说明，都是实测出来的：
+//     ① **必须排除本页自身的文件**。首版没排，注入立即证伪：
+//        `pages/visits/visits.js` 里有一行 `session.requireLogin('/pages/visits/visits')`
+//        ⇒ 该页"自己给自己当入口"，删掉 profile.js 的跳转后判据**仍然全绿**（= 没牙齿）。
+//        ⚠️ 这正是本仓纪律"每个判据都要被反向注入证伪一次"的又一处兑现。
+//     ② 比"必须出现在 `url:` 位置"更宽 —— 因为本仓端 C 有**变量中转**的合法写法：
+//        `var url = '/pages/login/login'; … wx.redirectTo({ url: url })`。
+//        按 `url:` 位置判会把 `/pages/login/login` 误判成孤儿 ⇒ **假红 ⇒ 判据被删**（第 55 条）。
+//   ⚠️ 代价（明确登记）：一个**别的**文件里恰好写着某路径却从不跳过去时，本条不会报红。
+//      即它是"死页面的必要条件守护"，不是充分守护 —— 写成"充分"就是过度声称。
+{
+  if (END_ID !== 'client-mp') {
+    notes.push('  – page-reachability: 端 A / 端 B 的页面可到达由 ④h（NAV ↔ `type Tab` ↔ 渲染分支）覆盖（本条不重复判）。');
+  } else {
+    const MP = join(END_ROOT, 'miniprogram');
+    const ajPath = join(MP, 'app.json');
+    if (!existsSync(ajPath)) {
+      notes.push('  – page-reachability: app.json 不存在（④h 已报，本条不重复）。');
+    } else {
+      const app = JSON.parse(readFileSync(ajPath, 'utf8'));
+      const declared = Array.isArray(app.pages) ? app.pages : [];
+      const tabPaths = (app.tabBar && Array.isArray(app.tabBar.list) ? app.tabBar.list : [])
+        .map((x) => x.pagePath);
+      const NAV_CALL_RE = /\bwx\s*\.\s*(?:navigateTo|redirectTo|switchTab|reLaunch)\s*\(/;
+      const PATH_LIT_RE = /['"`](\/pages\/[A-Za-z0-9_/-]+)['"`]/g;
+      const owners = new Map(); // '/pages/x/x' -> Set(引用它的文件，相对 miniprogram/)
+      let navFiles = 0;
+      const walkNav = (dir) => {
+        if (!existsSync(dir)) return;
+        for (const name of readdirSync(dir)) {
+          if (name === 'node_modules' || name.startsWith('.')) continue;
+          const p = join(dir, name);
+          if (statSync(p).isDirectory()) { walkNav(p); continue; }
+          if (!/\.js$/i.test(name)) continue;
+          const code = stripComments2(readFileSync(p, 'utf8'));
+          if (!NAV_CALL_RE.test(code)) continue;
+          navFiles += 1;
+          const rel = relative(MP, p).replace(/\\/g, '/');
+          PATH_LIT_RE.lastIndex = 0;
+          let m;
+          while ((m = PATH_LIT_RE.exec(code))) {
+            if (!owners.has(m[1])) owners.set(m[1], new Set());
+            owners.get(m[1]).add(rel);
+          }
+        }
+      };
+      walkNav(MP);
+
+      if (navFiles === 0) {
+        fail('page-reachability',
+          'miniprogram/ 下**一个导航调用都没有**（navigateTo / redirectTo / switchTab / reLaunch）'
+          + ' ⇒ 判据无从判定，【不得】当作通过（第 52/53 条：判据不认识当前写法 ⇒ 不得算绿）。');
+      } else {
+        // 本页自身文件不算入口（否则每页都能"自己给自己当入口" —— 见上 ①）。
+        const orphans = declared.filter((p) => {
+          if (tabPaths.includes(p)) return false;
+          const from = owners.get('/' + p);
+          if (!from) return true;
+          const self = `${p}.js`;
+          return [...from].every((f) => f === self);
+        });
+        if (orphans.length) {
+          fail('page-reachability',
+            `以下页面**已声明但没有任何【外部】入口**（用户永远走不到，等同死页）：\n        `
+            + orphans.join('\n        ')
+            + '\n        ⇒ 文件在、app.json 在、④g 的调用链也在 —— 只有"从哪进去"这一层没人守。\n'
+            + '        ⇒ 修法：给它一个入口（加入 tabBar，或从**别的**页面 navigateTo/redirectTo 过去；\n'
+            + '          本页自身文件里的自引用不算入口）。');
+        } else {
+          const nonTab = declared.length - tabPaths.length;
+          ok('page-reachability',
+            `${declared.length} 个页面全部可走到：tabBar 入口 ${tabPaths.length} 项 + `
+            + `非 tab 页 ${nonTab} 个均有**外部**导航出口`
+            + `（扫描 ${navFiles} 个含导航调用的文件；页面自身文件的自引用不计入口）`);
+        }
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ④k 【错误码覆盖】契约 x-error-codes 的每个 code 都必须有本端文案（本仓第 85 条）
+// ---------------------------------------------------------------------------
+// 🛑 它堵的洞（2026-10-09 机械清点，不是推理）
+// ---------------------------------------------------------------------------
+//   契约根级 `x-error-codes` 给出 **12 个 code**（1001/1002/2001/2002/2003/2004/
+//   3001/4001/4002/5001/6001/9001）。三端各有一张 **code → 用户可见文案** 的映射
+//   （端 A / 端 B = `services/errors.ts` 的 `COPY`；端 C = `services/codes.js` 的
+//   `CODE_COPY`），因为契约明文「`message` 面向开发者，不得直接渲染」。
+//
+//   而**没有任何判据**在核对"契约的每个 code 是否都有本端文案"。
+//   ⇒ 契约新增一个 code 时，三端会**静默**落到兜底文案（"操作未完成，请稍后再试"）：
+//     用户看到一句无信息量的提示，服务端明明给了确定的拒绝原因，
+//     而 tsc / vite / **全部既有判据一律绿**。
+//   ⇒ 与第 57/58/61 条**同族**：**契约写下的协议与各端实现的协议是两件事，
+//     中间丢项不报错。** 前三条修的是"协议片段"（头名/前缀/分页/原因名），
+//     本条修的是"错误码枚举" —— 同一个族里的第四个成员。
+//
+// 🛑 判据形态：三源交叉 + 双向等式（照 aCheck ⑫ 与 A-4 的成例）
+// ---------------------------------------------------------------------------
+//   ① **冻结契约 ↔ 裁剪契约**：生成器的输入（`_cut/<端>.openapi.yaml`）必须是
+//      冻结契约的**无损**裁剪 —— 逐条 code+name 相等。两处不一致 ⇒ 报红。
+//   ② **契约 ↔ 本端映射**：`契约 codes ⊆ 本端映射`（每个 code 都有文案）
+//      **且** `本端映射 ⊆ 契约 codes`（不得出现契约外的 code，那说明映射表腐烂）。
+//   ③ **覆盖面自证**：契约侧解析出的 code 数 < 10 ⇒ 报红，**不得**当作通过
+//      （否则"两边都是空集"会被读成"完美一致" —— 第 53/55 条）。
+{
+  // 🛑 冻结契约与裁剪契约都在**仓库根**下（不在 skeleton/ 内）—— 这正是
+  //    `Dockerfile` 必须跳过后端 exec 门禁的那条理由（构建上下文拿不到它们）。
+  const FROZEN = join(REPO_ROOT, 'contract', 'openapi-v1.0.0.yaml');
+  const CUT = join(REPO_ROOT, 'contract', 'sdk-generator', '_cut', `${cfg.contractKey}.openapi.yaml`);
+
+  /** 从契约文本里抽根级 `x-error-codes` 的 (code, name) 序列（不依赖 YAML 库）。 */
+  const parseCodes = (text, label) => {
+    const start = text.search(/^x-error-codes:\s*$/m);
+    if (start < 0) return { err: `${label} 未找到根级 x-error-codes` };
+    const rest = text.slice(start);
+    // 块结束 = 下一个**顶格**的键（列表项以 '-' 开头、其余行有缩进 ⇒ 都不会被误认）
+    const tail = rest.slice(1).search(/^[A-Za-z][A-Za-z0-9_-]*:/m);
+    const block = tail < 0 ? rest : rest.slice(0, tail + 1);
+    const pairs = [];
+    let pending = null;
+    for (const line of block.split('\n')) {
+      const mc = line.match(/^\s*-?\s*code:\s*(\d{3,5})\s*$/);
+      if (mc) { pending = Number(mc[1]); continue; }
+      const mn = line.match(/^\s*name:\s*([A-Za-z0-9_]+)\s*$/);
+      if (mn && pending !== null) { pairs.push({ code: pending, name: mn[1] }); pending = null; }
+    }
+    return { pairs };
+  };
+
+  const problems = [];
+  if (!existsSync(FROZEN)) {
+    problems.push(`冻结契约不存在：${FROZEN} —— 本判据的真源缺失，【不得】当作通过。`);
+  } else if (!existsSync(CUT)) {
+    problems.push(`裁剪契约不存在：${CUT} —— 生成器输入缺失，【不得】当作通过。`);
+  } else {
+    const fo = parseCodes(readFileSync(FROZEN, 'utf8'), '冻结契约');
+    const cu = parseCodes(readFileSync(CUT, 'utf8'), '裁剪契约');
+    if (fo.err) problems.push(`${fo.err} —— 本判据的真源缺失，【不得】当作通过。`);
+    else if (cu.err) problems.push(`${cu.err} ——【不得】当作通过。`);
+    else if (fo.pairs.length < 10) {
+      // ③ 覆盖面自证
+      problems.push(`冻结契约只解析出 ${fo.pairs.length} 个 code（期望 ≥ 10）—— `
+        + '判据的解析面不足，【不得】当作通过（"两边都空"会被读成"完美一致"）。');
+    } else {
+      // ① 冻结 ⟷ 裁剪
+      const fKey = fo.pairs.map((p) => `${p.code}:${p.name}`).join(',');
+      const cKey = cu.pairs.map((p) => `${p.code}:${p.name}`).join(',');
+      if (fKey !== cKey) {
+        problems.push('冻结契约与裁剪契约的 x-error-codes **逐条不一致**：\n        '
+          + `冻结 ${fo.pairs.length} 条：${fKey}\n        `
+          + `裁剪 ${cu.pairs.length} 条：${cKey}\n        `
+          + '⇒ 生成器的输入已被改动。本判据以冻结契约为真源。');
+      }
+      // ② 契约 ⟷ 本端映射
+      if (!cfg.codeMap) {
+        problems.push('本端未登记 code → 文案映射表位置（cfg.codeMap）—— 无法核对，【不得】当作通过。');
+      } else {
+        const mapPath = join(END_ROOT, cfg.codeMap.file);
+        if (!existsSync(mapPath)) {
+          problems.push(`本端错误码映射表不存在：${cfg.codeMap.file} —— ` +
+            `契约要求每个 code 都有本端文案，缺失即用户看到一句无信息量的兜底文案。`);
+        } else {
+          const mBlock = readFileSync(mapPath, 'utf8').match(cfg.codeMap.block);
+          if (!mBlock) {
+            problems.push(`未能从 ${cfg.codeMap.file} 圈定 ${cfg.codeMap.label} 对象本体 —— `
+              + '判据不认识当前写法，【不得】当作通过（第 52/53 条）。');
+          } else {
+            const endCodes = new Set(
+              [...mBlock[1].matchAll(/^\s*(\d{3,5})\s*:/gm)].map((m) => Number(m[1])),
+            );
+            const contractCodes = fo.pairs.map((p) => p.code);
+            const missing = contractCodes.filter((c) => !endCodes.has(c));
+            const extra = [...endCodes].filter((c) => !contractCodes.includes(c));
+            if (missing.length) {
+              problems.push(`契约有、本端**没有文案**的 code：${missing.join(', ')}\n        `
+                + '⇒ 这些拒绝原因会让用户看到兜底文案（"操作未完成，请稍后再试"），\n        '
+                + '   而服务端明明给出了确定的 code —— 属第 57/58/61 条同族的"丢项不报错"。');
+            }
+            if (extra.length) {
+              problems.push(`本端有、契约**没有**的 code：${extra.join(', ')}\n        `
+                + '⇒ 映射表已腐烂（契约删掉的 code 还留在这里，或凭空发明了 code）。');
+            }
+            if (!missing.length && !extra.length) {
+              ok('error-code-coverage',
+                `契约 ${fo.pairs.length} 个 code：冻结 ↔ 裁剪逐条一致 · `
+                + `本端 ${cfg.codeMap.file} 覆盖 ${endCodes.size} 条 · 双向等式成立（无缺项、无表外码）`);
+            }
+          }
+        }
+      }
+    }
+  }
+  if (problems.length) fail('error-code-coverage', problems.join('\n      '));
 }
 
 // ---------------------------------------------------------------------------

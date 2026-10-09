@@ -40,6 +40,11 @@
 var contract = require('../contract/endpoints.js');
 
 var ENV = require('../env.js');
+// 🛑 令牌一律经 `./token-store.js`（本端唯一权威点）读取，**不得在本文件写裸键名**。
+//    此前这里写的是 `wx.getStorageSync('token')` —— 与 session 层的 `TOKEN_KEY`
+//    各自定义一次（当时恰好同值，故静默）。出站层自己读键名 ⇒ 改一处即分叉 ⇒
+//    Authorization 头为空 ⇒ 全量 401，而 tsc / 构建 / 全部判据一律绿（第 84 条）。
+var tokenStore = require('./token-store.js');
 
 function isAllowedOperation(id) {
   return contract.ENDPOINT_IDS.indexOf(id) !== -1;
@@ -94,7 +99,7 @@ function call(operationId, opts) {
   }
 
   var header = Object.assign({ 'Content-Type': 'application/json' }, opts.header || {});
-  var token = wx.getStorageSync('token');
+  var token = tokenStore.readToken();
   // 🛑 头名与令牌前缀取自【生成物常量】（契约 x-api-protocol 的机械转录），
   //    不得在本文件手写字面量 —— 第 57 条：跨端协议片段只散在注释/字面量里，
   //    改一处即静默分叉，而构建自检/门禁全绿。

@@ -14,60 +14,44 @@
  * 决定"有没有必要发起请求"，**任何一次真实可见性仍以服务端响应为准**。换言之：
  * 档位说可见而服务端拒了，界面必须如实显示拒绝，不得回退成本地缓存的旧数据。
  *
- * 🛑 凭证存储
- * -----------
- * 用 `wx.setStorageSync('token', ...)`。小程序本地存储**不是**可信边界（可由
- * 用户清理、也可能被同设备其他来源读取），故它只用于"带上请求头"，不作为权限
- * 依据。真正的边界是服务端的签名校验。
+ * 🛑 凭证存储 —— **本文件不自己存**
+ * ---------------------------------------------------------------------------
+ * 键名与读写形态一律经 `./token-store.js`（本端唯一权威点）。
+ *
+ * 2026-10-09（批次 G · 本仓第 84 条）之前不是这样：本文件持有 `TOKEN_KEY`，
+ * 而 `app.js`（3 处）与 `services/request.js`（1 处，**在出站层**）各自写裸键名
+ * `'token'`。当时四处**恰好同值**，所以没有暴露 —— 但改一处即静默分叉，表现是
+ * `Authorization` 头为空 ⇒ 全量 401，而 tsc / 构建 / 全部判据一律绿（第 50 条同族）。
+ * 端 A / 端 B / 端 D 三端此前都已有这一条守护，端 C 是唯一缺口。
+ *
+ * 🛑 小程序本地存储**不是**可信边界（可由用户清理、也可能被同设备其他来源读取），
+ * 故它只用于"带上请求头"，不作为权限依据。真正的边界是服务端的签名校验。
  */
 
 'use strict';
 
 var request = require('./request.js');
-
-var TOKEN_KEY = 'token';
-var PROFILE_KEY = 'profile';
+var tokenStore = require('./token-store.js');
 
 function getToken() {
-  try {
-    return wx.getStorageSync(TOKEN_KEY) || '';
-  } catch (e) {
-    return '';
-  }
+  return tokenStore.readToken();
 }
 
 function setToken(token) {
-  try {
-    wx.setStorageSync(TOKEN_KEY, token || '');
-  } catch (e) {
-    /* 存储失败不应中断登录：本次会话在内存里仍可用 */
-  }
+  tokenStore.writeToken(token);
 }
 
 function clearToken() {
-  try {
-    wx.removeStorageSync(TOKEN_KEY);
-    wx.removeStorageSync(PROFILE_KEY);
-  } catch (e) {
-    /* 同上 */
-  }
+  tokenStore.clearToken();
 }
 
 /** 缓存的 /auth/me 结果，仅在离线时用于展示，不参与任何判定。 */
 function getCachedProfile() {
-  try {
-    return wx.getStorageSync(PROFILE_KEY) || null;
-  } catch (e) {
-    return null;
-  }
+  return tokenStore.readProfile();
 }
 
 function setCachedProfile(profile) {
-  try {
-    wx.setStorageSync(PROFILE_KEY, profile || null);
-  } catch (e) {
-    /* 同上 */
-  }
+  tokenStore.writeProfile(profile);
 }
 
 /**

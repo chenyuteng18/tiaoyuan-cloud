@@ -67,7 +67,7 @@ node frontends/tools/gen-endpoints.mjs --check   # 只校验产物与契约一�
 | therapist-app | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` · `npm run check:x3` · `npm run check:x3-reverse` | 需 `npm install`；X-3 两组门禁 |
 | admin-web | `npm run build`（`tsc --noEmit && vite build`）· `npm run check:build` · `npm run check:a` · `npm run check:a-reverse` | 需 `npm install` |
 | therapist-android | `node tools/android-check.mjs`（**25 条判据**，纯 Node 零依赖）· `tools/android-reverse-check.mjs`（**43 组**受控注入）· 真编译 `./gradlew assembleDebug` | 🛑 门禁与真编译**刻意分离**：门禁只读「源码 + 生成物 + 契约」，**不依赖 Android SDK / JDK / 模拟器** |
-| 四端通用 | `npm run check:build-reverse` → `node ../tools/build-reverse-check.mjs` | `base-path-wiring`（6 组 R1–R6）+ `cross-end-protocol`（4 组 R7–R10）+ `pagination-protocol`（3 组 R11–R13）+ **`error-data-fields`（3 组 R14–R16）** 反向验证，**常驻**；且能抓住「判据被删」|
+| 四端通用 | `npm run check:build-reverse` → `node ../tools/build-reverse-check.mjs` | **35 组**受控注入，覆盖 `build-check` 的**全部 12 条判据**：`base-path-wiring`（R1–R6）· `cross-end-protocol`（R7–R10）· `pagination-protocol`（R11–R13）· `error-data-fields`（R14–R16）· `endpoint-reachability`（R17–R18）· `page-registry`（R19–R21）· `required-args-wired` / `required-args-carrier`（R22–R25）· `no-bare-python-script`（R26）· `ci-dependency-source-normalized`（R27–R28）· `ci-mvn-jobs-have-python`（R29）· `token-single-source`（**R30 + R35**）· `page-reachability`（R31）· `error-code-coverage`（R32–R34）。**常驻**；且能抓住「判据被删」与「判据的**覆盖面自证**失效」（R35）|
 
 **Python 前置（四端门禁都吃这一条）**：
 
@@ -188,7 +188,7 @@ exit 2 且不得打印 PASS）—— **W10 首跑即为红**，正是它抓出�
 
 ⚠️ 该措辞**尚未经裁定**，本文件不把它写成"已裁定"。
 
-## 8. 🛑 三十一条写作/路径/判据/管道纪律（由本仓第 50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、65、66、67、68、69、70、71、72、73、76、77、78、79、80、83 条系统性缺陷逼出，勿回退）
+## 8. 🛑 三十三条写作/路径/判据/管道纪律（由本仓第 50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、65、66、67、68、69、70、71、72、73、76、77、78、79、80、83、84、85 条系统性缺陷逼出，勿回退）
 
 ### 8.1 客户端包内【不得写出禁词原文】—— 一律用指代（第 51 条）
 
@@ -2051,7 +2051,7 @@ Windows 的 `py` 启动器会**读脚本首行的 shebang**。而 `gen-endpoints
   > 📌 **口径说明（2026-10-08 补记）**：这里的 **104/104 是【本条修复当时】的口径**
   > （build 26 / a 21 / **x3 14** / android 43）。紧随其后的第 78 条为端 B 新增了
   > **I15 / I16 / I17** 三组注入 ⇒ 107/107；再往后第 79 条又新增 **R27 / R28** ⇒
-  > **当前仓库的总口径是 110/110**（build 29 / a 21 / x3 17 / android 43，见 §8.31.6）。
+  > **当前仓库的总口径是 122/122**（build 35 / a 27 / x3 17 / android 43，见 §8.31.6 与 §8.34.5）。
   > 🛑 之所以**保留 104 而不改成 107**：那是**当时的实测结果**，改掉就变成了
   > "事后把自己的历史改得更好看"（第 60 条：计数是活断言，**订正必须写出来、不能悄悄改掉**）。
   > 两者不矛盾 —— 一个是**该次修复的证据**，一个是**当前基线**。
@@ -2296,7 +2296,8 @@ node ../tools/android-reverse-check.mjs  → 合计 43/43   EXIT=0
 ```
 
 - 四组合计 **109/109**（修复前 107：build 26 → **28**，新增 R27/R28；
-  📌 **本条修复当时**的口径 —— 第 80 条为 build 组追加 R29 后**当前总口径 110/110**，见 §8.31.6）；
+  📌 **本条修复当时**的口径 —— 第 80 条为 build 组追加 R29 后**当时总口径 110/110**；
+  第 83~85 条（a 组 +6 · build 组 +6）追加后**当前总口径 122/122**，见 §8.31.6）；
 - 新判据首跑自证覆盖面：`2 份锁文件 · 304 条 resolved · host=registry.npmmirror.com；
   wrapper host=mirrors.cloud.tencent.com；锁文件含非官方 host ⇒ CI 已显式归一；
   wrapper 非官方 ⇒ CI 已显式改写为官方源`；
@@ -2404,7 +2405,7 @@ pip install）⇒ 判据必须命中"没有 setup-python"分支。锚点用 `\r?
   全部在 mvn 之前有 setup-python + pip install`）；三端 `build-check` 逐端单独重跑
   **全部 `exit=0`**，判据行数各 **+1**（端 A 35→**36** · 端 B 34→**35** · 端 C 22→**23**）。
 - 反向验证：**R29 注入 → 红 → 命中 `ci-mvn-jobs-have-python` → 还原 → 绿**
-  （并入 build 29 组 ⇒ **当前总口径 110/110**，见 §8.30.8 口径说明的更新）。
+  （并入 build 29 组 ⇒ **本条修复当时**总口径 110/110；第 83~85 条再追加后**当前总口径 122/122**，见 §8.30.8 口径说明的更新）。
 
 #### 8.31.7 通用规则（可复用）
 
@@ -2557,12 +2558,330 @@ $ grep -rn "settlement\|ops/health" frontends/*/src frontends/client-mp/miniprog
 
 ---
 
-> 🛑 **本文件 §8 的条数已由「二十五条」增至「三十一条」**（新增 §8.27 三端测试套件收口 =
+### 8.33 「本端不适用」这个结论**从来没有被核验过** —— 目录改名即可让判据静默失效（第 84 条 · 第二十七类，2026-10-09）
+
+#### 8.33.1 缺口：端 C 在令牌键名判据下被判"不适用"，而端 C 恰好是唯一有缺陷的那一端
+
+`tools/build-check.mjs` ④b `token-single-source` 的扫描根**写死成 `src/`**：
+
+```js
+const srcDir = join(END_ROOT, 'src');
+const files = walkTs(srcDir);
+if (files.length === 0) {
+  notes.push('  – token-single-source: 本端无 src/（不适用）');   // ← 端 C 走到这里就出去了
+}
+```
+
+而**端 C 的源码在 `miniprogram/`**（小程序工程结构，没有 `src/`）⇒ 端 C 每一轮
+都打印一行 `– 本端无 src/（不适用）` 然后**跳过**。于是四端的实际守护面是：
+
+| 端 | 判据 | 结果 |
+|---|---|---|
+| 端 A（`src/`） | `a-check` ⑧ + `build-check` ④b | ✅ 有守护 |
+| 端 B（`src/`） | `build-check` ④b | ✅ 有守护 |
+| 端 D（Kotlin） | `android-check` `session-key-single-source` | ✅ 有守护 |
+| **端 C（`miniprogram/`）** | —— | 🛑 **无守护** |
+
+⇒ **判据只保护了四端里的三端，而输出上看不出任何异常**（"不适用"是一行正常笔记，不是警告）。
+
+#### 8.33.2 端 C 的缺陷本体：4 处权威点之外的裸键名，其中 1 处在**出站层**
+
+端 C 的 `services/session.js` 持有 `TOKEN_KEY = 'token'`（权威点），但另有四处直接写裸字面量：
+
+| 位置 | 形态 | 为什么危险 |
+|---|---|---|
+| `miniprogram/app.js:59` | `wx.getStorageSync('token')` | `resolveCustomerId` 读凭证解 JWT 载荷 |
+| `miniprogram/app.js:108` | `wx.getStorageSync('token')` | `onLaunch` 读登录态 |
+| `miniprogram/app.js:115` | `wx.getStorageSync('token')` | `onShow` 读登录态 |
+| **`miniprogram/services/request.js:97`** | `wx.getStorageSync('token')` | 🛑 **出站层自己读键名** —— 给请求装 `Authorization` 头的那一步绕开了会话层 |
+
+四处与 `TOKEN_KEY` **恰好同值**，所以今天没有暴露。但它是本仓第 50 条那个
+真实缺陷（"写 `'dy.token'` / 读 `'token'` ⇒ `Authorization` 头永远为空 ⇒ 全量 401"）
+的**同一形态**：改一处即静默分叉，而 `tsc` / 构建 / 全部既存判据**一律绿**。
+
+#### 8.33.3 修法（判据两层 —— 缺任何一层都不成立）
+
+**① 扫描根按端形态补齐**：`src/` 与 `miniprogram/` 各自存在即纳入；
+访问形态也补齐端 C 的 `wx.get/set/removeStorageSync`。
+
+**② 找不到权威点 ⇒ 报红，不得当作"不适用"**（这是本条的核心）：
+
+```js
+if (AUTH_FILES.size === 0) {
+  fail('token-single-source',
+    `扫描到 ${files.length} 个源文件（根：${rootRel}），但**找不到令牌权威点**…\n`
+    + '      ⇒「写进去的键」与「读出来的键」是不是同一个，本判据**无法判定** ——\n'
+    + '        【不得】当作通过，也不得当作"本端不适用"。');
+}
+```
+
+并加**覆盖面自证**：扫描面若只剩权威点自己（`scanned.length === 0`）也报红 ——
+否则"判据实际上没在查任何东西"会伪装成 ✓。
+
+🛑 **为什么第 ② 层才是本体**：第 84 条的缺陷不是"端 C 有裸键名"，
+而是**"判据不认识这个目录形态时，输出的是『不适用』而不是『我看不懂』"**。
+"不适用"与"没写"在输出上无法区分 —— 这正是第 45 条（白名单漏项）与
+第 71 条（受保护集由生成器的认字能力决定）的同族，只是这次把"认字能力"
+换成了"**认目录名**"。所以只补扫描根（第 ① 层）是不够的：
+下次再换一个目录名，判据会再次安静地失效。
+
+#### 8.33.4 端 C 代码收敛（新建唯一权威点，对齐端 A）
+
+新建 `client-mp/miniprogram/services/token-store.js`（与端 A 的 `services/token-store.ts`
+**同一职责**）：`TOKEN_KEY` / `PROFILE_KEY` 只在此处定义，导出
+`readToken` / `writeToken` / `clearToken` / `readProfile` / `writeProfile`
+以及供门禁自证的 `TOKEN_STORAGE_KEY` / `PROFILE_STORAGE_KEY`。
+
+三个消费方改为经它读写：`app.js`（3 处）、`services/request.js`（1 处）、
+`services/session.js`（键名与读写整体下沉，对外 API 不变 ⇒ 9 个页面的调用点零改动）。
+
+🛑 依赖图无环：`token-store.js` 是叶子（不 require 任何项目内模块）；
+`request.js → token-store.js`；`session.js → request.js + token-store.js`。
+
+#### 8.33.5 同批新增 `page-reachability`（④j）—— 装载层的**另一个方向**
+
+④h `page-registry` 判"磁盘上有的页面有没有被**声明**"；本条判反方向：
+"**声明了**的页面有没有**外部入口**"。
+
+🛑 **首版判据过宽，被注入当场证伪**：第一版把"含导航调用的文件里出现的
+`/pages/...` 字面量"都算入口 —— 而 `pages/visits/visits.js` 里有一行
+`session.requireLogin('/pages/visits/visits')`，该页**自己给自己当了入口**；
+删掉 `profile.js` 的跳转后判据**仍然全绿**（= 没牙齿）。
+修法：**排除本页自身的文件**（`owners` 记下引用它的文件集合，若全是自己 ⇒ 算孤儿）。
+⇒ 本仓纪律"每个判据都要被反向注入证伪一次"的又一次兑现：
+**先写判据、立刻注入、被证伪、再收紧** —— 而不是先写文档说它有牙齿。
+
+#### 8.33.6 反向注入（R30 / R31 / R35，各只触发一条子规则）
+
+| 组 | 注入 | 期望 |
+|---|---|---|
+| R30 | 端 C 出站层回退成 `wx.getStorageSync('token')`（原缺陷形态复活） | `token-single-source` 红（第 ① 层） |
+| R31 | 端 C 删掉 `profile.js` 里指向 `pages/visits/visits` 的 `wx.navigateTo` | `page-reachability` 红 |
+| R35 | **判据自身**的权威点候选清单被改坏（`AUTH_NAMES` → 不存在路径） | `token-single-source` 红（第 ② 层 · 覆盖面自证） |
+
+🛑 **R35 是必需的、且不能与 R30 合并**（第 53 条）：R30 只证了"现在能扫到端 C"，
+**完全没有**证明第 ② 层 —— 而第 ② 层才是本条的本体。注入目标是**判据自身**，
+与 `a-reverse-check.mjs` 注入 `gen-endpoints.py` 是同一种做法：
+**判据的"认识面"也必须有反向验证**，否则"判据忽然什么都不认识了"与"代码是对的"
+在输出上完全一样。
+
+#### 8.33.7 复发登记：第 76 条① 的第二次发作 —— 新写的测试打破了 `tsc --noEmit`，而 `vitest` 全绿
+
+为第 85 条补行为断言时，那一行写成了：
+
+```ts
+const contractCodes = Object.values(ERROR_CODE);                        // 类型是【字面量联合数组】
+...
+Object.keys(COPY).map(Number).filter((c) => contractCodes.includes(c)); // c: number ⇒ TS2345
+```
+
+`Object.values(ERROR_CODE)` 的推断类型是 `(2002 | 2001 | … | 9001)[]`，而
+`Object.keys(COPY).map(Number)` 是 `number[]` ⇒ `includes(c: number)` 报：
+
+```
+src/services/errors.test.ts(52,87): error TS2345: Argument of type 'number' is not
+assignable to parameter of type '2002 | 2001 | 1001 | 1002 | 2003 | 2004 | 3001 | 4001 | 4002 | 5001 | 6001 | 9001'.
+```
+
+🛑 **而 `vitest` 是 49 例全绿**（esbuild 逐文件剥类型、不做类型检查）⇒
+这条缺陷**在行为测试层面完全不可见**。端 A / 端 B 的 `real-build` 因此变红。
+**而抓住它的不是任何一条"判据"，是反向验证的收尾断言「还原后必须回绿」**：
+
+```
+  ✗ 漏过  R1 端 A：出站回退成裸 baseUrl 拼 path（丢契约 Base Path）
+           注入后 exit=1，命中「base-path-wiring」=true；还原后 exit=1
+  ✗ 漏过  R3 端 B：出站前缀改成手写字面量（不再取自生成物）
+           注入后 exit=1，命中「base-path-wiring」=true；还原后 exit=1
+  …
+还原后三端构建自检：client-mp=0 · therapist-app=1 · admin-web=1（异常 ✗）
+```
+
+🛑 **这正是第 76 条① 的原话"写测试同样要过类型门禁"的第二次发作**，
+也再次说明"全部测试通过"与"能抓住问题"是两件事。修法 = **显式标注**而不是强转：
+
+```ts
+const contractCodes: number[] = Object.values(ERROR_CODE);   // 表达"这是一列数字 id"
+```
+
+（写 `as number[]` 也能过编译，但那是"叫编译器闭嘴"；**标注**表达的是意图。）
+
+📌 **一处值得记下的现象**：基线与收尾断言跑的是**同一条命令、同一个 cwd**，
+却在两次运行里给出不同结果（基线那一刻该测试文件还没落盘，收尾时已落盘）。
+⇒ "**基线绿、逐例红**"这种看似矛盾的输出在这个脚本里是**可能**的；
+遇到它不要先怀疑脚本，先看 `git status` 与相关文件的 mtime。
+
+---
+
+### 8.34 契约的**错误码枚举**与各端文案映射之间没有任何判据（第 85 条 · 第二十八类）
+
+#### 8.34.1 缺口：契约 12 个 code，三端各有一张映射表，没人核对它们是否对得上
+
+契约根级 `x-error-codes` 给出 **12 个 code**（1001/1002/2001/2002/2003/2004/
+3001/4001/4002/5001/6001/9001），并且 `ResultEnvelope.message` 的说明逐字写着
+「面向开发者，**不得直接渲染给客户**（客户端有自己的 code → copy 映射）」。
+
+⇒ 三端各自维护一张 **code → 用户可见文案** 的映射表：
+
+| 端 | 文件 | 表名 |
+|---|---|---|
+| 端 A | `admin-web/src/services/errors.ts` | `COPY` |
+| 端 B | `therapist-app/src/services/errors.ts` | `COPY` |
+| 端 C | `client-mp/miniprogram/services/codes.js` | `CODE_COPY` |
+
+实测（2026-10-09）：三张表**目前都是完整的 12 条**。但**没有任何判据在看这件事** ——
+契约新增一个 code（比如再多一个 403 子形态）时，三端会**静默**落到兜底文案
+（端 C 是"操作未完成，请稍后再试"、端 A 是"未知错误码…"）：
+用户看到一句无信息量的提示，服务端明明给了确定的拒绝原因，
+而 `tsc` / `vite build` / **全部既有判据一律绿**。
+
+🛑 **它与第 57/58/61 条是同一个族，这是该族的第四个成员**：
+
+| 条 | 被"写在契约里、实现里丢了"的东西 |
+|---|---|
+| 第 57 条 | 头名 / 令牌前缀 / 幂等头名 / 追踪头名 / 信封成功码 |
+| 第 58 条 | 分页参数名与越界处置 |
+| 第 61 条 | 「不得模糊报错」的机器可读那一半（`missing_items` / `denied_fields`） |
+| **第 85 条** | **错误码枚举本身** |
+
+#### 8.34.2 修法：三源交叉 + 双向等式（照 `a-check` ⑫ 与 A-4 的成例）
+
+新判据 `error-code-coverage`（`build-check.mjs` ④k）：
+
+1. **冻结契约 ↔ 裁剪契约**：生成器的输入（`contract/sdk-generator/_cut/<端>.openapi.yaml`）
+   必须是冻结契约的**无损**裁剪 —— 逐条 `code:name` 相等；
+2. **契约 ↔ 本端映射**：`契约 codes ⊆ 本端映射`（无缺项）**且** `本端映射 ⊆ 契约 codes`
+   （无表外码 —— 表外码意味着映射表已腐烂）；
+3. **覆盖面自证**：契约侧解析出的 code 数 < 10 ⇒ **报红**，不得当作通过
+   （否则"两边都是空集"会被读成"完美一致" —— 第 53/55 条）。
+
+🛑 判据形态：**不引入 YAML 依赖**，用带边界的两段正则抽 `x-error-codes` 块
+（冻结与裁剪两种缩进形态都吃：`  - http:` / `- http:`），并**断言块内 code 数 ≥ 10**
+把"解析失败"与"契约真空了"区分开。
+
+#### 8.34.3 反向注入（R32 / R33 / R34，各只触发一条子规则）
+
+| 组 | 注入 | 期望 |
+|---|---|---|
+| R32 | 端 B `COPY` 里删掉 `2004`（本端无文案） | `error-code-coverage` 红（② 缺项方向） |
+| R33 | 端 C `CODE_COPY` 凭空加 `7777`（契约外 code） | `error-code-coverage` 红（② 表外码方向） |
+| R34 | **裁剪契约**被删掉一个 code（生成器输入被改动） | `error-code-coverage` 红（① 冻结↔裁剪） |
+
+🛑 三组缺一不可：①②是**两个方向**的等式，③是**另一条**子规则。
+只注一组等于只证了三分之一（第 53 条）。
+
+#### 8.34.4 第二把锁：行为层测试（三端都有，但端 C 的形态**刻意不同**）
+
+判据是构建期的；三端各补行为层断言：**端 A 46 → 49 例** · **端 B 18 → 21 例** ·
+**端 C 12 → 23 例**（`node --test`）。
+
+端 A / 端 B 的 3 例直接复述判据的等式，但遍历的是**本端自己的两表**（不手抄契约）：
+
+```ts
+const contractCodes: number[] = Object.values(ERROR_CODE);   // 🛑 必须显式标注，见 8.33.7
+it('COPY 覆盖 ERROR_CODE 的每一个 code（无缺项）', () => {
+  expect(contractCodes.filter((c) => COPY[c] === undefined)).toEqual([]);
+});
+it('COPY 里没有 ERROR_CODE 之外的 code（无表外码）', () => {
+  expect(Object.keys(COPY).map(Number).filter((c) => !contractCodes.includes(c))).toEqual([]);
+});
+it('两表条目数一致（计数等式 —— 证明判据认识的东西覆盖了全部）', () => {
+  expect(Object.keys(COPY).length).toBe(contractCodes.length);
+});
+```
+
+🛑 **端 C 不做同一件事 —— 这不是偷懒，是刻意的**：
+端 C 运行时**拿不到契约的 12 个码清单**。生成物只暴露
+`PROTOCOL.ERROR_DATA_FIELDS` 的 **2** 个 forbidden-403 码（`2001` / `2002`），
+实测 `node -e "...Object.keys(c.PROTOCOL.ERROR_DATA_FIELDS)"` ⇒
+`ERROR_DATA_FIELDS keys = 2 2001,2002`。要在这里重做那条等式，测试就必须
+**手抄一份 12 个码的清单** —— 那是**第三份契约副本**：它只会在"有人忘了同步"时
+与真源不一致，是**看着更严、实则新增一个腐烂点**的**假第二把锁**
+（本仓对"手抄清单"有实锤：`clientPaths.js` 手写白名单漏 B5 ⇒ 第 45 条）。
+
+⇒ 端 C 改守**映射表自己说不出来的那部分**（新增 `test/codes.test.js` 4 例）：
+
+| 断言 | 抓的是什么 |
+|---|---|
+| 除 `4002` 外，每个码经 `describe()` 都给出**非兜底**文案 | `text: text \|\| UNKNOWN_COPY` 的**静默降级** —— 表里"有这一条"，客户看到的却是"操作未完成，请稍后再试" |
+| 表外码（`7777`）走兜底文案 | 映射不是"照单全收" |
+| `4002` ⇒ `kind='replay'` 且 `text=''` | 幂等命中是**成功路径**，不是错误（页面对它当成功继续） |
+| 网络层失败（无 code）与"服务端明确拒绝"文案分开 | 两件事不能共用一句文案 |
+
+🛑 **两者的判别力差别**：端 A / 端 B 的锁判的是**表**（静态，等于把判据搬进测试）；
+端 C 的锁判的是**函数**（`describe()` 真跑一次）。"表里有这个键"与
+"这个键真的走到了自己的文案"**是两件事** —— 后者只有真跑一次才看得见，
+而它正是本条的缺口所在。（端 C 另有 `test/token-store.test.js` 7 例属第 84 条，见 8.33。）
+
+#### 8.34.5 R34 首版是"用例自身失效"，运行器自己抓住了它 —— 并顺带两个真发现
+
+**R34 首跑逐字**：
+
+```
+  ✗ 漏过  R34 裁剪契约被删掉一个 code ⇒ 判据必须发现「生成器的输入与冻结契约不一致」
+           undefined｜变异未生效（mutate 返回了原文）—— 用例本身失效，须修正
+```
+
+🛑 **发现 ①：该裁剪契约是全部注入目标里唯一一个 CRLF 文件。**
+
+| 文件（注入目标） | 行尾 |
+|---|---|
+| `admin-web/src/api/client.ts` · `client-mp/.../request.js` | LF |
+| `contract/openapi-v1.0.0.yaml`（冻结契约） | LF |
+| `.github/workflows/*.yml`（R27 / R29 的目标） | LF |
+| `admin-web/package-lock.json`（R27 的目标） | LF |
+| **`contract/sdk-generator/_cut/*.openapi.yaml`** | 🛑 **CRLF** |
+
+⇒ 注入正则按 `\n` 写就**一个字都匹配不到**。成因：`_cut/*.yaml` 由 `sdk-generator`
+**在 Windows 上以文本模式写出**（而 `gen-endpoints.py` 的 `write_text()` 是显式
+`newline="\n"`，与第 40 条同源）⇒ **同一份生成物的行尾依赖生成平台**。
+凡对该文件做行级 / 字节级判定都必须容忍 CRLF，否则会得到"在 Linux 判绿、
+在 Windows 判红"（或反向）的**地域性结论**。修法 = 正则改 `\r?\n`。
+
+📌 **顺带实证（值得记）**：`restore()` 用
+`writeFileSync(abs, src, { encoding: 'utf8', newline: '\n' })` 还原，而实测
+**它不改写已有 CRLF** ——
+
+```
+before hasCRLF= true   after hasCRLF= true        (node v22.22.2)
+```
+
+⇒ 内存备份还原是**字节保真**的，CRLF 文件不会被反向验证污染。这条很重要：
+若还原会把 CRLF "顺手"转成 LF，那么每跑一次反向验证都会改写那 3 份契约，
+而这种改动因 `.gitattributes` 的 `eol=lf` 归一**在 `git status` 里看不见**
+（第 24 条族："检验工具把自己的残骸当成了被检对象"）。
+
+🛑 **发现 ②：诊断行的第二个 `undefined` 出口。**
+失败行打成了 `undefined｜变异未生效（…）` —— `detail` 只在成功路径与主路径赋值，
+**两条早退分支（文件不存在 / 变异未生效）都没有它**。而"诊断信息里的 `undefined`
+一律视为 bug"是第 24 条族早已立下的规矩（`R28 undefined` 那次修的是 `title`）——
+**这是同一个坑的第二个出口**。修法 = **两道防线**：① 两条早退分支补 `detail`
+（固定形状：即使"没跑到注入"，诊断行也要能自解释）；② 打印处兜底
+`r.detail ?? '（诊断信息缺失 —— 这是本脚本的 bug，不是用例结果）'`，
+让"少写一个字段"**变不成乱码**。
+
+🛑 **这一节的元层意义**：R34 本身是一条**注入用例**，而它首跑就失效了。
+如果运行器把"变异未生效"当成通过（或沉默略过），那么子规则 ①（冻结↔裁剪）
+就**永远没有反向验证**，却看起来"有 R34 守着"。⇒ **"用例存在"不等于"用例有效"** ——
+这与第 76 条那句"跑了脚本 ≠ 跑了该跑的全部脚本"是同构的。
+
+#### 8.34.6 通用规则（可复用）
+
+**凡"契约里有一份枚举，各端各有一份它的映射"，就必须有一条判据做双向等式。**
+单向的"覆盖"只防缺项、防不住表外码（映射表腐烂）；而"计数等式"只防数量漂移、
+防不住**换了一个 code**。三者都要有，才叫"对得上"。
+**但第二把锁（行为层）不该是判据的复印** —— 若某端拿不到真源，宁可换一个
+"真跑一次函数"的角度，也不要在测试里手抄一份契约（那是把腐烂点从表挪到测试）。
+
+---
+
+> 🛑 **本文件 §8 的条数已由「二十五条」增至「三十三条」**（新增 §8.27 三端测试套件收口 =
 > **第 76 条**、§8.28 CI/Python 工具链**五处**缺口 = **第 77 条**、
 > §8.29 角色展示名跨端收敛 = **第 78 条**、
 > §8.30 构建依赖源被烤进版本库 = **第 79 条**、
 > §8.31 跑 mvn 的 CI job 缺 Python 准备步 = **第 80 条**、
-> §8.32 契约**外**的出站面（清册 + 第二通道 + ⑫ 判据）= **第 83 条**），标题行已同步订正为「三十一条」。
+> §8.32 契约**外**的出站面（清册 + 第二通道 + ⑫ 判据）= **第 83 条**、
+> §8.33「本端不适用」从未被核验 ⇒ 目录改名即可让判据静默失效 = **第 84 条**（附 `page-reachability`）、
+> §8.34 契约错误码枚举与各端映射表之间无判据 = **第 85 条**），标题行已同步订正为「三十三条」。
 >
 > 🛑 **顺带补账**：第 76 条此前**只出现在提交信息里**（`c138639`），从未登记进骨架 README §5.1
 > 的缺陷表 —— 本轮补上 `| 76 |` 行，CI/工具链那条顺延为 **第 77 条**。
@@ -2571,4 +2890,27 @@ $ grep -rn "settlement\|ops/health" frontends/*/src frontends/client-mp/miniprog
 > 🛑 **另一处补账（2026-10-08 同日）**：`2454 → 1227` 的订正与"反向验证 104/107"的口径说明
 > 一度**只写在未提交的工作副本里** ⇒ 谁克隆下来读到的仍是错的 `2454`。
 > 这正是第 79 条同族：**「修改存在」不等于「修改可用」**。现已一并入库。
+>
+> ---
+>
+> ## 📌 本轮（第 84 / 85 条）收口后的**当前**验收口径（2026-10-09，实测）
+>
+> ⚠️ 下面这些数字是**本轮实测值**，用于替换上文各节里"当时"的口径。
+> 上文凡写"当时/本条修复当时"的地方**刻意保留原值**（它们是那条缺陷的历史证据），
+> 但**读当前状态请以本块为准**。
+>
+> | 指标 | 当前值 |
+> |---|---|
+> | 反向验证总口径 | **122/122**（build **35** · a **27** · x3 **17** · android **43**） |
+> | `build-check` 判据输出行数（含 `structure` / `real-build` 子行） | 端 A **44**（=`structure` 29 + `real-build` 2 + 其它 13）· 端 B **38**（23 + 2 + 13）· 端 C **29**（9 + 0 + 20） |
+> | 行为测试 | 端 A **49 例**（6 文件）· 端 B **21 例**（3 文件）· 端 C **23 例**（`node --test`，3 文件） |
+> | 后端 9 模块全量回归 | `BUILD SUCCESS` · 逐模块 `Tests run` 合计 **1266** / failures 0 / errors 0 / skipped 0（本轮**后端零改动**，与文档锚点一致） |
+> | 契约生成物一致性 | 三端 `gen-endpoints.mjs --check` 全 **exit=0** |
+> | 端 D | `android-check` `ANDROID OK` / `exit=0`（**25 条判据**） |
+>
+> 🛑 **一处必须如实说明的口径关系**：上文 §8.31.6 记的"端 A 35→36 / 端 B 34→35 /
+> 端 C 22→23"是**第 80 条那次变更的增量记录**，此后**第 83 条**又往端 A 的 `required`
+> 结构清单里加了 5 个文件（清册 / 第二通道 / 域服务 / 两个页面）⇒ 那个基数已经漂移，
+> **不要拿 36/35/23 当当前值**。这也是"数字锚点必须有出处"的又一例：
+> 凡是**会随其它变更漂移**的计数，要么每次一并更新，要么明确写成"当时值"。
 

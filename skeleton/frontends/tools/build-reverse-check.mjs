@@ -28,6 +28,18 @@
  *   · `page-registry`（第 64 条，R19–R21）—— **装载层**：页面必须真的能被用户
  *     走到（端 C 是 `app.json.pages` ↔ 磁盘 ↔ tabBar，端 A/B 是 NAV ↔ `type Tab`
  *     ↔ 渲染分支）。调用链成立 ≠ 页面能打开。
+ *   · `required-args-wired` / `required-args-carrier`（第 65 条，R22–R25）—— 带
+ *     `required` 声明的端点，其调用点必须**真的**把必需参数传进去（判**实参形态**，
+ *     非判词出现 —— 第 52 条）；端 C 走 CJS 形态单列。
+ *   · `no-bare-python-script`（第 77 条，R26）· `ci-dependency-source-normalized`
+ *     （第 79 条，R27–R28）· `ci-mvn-jobs-have-python`（第 80 条，R29）。
+ *   · `token-single-source`（第 84 条，R30 + R35）—— 令牌键名只能有**一处**定义；
+ *     R35 额外证明"**覆盖面自证**"分支有牙齿（判据的权威点候选清单被改坏时必须报红，
+ *     而**不得**退化成"本端不适用"——那正是本条抓到的原缺陷形态）。
+ *   · `page-reachability`（第 84 条同批，R31）—— 端 C 已声明的页面必须有
+ *     **外部**入口（本页自身文件里的自引用不算入口）。
+ *   · `error-code-coverage`（第 85 条，R32–R34）—— 契约 `x-error-codes` 的每个 code
+ *     都必须有本端文案，且不得有表外码；冻结契约与裁剪契约必须逐条一致。
  *
  * 🛑 为什么在这里做而不再写一次性探针
  * ---------------------------------------------------------------------------
@@ -119,7 +131,9 @@ async function runBuildCheck(end) {
 async function caseInject({ id, end, rel, title, mutate, expectItem }) {
   const abs = join(FRONTENDS, end, rel);
   if (!existsSync(abs)) {
-    return { id, title, ok: false, why: `文件不存在: ${end}/${rel}` };
+    // 🛑 **早退分支也必须有 `detail`**（固定形状）：即使"没跑到注入"，诊断行也
+    //    要能自解释。这条与下面 `after === before` 那处同源 —— 见打印处的说明。
+    return { id, end, title, ok: false, detail: '（未执行注入：目标文件不存在）', why: `文件不存在: ${end}/${rel}` };
   }
   const before = backup(abs);
   const after = mutate(before);
@@ -128,7 +142,17 @@ async function caseInject({ id, end, rel, title, mutate, expectItem }) {
     // 🛑 `title` 必须带出来：本行此前不带，运行器打印 `${r.id} ${r.title}` 就成了
     //    `R28 undefined` —— 一条**说不出自己是哪条用例**的失败，与第 24 条同族
     //    （"报错不指向真因"）。诊断信息里的 `undefined` 一律视为 bug。
-    return { id, title, ok: false, why: '变异未生效（mutate 返回了原文）—— 用例本身失效，须修正' };
+    //
+    // 🛑 `detail` 同理（R34 首版踩到）：早退分支没有 `detail`，于是运行器打出
+    //    `undefined｜变异未生效（…）` —— 同一个 `undefined` 坑的**第二个出口**。
+    return {
+      id,
+      end,
+      title,
+      ok: false,
+      detail: '（未执行注入：mutate 未能匹配到任何片段 ⇒ 本用例没有构成一次真实变异）',
+      why: '变异未生效（mutate 返回了原文）—— 用例本身失效，须修正',
+    };
   }
   writeFileSync(abs, after, { encoding: 'utf8', newline: '\n' });
 
@@ -538,6 +562,111 @@ const CASES = [
       / {6}- name: Set up Python\r?\n {8}uses: actions\/setup-python@v5\r?\n {8}with:\r?\n {10}python-version: "3\.11"\r?\n/,
       ''),
   },
+
+  // -------------------------------------------------------------------------
+  // 🛑 第 84 条（端 C 令牌键名）：R30 证明「原缺陷形态会红」，
+  //    R35 证明「判据的**覆盖面自证**分支本身有牙齿」（这才是本条的核心）。
+  //
+  //    为什么必须分两组（第 53 条）：第 84 条的修法有两层 ——
+  //      ① 把扫描根按端形态补齐（否则端 C 走"不适用"分支，**静默跳过**）；
+  //      ② 权威点找不到 ⇒ 报红，不再输出"不适用"。
+  //    只注 ①（R30）只能证明"现在能扫到端 C 的裸键名"，**完全没有**证明 ② ——
+  //    而 ② 恰恰是本次缺陷的本体（"不适用"与"没写"在输出上无法区分）。
+  //    R35 直接把权威点候选清单改坏：判据必须报"找不到权威点，不得当作通过"。
+  // -------------------------------------------------------------------------
+  {
+    id: 'R30',
+    end: 'client-mp',
+    rel: 'miniprogram/services/request.js',
+    title: '端 C：出站层回退成裸键名 wx.getStorageSync —— 第 84 条原缺陷形态复活',
+    expectItem: 'token-single-source',
+    mutate: (s) => s.replace(
+      /var token = tokenStore\.readToken\(\);/,
+      "var token = wx.getStorageSync('token');"),
+  },
+  {
+    id: 'R35',
+    end: 'client-mp',
+    rel: '../tools/build-check.mjs',
+    title: '判据的权威点候选清单被改坏 ⇒ 覆盖面自证必须报红（**不得**再输出"不适用"或 ✓）',
+    expectItem: 'token-single-source',
+    // 🛑 这条注入改的是**判据自身**，不是被检代码 —— 与 `a-reverse-check.mjs`
+    //    注入 `gen-endpoints.py` 是同一种做法：判据的"认识面"也必须有反向验证，
+    //    否则"判据忽然什么都不认识了"与"代码是对的"在输出上完全一样。
+    mutate: (s) => s.replace(
+      /const AUTH_NAMES = \[[\s\S]*?\];/,
+      "const AUTH_NAMES = ['services/nope.js'];"),
+  },
+  {
+    id: 'R31',
+    end: 'client-mp',
+    rel: 'miniprogram/pages/profile/profile.js',
+    title: '端 C：删掉 profile 里通往「拜访记录」的那条导航 ⇒ 该页只剩"自己知道自己"（死页）',
+    expectItem: 'page-reachability',
+    // 🛑 这条用例的存在本身就是一次教训：**判据 ④j 的首版是"过宽"的** ——
+    //    它把"页面自身文件里的自引用"也算作入口，于是本注入（删掉**外部**入口）
+    //    **没有让它变红**：`pages/visits/visits.js` 里有
+    //    `session.requireLogin('/pages/visits/visits')`，页面把自己当成了自己的入口。
+    //    ⇒ 判据改为 `owners: Map<path, Set<file>>` 并**排除页面自身文件**后才红。
+    //    🛑 也就是说：**这条用例是"判据太宽"的证伪工具**，不是可有可无的补充
+    //    （第 55 条：太宽的判据 ⇒ 假绿）。它必须**常驻** —— 否则将来有人顺手
+    //    放宽那条排除条件时，没有任何东西会提醒（判据与它的反向验证必须同时常驻）。
+    //
+    //    📌 目标不是随手挑的：`pages/visits/visits` 是**非 tab 页**，且实测
+    //    `grep -rn "pages/visits/visits"` 显示**全部外部入口只有
+    //    `pages/profile/profile.js:112` 这一条** ⇒ 删掉它必然成为孤儿。
+    //    （换成 tab 页无效：tabBar 入口天然可达，判据会先 `return false`。）
+    mutate: (s) => s.replace(
+      /\n\s*wx\.navigateTo\(\{ url: '\/pages\/visits\/visits' \}\);/,
+      ''),
+  },
+
+  // -------------------------------------------------------------------------
+  // 🛑 第 85 条（错误码覆盖）：三组，各只触发一条**互相独立**的子规则。
+  //
+  //    ④k 有三条子规则：① 冻结 ↔ 裁剪逐条一致；② 契约 ↔ 本端映射双向等式；
+  //    ③ 覆盖面自证。R32 / R33 分别打 ② 的两个方向（缺项 / 表外码），
+  //    R34 打 ①。**只注一组等于只证了三分之一**（第 53 条教训）。
+  // -------------------------------------------------------------------------
+  {
+    id: 'R32',
+    end: 'therapist-app',
+    rel: 'src/services/errors.ts',
+    title: '端 B：COPY 里删掉 2004 ⇒ 契约有、本端无文案（用户只看得到兜底文案）',
+    expectItem: 'error-code-coverage',
+    mutate: (s) => s.replace(/\n\s*2004: '[^']*',/, ''),
+  },
+  {
+    id: 'R33',
+    end: 'client-mp',
+    rel: 'miniprogram/services/codes.js',
+    title: '端 C：CODE_COPY 凭空加一个契约外的 code ⇒ 映射表腐烂',
+    expectItem: 'error-code-coverage',
+    // 🛑 锚点是 `\n};` 的**第一处**：CODE_COPY 的收尾在 `module.exports` 之前。
+    mutate: (s) => s.replace(/\n\};/, "\n  7777: '不该存在的码',\n};"),
+  },
+  {
+    id: 'R34',
+    end: 'admin-web',
+    rel: '../../../contract/sdk-generator/_cut/admin-web.openapi.yaml',
+    title: '裁剪契约被删掉一个 code ⇒ 判据必须发现「生成器的输入与冻结契约不一致」',
+    expectItem: 'error-code-coverage',
+    // 🛑 注入目标在 frontends/ 之外（生成器的**输入契约**）—— 与 R27/R29 同型：
+    //    某条规则唯一的证据面就在那里，故用 ../../../ 显式跳出。
+    //
+    // 🛑 行尾必须写成 `\r?\n`（本用例首版写死 `\n` ⇒ **变异未生效**，被运行器
+    //    自己判成"用例本身失效"，见下面 `caseInject` 的 `after === before` 分支）：
+    //    实测这是**全部注入目标里唯一一个 CRLF 文件** ——
+    //    `client.ts` / `request.js` / `openapi-v1.0.0.yaml` / 两个 workflow /
+    //    两份锁文件全是 LF，只有 `sdk-generator/_cut/*.openapi.yaml` 是 CRLF。
+    //    成因：它由 `gen-endpoints.py` **在 Windows 上以文本模式写出**（`\r\n`），
+    //    也就是说同一份生成物的行尾**依赖生成平台的默认行为**。
+    //    ⇒ 凡是对该文件的**字节级/行级**判定都必须容忍 CRLF，否则会得到
+    //    "在 Linux 上判绿、在 Windows 上判红"（或反向）的地域性结论。
+    mutate: (s) => s.replace(
+      /- http: 500\r?\n {2}code: 9001\r?\n {2}name: INTERNAL_ERROR\r?\n {2}trigger: [^\n]*\r?\n/,
+      ''),
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -576,14 +705,20 @@ if (!baselineOk) {
   process.exit(1);
 }
 
-process.stdout.write('===== 构建自检 · base-path-wiring + cross-end-protocol + pagination-protocol + error-data-fields 反向验证（注入 → 必须变红 → 还原 → 必须变绿）=====\n');
+process.stdout.write('===== 构建自检 · 反向验证（注入 → 必须变红 → 还原 → 必须变绿）=====\n');
 const results = [];
 for (const c of CASES) {
   const r = await caseInject(c);
   results.push(r);
   const label = r.ok ? '  ✓ 抓住' : '  ✗ 漏过';
   process.stdout.write(`${label}  ${r.id} ${r.title}\n`);
-  process.stdout.write(`           ${r.detail}${r.why ? `｜${r.why}` : ''}\n`);
+  // 🛑 `detail` 缺失时**不得**打印 `undefined`：诊断信息里的 `undefined` 一律视为 bug
+  //    （第 24 条族）。此前只有 `title` 一处被修（`R28 undefined`），而 `detail` 是
+  //    **同一个坑的第二个出口** —— 两条早退分支（文件不存在 / 变异未生效）都没有它，
+  //    R34 首版就是这么打出一行 `undefined｜变异未生效（…）` 的。
+  //    两道防线：① 两个早退分支补 `detail`；② 这里兜底，让"少写一个字段"变不成乱码。
+  const detail = r.detail ?? '（诊断信息缺失 —— 这是本脚本的 bug，不是用例结果）';
+  process.stdout.write(`           ${detail}${r.why ? `｜${r.why}` : ''}\n`);
 }
 
 // ---------------------------------------------------------------------------
@@ -622,7 +757,7 @@ process.stdout.write(`还原后三端构建自检：${Object.entries(finalCodes)
   + `${allGreen ? '（全绿 ✓，已按内存备份还原）' : '（异常 ✗）'}${staleNotice}\n`);
 
 if (passed === results.length && allGreen) {
-  process.stdout.write('\nbuild-check 反向验证 PASS —— 九条判据（base-path-wiring / cross-end-protocol / pagination-protocol / error-data-fields / no-bare-python-script / endpoint-reachability / page-registry / required-args-wired / required-args-carrier）确实有牙齿，且还原干净。\n');
+  process.stdout.write('\nbuild-check 反向验证 PASS —— 十二条判据（base-path-wiring / cross-end-protocol / pagination-protocol / error-data-fields / no-bare-python-script / endpoint-reachability / page-registry / required-args-wired / required-args-carrier / token-single-source / page-reachability / error-code-coverage）确实有牙齿，且还原干净。\n');
   process.exit(0);
 }
 process.stdout.write('\nbuild-check 反向验证 FAIL。\n');
