@@ -76,10 +76,43 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, rmdirSync, unlink
 import { join, dirname, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { journalRecover, journalStash, journalCommit, journalClose } from './_gate-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FRONTENDS = resolve(HERE, '..');
 const BACKUP_DIR = join(HERE, '_reverse_backup');
+
+// ---------------------------------------------------------------------------
+// 🛑 第 90 条 · 第三十三类：**被改写的既有文件**的残骸自愈
+// ---------------------------------------------------------------------------
+// 本文件全程用**内存备份**（第 61 条），因此进程被强杀（SIGKILL / 任务管理器 /
+// 上层超时）时，备份随内存一起消失，而那条"被改写的源文件"就**永久留在注入态**。
+// 2026-10-09 实测：强杀本脚本（正跑到 R5）后，`therapist-app/vite.config.ts` 的
+// dev 代理键被留成 `/api` ⇒ 端 B 的 `base-path-wiring` 报红，而真实原因是
+// **一次被中断的测试运行**，不是源码缺陷。
+//   ⇒ 故每一次备份都**同时落盘**到 `tools/_reverse_journal.json`；
+//      启动时若发现上一轮留下的日志，**先还原、再大声说明**，然后继续跑。
+//   🛑 必须**在基线检查之前**做 —— 否则基线只会报"端 B 是红的，先修好再跑"，
+//      把排查方向指向源码，而真相是残骸（第 24 条同族）。
+{
+  const rec = journalRecover(FRONTENDS);
+  if (rec && rec.corrupted) {
+    process.stdout.write(
+      `\n⚠️ 上一轮的反向验证被强杀，留下了残骸日志 ${'tools/_reverse_journal.json'}，`
+      + `但它**解不开**（${rec.corrupted}）。\n`
+      + '   ⇒ 无法自动还原。请核对 `git status`：被改写的源文件会以"已修改"出现，\n'
+      + '     用 `git diff` 逐一看过后 `git checkout --` 还原（**先看再还原**，别丢掉你自己的改动）。\n');
+  } else if (rec && rec.restored.length) {
+    process.stdout.write(
+      `\n⚠️ 上一轮的反向验证**被强杀**，留下 ${rec.restored.length} 个处于注入态的源文件。`
+      + `已在开跑前自动还原：\n`
+      + rec.restored.map((f) => `     - ${f}`).join('\n') + '\n'
+      + '   ⇒ 这正是第 90 条的形态：内存备份挡不住 SIGKILL，故备份同时落盘。\n'
+      + '     （若你此前在这几个文件上有**自己的未提交改动**，请 `git diff` 核对一遍。）\n\n');
+  }
+}
+// 正常退出（含 process.exit）时清掉日志；被强杀时**故意不清** —— 那正是要留给下一轮看的东西。
+process.on('exit', () => { try { journalClose(FRONTENDS); } catch { /* 尽力而为 */ } });
 
 const ENDS = {
   'client-mp': '端 C · 客户小程序',
@@ -108,7 +141,12 @@ const ENDS = {
 // ---------------------------------------------------------------------------
 const BACKUPS = new Map(); // absPath -> 原文
 function backup(abs) {
-  if (!BACKUPS.has(abs)) BACKUPS.set(abs, readFileSync(abs, 'utf8'));
+  if (!BACKUPS.has(abs)) {
+    const src = readFileSync(abs, 'utf8');
+    BACKUPS.set(abs, src);
+    // 第 90 条：**同时落盘**。内存备份挡不住 SIGKILL，日志能。
+    journalStash(FRONTENDS, abs, src);
+  }
   return BACKUPS.get(abs);
 }
 function restore(abs) {
@@ -116,6 +154,7 @@ function restore(abs) {
   if (src === undefined) return false;
   writeFileSync(abs, src, { encoding: 'utf8', newline: '\n' });
   BACKUPS.delete(abs);
+  journalCommit(FRONTENDS, abs); // 已还原 ⇒ 从残骸日志里摘掉
   return true;
 }
 
@@ -138,7 +177,10 @@ function cleanupCreate(abs) {
 /** 兜底：进程异常退出时把仍未还原的文件写回、并把新建的文件删掉。 */
 function restoreAll() {
   for (const [abs, src] of BACKUPS) {
-    try { writeFileSync(abs, src, { encoding: 'utf8', newline: '\n' }); } catch { /* 尽力而为 */ }
+    try {
+      writeFileSync(abs, src, { encoding: 'utf8', newline: '\n' });
+      journalCommit(FRONTENDS, abs); // 已还原 ⇒ 从残骸日志里摘掉
+    } catch { /* 尽力而为 */ }
   }
   BACKUPS.clear();
   for (const abs of [...CREATED]) cleanupCreate(abs);
@@ -922,7 +964,156 @@ export default function OrphanPage(_props: { roleLabel: string }) {
     //    本地通道的扫描面必须以它为准，故用 `../../`（不是 `../../../`，见 R27/R34 的分母差异）。
     mutate: (s) => s.split('frontends/client-mp/miniprogram').join('frontends/client-mp/miniprogram_ZZQ'),
   },
+
+  // ==========================================================================
+  // 第 89 条 · 第三十二类：判据清单 ↔ 反向清单之间**没有对账**
+  //   第 88 条做完后做了一次机械清点，发现 `build-check` **可发出 21 条判据名**，
+  //   而本套件的 `expectItem` 只覆盖 **16** 条 —— 下面这 5 条**从未被注入证伪过**：
+  //     `structure` · `real-build` · `contract` · `pages` · `wordlist`
+  //   而本文件末尾那句"**N 条判据（…列举…）确实有牙齿**"是**手工维护**的清单
+  //   （它此前长期写"三条"却列了十四条，第 88 条刚订正过一次）——
+  //   **一句没人守的"已覆盖"宣言，与事实之间没有任何机械联系**。
+  //   ⇒ 这正是本仓第 86 条（"已覆盖"从未被核验）的**元层级**版本：
+  //      那次是"一条判据把这一端推给另一条判据"，这次是"**整套反向验证把这条判据
+  //      推给了'以后再说'**"。故补齐这 5 条，并在同轮加上**元判据**（见文件下方
+  //      `assertCriterionCoverage()`）——让"新增判据必须同时加反向用例"变成构建期事实。
+  // ==========================================================================
+  {
+    id: 'R48',
+    end: 'client-mp',
+    rel: '../tools/build-check.mjs',
+    title: '① structure：结构清单里出现一个**不存在**的必需文件 ⇒ 必须报红',
+    expectItem: 'structure',
+    mutate: (s) => s.replace("      'miniprogram/services/session.js',\n    ],",
+      "      'miniprogram/services/session.js',\n      'miniprogram/services/ZZQ_MISSING.js',\n    ],"),
+  },
+  {
+    id: 'R49',
+    end: 'admin-web',
+    rel: 'src/env/index.ts',
+    title: '⑤ real-build：给源文件引入一个**类型错误** ⇒ tsc 必须红（真实构建有牙齿）',
+    expectItem: 'real-build',
+    // 🛑 注入的是一个**真类型错**（`string` 赋给 `number`），而不是语法错 ——
+    //    语法错连解析都过不去，证明不了"类型门禁在跑"。
+    mutate: (s) => s + '\nconst __zzqRealBuildProbe: number = "not a number";\n',
+  },
+  {
+    id: 'R50',
+    end: 'client-mp',
+    rel: 'miniprogram/contract/endpoints.js',
+    title: '② contract：生成物被改动 ⇒ 与冻结契约的一致性自检必须红',
+    expectItem: 'contract',
+    mutate: (s) => s + '\n// ZZQ_CONTRACT_PROBE\n',
+  },
+  {
+    id: 'R51',
+    end: 'client-mp',
+    rel: 'miniprogram/app.json',
+    title: '④ pages：app.json 声明一个**磁盘上不存在**的页面 ⇒ 必须报红',
+    expectItem: 'pages',
+    mutate: (s) => s.replace('"pages": [', '"pages": [\n    "pages/zzq-missing/zzq-missing",'),
+  },
+  {
+    id: 'R52',
+    end: 'client-mp',
+    rel: '../tools/build-check.mjs',
+    title: '③ wordlist：词表路径被改坏 ⇒ 词表缺失必须红（不得静默"无命中"）',
+    expectItem: 'wordlist',
+    mutate: (s) => s.replace("join(COMPLIANCE, 'wordlists', `${name}.words`)",
+      "join(COMPLIANCE, 'wordlists', `${name}.ZZQ_MISSING`)"),
+  },
 ];
+
+// ---------------------------------------------------------------------------
+// 🛑 第 89 条 · 第三十二类：**判据清单 ↔ 反向清单** 的对账（元判据）
+// ---------------------------------------------------------------------------
+//   在此之前，"本套件覆盖了 build-check 的哪些判据"**只存在于本文件的注释与
+//   末尾那句 PASS 文案里** —— 而句子是手工维护的：它长期写「**三条**」却列了十四条。
+//   ⇒ 后果不是"文案不准"这么轻：**新增一条判据时，没有任何东西要求同时加反向用例**。
+//     而本仓第 84/85/86/87/88 条那一族之所以能反复出现，根因正是
+//     "**加判据**"与"**给判据装上牙齿**"这两件事之间没有强制关联（R31 是它的一个实例：
+//     用例只活在头部注释里、从未被执行过）。
+//
+//   本元判据做两件事，都是机械的：
+//     ① 从 `build-check.mjs` 源码里**抽出它可能发出的全部判据名**
+//        （两种发出形态：`fail('x')` / `ok('x')` 字面量，以及 `const ITEM = 'x'` 后 `fail(ITEM)`）；
+//     ② 与本套件 `expectItem` 的集合做**双向对账**：
+//        · 抽得到、但没有任何用例瞄准它 ⇒ 报红（**新增判据必须连同反向用例一起加**）；
+//        · 有用例瞄准、但门禁根本发不出这个名字 ⇒ 报红（**幽灵用例**：它永远抓不到东西）。
+//   末尾的 PASS 文案也改为**由该集合生成**，不再是手写的列举 —— 手写的断言没人守。
+// ---------------------------------------------------------------------------
+
+/** 从门禁源码抽取"可能发出的判据名"（两种发出形态）。 */
+function emittedCriterionNames(src) {
+  const names = new Set();
+  for (const m of src.matchAll(/\b(?:fail|ok)\(\s*'([a-z0-9][a-z0-9-]*)'/g)) names.add(m[1]);
+  // 🛑 用 (标识符, 值) 的**列表**，不要用 `Map<标识符, 值>`：
+  //    `build-check.mjs` 里 `const ITEM = '…'` 出现了**两次**（两个不同的块作用域，
+  //    各是不同的判据名）。按标识符去重会让**后一个覆盖前一个** ⇒ 前一条判据被
+  //    误判成"幽灵"。这个 bug 是本元判据**首跑自己咬出来的** —— 也正是它该有的行为：
+  //    检测器自己出错时，结果是**一声响亮的报错**，而不是一句安静的 ✓。
+  const pairs = [];
+  for (const m of src.matchAll(/\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*'([a-z0-9][a-z0-9-]*)'/g)) {
+    pairs.push([m[1], m[2]]);
+  }
+  for (const [ident, val] of pairs) {
+    if (new RegExp(`\\b(?:fail|ok)\\(\\s*${ident}\\b`).test(src)) names.add(val);
+  }
+  return names;
+}
+
+const GATE_REL = 'tools/build-check.mjs';
+
+// 🛑 元判据**自身**也必须可证伪（否则它就是又一个"没人守的宣言"）。三道自证：
+//   ① **冻结下限**：抽取到的判据名数不得少于这个数。抽不出来（正则退化 / 门禁被换掉）
+//      时的失败形态恰恰是"`UNCOVERED` 为空 ⇒ 通过"—— 一句安静的 ✓。故必须有下限。
+//   ② **检测器负控**：拿一段合成源码跑一遍抽取器，断言两种发出形态都能被认出来。
+//      正则写坏时这里立刻红，而不是让对账静默全绿。
+//   ③ 下限值与负控**一起**参与判定：任一不成立 ⇒ 报红，且**不得**输出对账 ✓。
+const CRITERION_FLOOR = 21;
+const DETECTOR_SAMPLE = "fail('zzq-literal-form');\nconst ITEM2 = 'zzq-const-form';\nok(ITEM2, 'x');\n";
+function detectorSelfTest() {
+  const got = emittedCriterionNames(DETECTOR_SAMPLE);
+  return got.has('zzq-literal-form') && got.has('zzq-const-form');
+}
+
+const EMITTED = emittedCriterionNames(readFileSync(join(HERE, 'build-check.mjs'), 'utf8'));
+const TARGETED = new Set(CASES.map((c) => c.expectItem).filter(Boolean));
+const UNCOVERED = [...EMITTED].filter((n) => !TARGETED.has(n)).sort();
+const PHANTOM = [...TARGETED].filter((n) => !EMITTED.has(n)).sort();
+const DETECTOR_OK = detectorSelfTest();
+const FLOOR_OK = EMITTED.size >= CRITERION_FLOOR;
+
+if (!DETECTOR_OK || !FLOOR_OK || UNCOVERED.length || PHANTOM.length) {
+  const L = (s) => process.stdout.write(s + '\n');
+  L('\n✗ [criterion-coverage] 判据清单与反向清单**对不上** —— 拒绝继续跑用例。\n');
+  if (!DETECTOR_OK) {
+    L('  ⓪ **抽取器自身失效**：负控未通过（两种发出形态之一认不出来）。');
+    L('     ⇒ 此时"没有未覆盖判据"是**假绿** —— 先修抽取器，再谈覆盖面。\n');
+  }
+  if (!FLOOR_OK) {
+    L(`  ⓪ **抽取面退化**：只认出 ${EMITTED.size} 条，低于冻结下限 ${CRITERION_FLOOR} 条。`);
+    L('     ⇒ 门禁被换成别的文件 / 发出形态改了 ⇒ 本对账的前提不成立。\n');
+  }
+  if (UNCOVERED.length) {
+    L(`  ① 门禁可发出、但**没有任何用例瞄准**的判据（${UNCOVERED.length} 条）：`);
+    L(`     ${UNCOVERED.join(' · ')}`);
+    L('     ⇒ 这些判据**从未被注入证伪过**。修法：为每条补一个受控注入，');
+    L('       或在 `CRITERION_EXEMPT` 里**写明豁免理由**（豁免表本身也要有值可核）。\n');
+  }
+  if (PHANTOM.length) {
+    L(`  ② 有用例瞄准、但门禁**发不出**这个名字的判据（${PHANTOM.length} 条）：`);
+    L(`     ${PHANTOM.join(' · ')}`);
+    L('     ⇒ 幽灵用例：`expectItem` 指向一个不存在的判据名 ⇒ 它永远抓不到东西。\n');
+  }
+  L(`  （口径：${GATE_REL} 可发出 ${EMITTED.size} 条 · 本套件瞄准 ${TARGETED.size} 条`
+    + ` · 冻结下限 ${CRITERION_FLOOR} 条 · 抽取器负控 ${DETECTOR_OK ? '通过' : '未通过'}）\n`);
+  process.exit(1);
+}
+process.stdout.write(
+  `判据对账：[criterion-coverage] ${GATE_REL} 可发出的 **${EMITTED.size} 条**判据 `
+  + `**全部**被本套件瞄准（无未覆盖、无幽灵）✓ `
+  + `—— 且抽取器负控通过、条数不低于冻结下限 ${CRITERION_FLOOR}（自证：不是"抽不到所以没缺口"）\n`);
 
 // ---------------------------------------------------------------------------
 // 基线：三端构建自检必须先是绿的（否则"变红"无从判定）
@@ -1012,7 +1203,12 @@ process.stdout.write(`还原后三端构建自检：${Object.entries(finalCodes)
   + `${allGreen ? '（全绿 ✓，已按内存备份还原）' : '（异常 ✗）'}${staleNotice}\n`);
 
 if (passed === results.length && allGreen) {
-  process.stdout.write('\nbuild-check 反向验证 PASS —— 十四条判据（base-path-wiring / cross-end-protocol / pagination-protocol / error-data-fields / no-bare-python-script / endpoint-reachability / page-registry / required-args-wired / required-args-carrier / token-single-source / page-reachability / error-code-coverage / role-scope / words）确实有牙齿，且还原干净。\n');  process.exit(0);
+  // 🛑 第 89 条：这句文案**不再手写**。手写版曾长期说「三条」却列了十四条 ——
+  //    一个没人守的断言必然与事实脱节。现由上面的机械对账集合（EMITTED / TARGETED）生成。
+  process.stdout.write(
+    `\nbuild-check 反向验证 PASS —— 判据清单与反向清单**机械对账一致**：`
+    + `可发出的 **${EMITTED.size} 条**判据全部有牙齿（\n  ${[...TARGETED].sort().join(' · ')}\n），且还原干净。\n`);
+  process.exit(0);
 }
 process.stdout.write('\nbuild-check 反向验证 FAIL。\n');
 process.exit(1);

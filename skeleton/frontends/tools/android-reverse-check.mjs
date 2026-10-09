@@ -33,9 +33,25 @@ import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { journalRecover, journalStash, journalCommit, journalClose } from './_gate-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FRONTENDS = join(HERE, '..');
+
+// 🛑 第 90 条：**被改写的既有文件**的残骸自愈（与 build-reverse-check.mjs 同法）。
+//    内存备份挡不住 SIGKILL；故每次备份同时落盘，启动时先还原再大声说明。
+{
+  const rec = journalRecover(FRONTENDS);
+  if (rec && rec.corrupted) {
+    process.stdout.write(`\n⚠️ 上一轮留下的残骸日志解不开（${rec.corrupted}）；`
+      + '请 `git status` + `git diff` 逐一看过后用 `git checkout --` 还原（先看再还原）。\n');
+  } else if (rec && rec.restored.length) {
+    process.stdout.write(`\n⚠️ 上一轮反向验证**被强杀**，留下 ${rec.restored.length} 个处于注入态的源文件，`
+      + `已在开跑前自动还原：\n${rec.restored.map((f) => `     - ${f}`).join('\n')}\n`
+      + '   ⇒ 第 90 条：内存备份挡不住 SIGKILL，故备份同时落盘。\n\n');
+  }
+}
+process.on('exit', () => { try { journalClose(FRONTENDS); } catch { /* 尽力而为 */ } });
 const ROOT = join(FRONTENDS, 'therapist-android');
 const SRC = join(ROOT, 'app', 'src', 'main', 'kotlin', 'com', 'diaoyuanyun', 'therapist');
 const NODE = process.execPath;
@@ -89,10 +105,17 @@ const THEMES_XML = join(ROOT, 'app', 'src', 'main', 'res', 'values', 'themes.xml
 const backup = new Map();
 const created = new Set();
 function stash(path) {
-  if (!backup.has(path)) backup.set(path, readFileSync(path, 'utf8'));
+  if (!backup.has(path)) {
+    const t = readFileSync(path, 'utf8');
+    backup.set(path, t);
+    journalStash(FRONTENDS, path, t); // 第 90 条：同时落盘（内存备份挡不住 SIGKILL）
+  }
 }
 function restoreAll() {
-  for (const [p, t] of backup) writeFileSync(p, t);
+  for (const [p, t] of backup) {
+    writeFileSync(p, t);
+    journalCommit(FRONTENDS, p); // 已还原 ⇒ 从残骸日志里摘掉
+  }
   for (const p of created) {
     if (existsSync(p)) unlinkSync(p);
   }

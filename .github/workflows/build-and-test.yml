@@ -190,7 +190,12 @@ jobs:
 
       # 门禁有牙齿的反向验证：注入故障必须被逐一抓住（含还原校验）。
       # 🛑 必须【串行】：这些脚本对同一批文件做「注入 → 还原」，并行会互相踩踏。
-      - name: 门禁反向验证（build 29/29 · a 21/21 · x3 17/17 · android 43/43）
+      # 🛑 本步的 step 名必须与**实测组数**一致（第 89 条）：
+      #    它此前写着 `build 29/29 · a 21/21`，而实测早已是 `52/52 · 27/27` ——
+      #    step 名是审阅者在 Actions 界面上**直接读到的唯一一句话**，
+      #    一个没人守的计数就是一句没人守的断言（与 `build-reverse` 头部的"三条"同族）。
+      #    改这里的数字时，请**同时**跑一遍本步并把实测值抄回来。
+      - name: 门禁反向验证（build 52/52 · a 27/27 · x3 17/17 · android 43/43）
         working-directory: skeleton/frontends/admin-web
         run: |
           node ../tools/build-reverse-check.mjs

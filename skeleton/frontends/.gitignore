@@ -11,3 +11,8 @@ dist/
 # The mini-program project has no bundler output of its own; the WeChat DevTools
 # compile it. Anything it drops should not be committed either.
 miniprogram/**/*.map
+
+# 反向验证的「被改写文件」残骸日志（第 90 条）。
+# 它是**运行期状态**，不是源码：正常收尾时脚本自己会删掉它；
+# 只有上一次运行被强杀时才会残留 —— 那正是下一轮启动时要读的东西。
+tools/_reverse_journal.json
