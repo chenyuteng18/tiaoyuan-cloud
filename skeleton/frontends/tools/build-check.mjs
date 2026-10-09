@@ -746,20 +746,118 @@ if (cfg.scanWords) {
   // 这条同时解释了为什么本文件里看不到被禁术语的原文引用 —— 需要说明"某词为什么
   // 被禁"时，一律**用指代**（如「③ 组字段名」「R7 点名的评价类措辞」），不写原词。
   // 该约束已登记于 frontends/README.md。
-  const scanned = cfg.scanRoots
-    .filter((r) => existsSync(join(END_ROOT, r)))
-    .flatMap((r) => walk(join(END_ROOT, r)));
+  // 🛑🛑 2026-10-09（批次 H · 本仓第 88 条 · 第三十一类）：
+  //    这里此前是 `cfg.scanRoots.filter((r) => existsSync(...))` —— **静默丢弃不存在的根**。
+  //    受控注入实测（把 `scanRoots: ['miniprogram']` 改成不存在的目录）：
+  //        ✓ words: 退款字样（scan1_refund）无命中，扫描 0 个文件
+  //        ✓ words: 负向计数与归因措辞（scan2_negative）无命中，扫描 0 个文件
+  //        ✓ words: 派生字段与派生结论（scan3_derived）无命中，扫描 0 个文件
+  //        BUILD OK  (client-mp)   …… 全部通过   ⇒ exit 0
+  //    ⇒ **ADR-12 合规门禁被静默关掉，而输出是绿的。**
+  //
+  //    🛑 最要紧的一点：**CI 侧的同源门禁早就不是这样了。**
+  //    `compliance/scan_compliance.py` 的 scan_face() 在根缺失时是 `raise GateConfigError`
+  //    （默认 fail-closed，只有显式 `ALLOW_MISSING=1` 的 dry-run 才放行），其注释逐字写着
+  //    "A gate that scans nothing reports success" —— 那正是本条要防的形态。
+  //    CI 侧还额外做了**双向** channel parity（"declared 但目录没了"同样算洞）。
+  //    ⇒ 同一个判据、两个通道，**严格性不一致，且本地这一侧是弱的那个**。
+  //      本仓纪律是"对齐更严的一侧、不自行放宽"，故此处按 CI 侧补齐四层自证。
+  //
+  //    四层 → 实为**三层**（第四层的取舍见下）：
+  //      ① 声明的根**必须全部存在**（改名 / 删目录 / 写错路径 ⇒ 报红，不再静默丢）；
+  //      ② 总文件数**必须非零**（scanExt 被改坏 ⇒ 匹配不到任何扩展名）；
+  //      ③ 本地根集合与 ADR-12 manifest 的 `faces[*].roots` 里 `frontends/` 那一支
+  //         **双向咬合**（本端扫的必须在 manifest 里；manifest 声明的也必须有本端在扫）。
+  //         —— 缺这一层就会出现"CI 扫的根与本地扫的根各漂各的，而两边都绿"。
+  //
+  //    🛑 **曾被写下、又被自己删掉的一层**（登记，不留不可证伪的代码）：
+  //      原第③层是"**每个根各自非零**"（防"一个根挂着一个根空着、总数仍非零"）。
+  //      它在**当前配置下不可达** —— 端 C 只声明了一个根（`['miniprogram']`），
+  //      逐根非零与总数非零是同一件事；而"不可达的分支"正是 R31 那条教训的形态
+  //      （用例只活在注释里、从未被执行过）。本仓纪律是**每个分支必须被受控注入
+  //      证伪一次**；证不了就不写。⇒ 删除，并在此登记：
+  //      **端 C 将来若声明第二个扫描根，必须连同该层的反向用例一起加回来。**
+  const declaredRoots = cfg.scanRoots || [];
+  const presentRoots = declaredRoots.filter((r) => existsSync(join(END_ROOT, r)));
+  const missingRoots = declaredRoots.filter((r) => !existsSync(join(END_ROOT, r)));
+  const perRoot = presentRoots.map((r) => ({ rel: r, files: walk(join(END_ROOT, r)) }));
+  const scanned = perRoot.flatMap((x) => x.files);
+  const rootSummary = perRoot.map((x) => `${x.rel}(${x.files.length} 文件)`).join(' + ') || '（无根）';
 
-  for (const [name, label] of WORDLISTS) {
-    const words = loadWords(name);
-    if (words === null) { fail('wordlist', `词表缺失：compliance/wordlists/${name}.words`); continue; }
-    const hits = [];
-    for (const file of scanned) {
-      const code = readFileSync(file, 'utf8');
-      for (const w of words) if (w && code.includes(w)) hits.push(`${relative(END_ROOT, file)} :: ${w}`);
+  // 第④层：与 ADR-12 manifest 的根集合双向咬合。
+  const MANIFEST = join(COMPLIANCE, 'scan-manifest.json');
+  const manifestFrontendRoots = (() => {
+    if (!existsSync(MANIFEST)) return null;
+    try {
+      const m = JSON.parse(readFileSync(MANIFEST, 'utf8'));
+      const acc = new Set();
+      for (const face of Object.values(m.faces || {})) {
+        for (const r of face.roots || []) {
+          if (String(r).replace(/\\/g, '/').startsWith('frontends/')) acc.add(String(r).replace(/\\/g, '/'));
+        }
+      }
+      return acc;
+    } catch { return null; }
+  })();
+  // 本端在 manifest 里的根路径形态：frontends/<end>/<root>
+  const localManifestRoots = declaredRoots.map((r) => `frontends/${END_ID}/${r}`.replace(/\/+/g, '/').replace(/\\/g, '/'));
+  // 全部"声明了 scanWords"的端所覆盖的 manifest 根（用于反方向：manifest 声明的不得没人扫）
+  const allLocalManifestRoots = new Set();
+  for (const [id, c] of Object.entries(ENDS)) {
+    if (!c.scanWords) continue;
+    for (const r of c.scanRoots || []) allLocalManifestRoots.add(`frontends/${id}/${r}`.replace(/\/+/g, '/'));
+  }
+
+  if (declaredRoots.length === 0) {
+    fail('words',
+      '本端声明了 `scanWords: true`，但 `scanRoots` 为空 ⇒ 禁用词扫描面**根本不存在**。\n'
+      + '      ⇒ 报红而不是"无命中"：扫描面为零时的"通过"是假绿（第 88 条）。');
+  } else if (missingRoots.length) {
+    fail('words',
+      `声明的扫描根不存在：${missingRoots.join(', ')}（实存根：${rootSummary}）。\n`
+      + '      ⇒ 此前这里 `.filter(existsSync)` **静默丢弃**缺失根，于是"改名一个目录"就等于\n'
+      + '        关掉 ADR-12 合规门禁，而输出仍是 "✓ 无命中，扫描 0 个文件" + `BUILD OK`。\n'
+      + '      ⇒ CI 侧 `compliance/scan_compliance.py` 对同一情形是 fail-closed（缺失根直接拒判）。\n'
+      + '        本地这一侧从今起对齐它：**不存在的根必须报红，不得静默跳过**。');
+  } else if (scanned.length === 0) {
+    fail('words',
+      `扫描根都在（${rootSummary}），但**一个文件都没扫到**（scanExt=${cfg.scanExt}）\n`
+      + '      ⇒ 覆盖面自证失败：本判据事实上没有在检查任何东西，输出"通过"是假绿。');
+  } else if (manifestFrontendRoots === null) {
+    fail('words',
+      `读不到 ADR-12 manifest（${relative(SKELETON_ROOT, MANIFEST)}）或其中没有 faces[*].roots。\n`
+      + '      ⇒ 本地扫描面的**权威来源**取不到 ⇒ 不得默认本端覆盖面正确（fail-closed）。');
+  } else {
+    const notInManifest = localManifestRoots.filter((r) => !manifestFrontendRoots.has(r));
+    const uncovered = [...manifestFrontendRoots].filter((r) => !allLocalManifestRoots.has(r));
+    if (notInManifest.length || uncovered.length) {
+      const lines = [];
+      if (notInManifest.length) {
+        lines.push(`本端在扫、但 manifest 未声明的根：${notInManifest.join(', ')}`
+          + ' （manifest 是 ADR-12 的权威来源，本地覆盖面不得自行超出）');
+      }
+      if (uncovered.length) {
+        lines.push(`manifest 声明了、但**没有任何 scanWords 端在扫**的根：${uncovered.join(', ')}`
+          + ' （这正是"CI 扫得到、本地扫不到"或反之的漂移点）');
+      }
+      fail('words',
+        `本地扫描面与 ADR-12 manifest 的根集合**双向咬合失败**：\n      ${lines.join('\n      ')}\n`
+        + `      ⇒ 本端声明根：${declaredRoots.join(', ') || '（空）'} ⇒ 映射为 ${localManifestRoots.join(', ') || '（空）'}\n`
+        + `      ⇒ manifest 的 frontends/* 根：${[...manifestFrontendRoots].join(', ')}\n`
+        + '      ⇒ 两个通道的覆盖面必须一致；各自漂移时"两边都绿"是最危险的状态。');
+    } else {
+      for (const [name, label] of WORDLISTS) {
+        const words = loadWords(name);
+        if (words === null) { fail('wordlist', `词表缺失：compliance/wordlists/${name}.words`); continue; }
+        const hits = [];
+        for (const file of scanned) {
+          const code = readFileSync(file, 'utf8');
+          for (const w of words) if (w && code.includes(w)) hits.push(`${relative(END_ROOT, file)} :: ${w}`);
+        }
+        if (hits.length) fail('words', `${label}（${name}）命中 ${hits.length} 处:\n      ${hits.join('\n      ')}`);
+        else ok('words', `${label}（${name}）无命中，扫描 ${scanned.length} 个文件（根：${rootSummary}；与 ADR-12 manifest 咬合 ✓）`);
+      }
     }
-    if (hits.length) fail('words', `${label}（${name}）命中 ${hits.length} 处:\n      ${hits.join('\n      ')}`);
-    else ok('words', `${label}（${name}）无命中，扫描 ${scanned.length} 个文件`);
   }
 } else {
   notes.push('  – words: 本端不适用（ADR-12 三面的 SCOPE 是客户端包；'

@@ -13,7 +13,10 @@
  * 和"代码是对的"完全一样。故每条判据都必须做反向验证：
  *   **注入一个真实的缺陷 → 判据必须变红 → 还原 → 必须变绿。**
  *
- * 本脚本覆盖 `build-check.mjs` 的**三条**判据：
+ * 本脚本覆盖 `build-check.mjs` 的**十四条**跨端共享判据（逐条见下）：
+ *   🛑 此处长期写「**三条**」而下面列了十四条 —— 一处典型的**计数锚点滞后**：
+ *      它自称"三条"却逐条列出了十四条，读的人会以为下面那串是"补充说明"。
+ *      与"数字锚点必须有出处"同族；第 88 条一并订正为与实际一致。
  *   · `base-path-wiring`（第 56 条，R1–R6）—— 契约 Base Path（`servers[0].url`）
  *     必须真的进入三端出站 URL；
  *   · `cross-end-protocol`（第 57 条，R7–R10）—— 鉴权头名 / 令牌前缀 / 幂等头名 /
@@ -49,6 +52,10 @@
  *     「契约 `x-callable-roles` ∩ 本端 `END_TOKEN_ROLES`」（**双向等式**：无缺项、无越权）。
  *     R41/R42 注入**契约侧**（空交集 · 越权）· R43 注入**生成物侧**（缺项）·
  *     R44 注入**判据自身的解析**（覆盖面自证）。
+ *   · `words`（第 88 条，R45–R47）—— ADR-12 合规扫描的**本地通道**：扫描根必须
+ *     全部存在、总数必须非零、且与 manifest 声明的 `frontends/*` 根**双向咬合**。
+ *     R45 注入"根被改名"（此前静默丢根、扫描 0 文件仍 ✓）· R46 注入"扩展名匹配被改坏"·
+ *     R47 注入"manifest 侧根被改名"（本地↔CI 覆盖面漂移）。
  *
  * 🛑 注入的**两种形状**（第 86 条新增第二种）
  * ---------------------------------------------------------------------------
@@ -877,6 +884,44 @@ export default function OrphanPage(_props: { roleLabel: string }) {
     // 若照旧输出 ✓，"判据忽然什么都不认识了"与"角色范围是对的"在输出上完全一样。
     mutate: (s) => s.replace('/^ {6}operationId:\\s*(\\S+)\\s*$/', '/^NEVER_MATCHES_ZZQ:/'),
   },
+
+  // ==========================================================================
+  // 第 88 条 · 第三十一类：**同一个判据、两个通道，严格性不一致**
+  //   ③ `words`（ADR-12 合规扫描的本地通道）此前对"扫描根不存在"**静默丢弃**，
+  //   于是"改名一个目录"就等于关掉 ADR-12 门禁，而输出是 `✓ 无命中，扫描 0 个文件`
+  //   + `BUILD OK` + exit 0。CI 侧 `compliance/scan_compliance.py` 对同一情形
+  //   早已是 fail-closed（缺失根 `raise GateConfigError`，注释逐字："A gate that
+  //   scans nothing reports success"）。⇒ 本地这一侧对齐到更严的那一侧。
+  //   三层覆盖面自证，每层一个受控注入（**证不了的分支不留在代码里** ——
+  //   原拟的"逐根非零"层因端 C 只有一个根而不可达，已删除并登记）。
+  // ==========================================================================
+  {
+    id: 'R45',
+    end: 'client-mp',
+    rel: '../tools/build-check.mjs',
+    title: '端 C：声明的禁用词扫描根被改名 ⇒ 覆盖面自证必须报红（此前静默丢根、扫描 0 文件仍 ✓）',
+    expectItem: 'words',
+    mutate: (s) => s.replace("scanRoots: ['miniprogram'],", "scanRoots: ['miniprogram_ZZQ_RENAMED'],"),
+  },
+  {
+    id: 'R46',
+    end: 'client-mp',
+    rel: '../tools/build-check.mjs',
+    title: '端 C：scanExt 被改坏到匹配不到任何文件 ⇒ 总数非零自证必须报红',
+    expectItem: 'words',
+    mutate: (s) => s.replace('scanExt: /\\.(js|json|wxml|wxss)$/i,', 'scanExt: /\\.ZZQ_NEVER_MATCHES$/i,'),
+  },
+  {
+    id: 'R47',
+    end: 'client-mp',
+    rel: '../../compliance/scan-manifest.json',
+    title: '端 C：ADR-12 manifest 声明的 frontends/* 根被改名 ⇒ 本地↔CI 覆盖面双向咬合必须报红',
+    expectItem: 'words',
+    // 🛑 注入目标在 `frontends/` 之外、且**不在 contract/ 那一支**：
+    //    这是 ADR-12 的**权威清单**（`compliance/scan-manifest.json`），
+    //    本地通道的扫描面必须以它为准，故用 `../../`（不是 `../../../`，见 R27/R34 的分母差异）。
+    mutate: (s) => s.split('frontends/client-mp/miniprogram').join('frontends/client-mp/miniprogram_ZZQ'),
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -967,7 +1012,7 @@ process.stdout.write(`还原后三端构建自检：${Object.entries(finalCodes)
   + `${allGreen ? '（全绿 ✓，已按内存备份还原）' : '（异常 ✗）'}${staleNotice}\n`);
 
 if (passed === results.length && allGreen) {
-  process.stdout.write('\nbuild-check 反向验证 PASS —— 十三条判据（base-path-wiring / cross-end-protocol / pagination-protocol / error-data-fields / no-bare-python-script / endpoint-reachability / page-registry / required-args-wired / required-args-carrier / token-single-source / page-reachability / error-code-coverage / role-scope）确实有牙齿，且还原干净。\n');  process.exit(0);
+  process.stdout.write('\nbuild-check 反向验证 PASS —— 十四条判据（base-path-wiring / cross-end-protocol / pagination-protocol / error-data-fields / no-bare-python-script / endpoint-reachability / page-registry / required-args-wired / required-args-carrier / token-single-source / page-reachability / error-code-coverage / role-scope / words）确实有牙齿，且还原干净。\n');  process.exit(0);
 }
 process.stdout.write('\nbuild-check 反向验证 FAIL。\n');
 process.exit(1);
