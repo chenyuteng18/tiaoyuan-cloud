@@ -1919,6 +1919,188 @@ if (cfg.outbound) {
 }
 
 // ---------------------------------------------------------------------------
+// ④l 【角色范围】生成物里的 `grantedRoles` 必须等于「契约 x-callable-roles ∩ 本端 END_TOKEN_ROLES」
+// ---------------------------------------------------------------------------
+// 🛑 它堵的洞（2026-10-09 四端横向清点，不是推理）
+// ---------------------------------------------------------------------------
+//   契约每个 operation 都带 `x-callable-roles`（**全量**角色表：client / therapist /
+//   meridian / admin），生成物的 `grantedRoles` 是它与**本端** `END_TOKEN_ROLES`
+//   求交后的结果。这条"交集"就是**本端能调哪些端点**的定义 —— 它错了，
+//   前端要么漏掉必需能力，要么拿到自己无权调用的端点。
+//
+//   清点四端谁在守它：
+//     · 端 A：`a-check` ② `single-role`（39 个端点全部只授予 admin）；
+//     · 端 B：`x3-check` ③ `roles`（每个端点 grantedRoles 非空且都是本端角色）；
+//     · 端 D：`android-check` ④ `roles`（取值全集 {meridian,therapist} ⊆ 本端 token-roles）；
+//     · **端 C：没有任何判据在看。**
+//   ⇒ 与第 84 / 86 条**同一个句式**：四端同桌，**唯独一端没有锁**。
+//     （这是本仓第三次出现这个形状：第 84 条端 C 的 token 键名、第 86 条端 A 的页面可达性。）
+//
+// 🛑 而既有的三条（端 A/B/D）也**都不够**（第 84 条同族：有锁 ≠ 锁对）
+// ---------------------------------------------------------------------------
+//   它们判的都是 `grantedRoles ⊆ 本端角色` 与"非空" —— 即**只判一个方向**。
+//   ⇒ 一个"**把交集算小了**"的生成器回归（例如误取 `roles[0:1]`）会：
+//     端 B 的 `["therapist","meridian"]` 变成 `["therapist"]`（非空 ✓、⊆ 本端 ✓）
+//     ⇒ **三条判据全绿**，而经络师再也调不了那 22 个端点。
+//   故本条的判据形态是**双向等式**：`grantedRoles == x-callable-roles ∩ END_TOKEN_ROLES`
+//   —— 既不得少（缺项）、也不得多（越权）。
+//
+// 🛑 判据形态与**如实登记的边界**
+// ---------------------------------------------------------------------------
+//   ① **契约侧**：扫 `_cut/<端>.openapi.yaml` 的**缩进 6 空格**行，把 `operationId:`
+//      与紧接其后的 `x-callable-roles:` 块配对（实测两者严格交替、计数相等；
+//      计数不等或为 0 ⇒ 报红，不得当作通过 —— 第 53 条的覆盖面自证）。
+//   ② **生成物侧**：解析 `END_TOKEN_ROLES` 与每个端点的 `id` + `grantedRoles`。
+//   ③ **双向等式**：逐个 operationId 比对（按**集合**比，不比顺序 —— 角色表是集合，
+//      顺序不承载语义；写成顺序敏感会因生成器的无害重排而**假红** ⇒ 第 55 条）。
+//   ④ **空交集即报红**：某 operation 的 `x-callable-roles` 与本端 `END_TOKEN_ROLES`
+//      **无交集** ⇒ 本端根本不能调用它，它不该出现在本端裁剪契约里（裁剪管线漏筛）。
+//   ⑤ **id 集合双向相等**：生成的端点 id 集合必须与契约侧的 operationId 集合相等
+//      （防生成物与契约不同步 —— 与 ④g/④k 同一立场）。
+//
+//   ⚠️ 代价（明确登记）：本条判"生成物与**裁剪契约**一致"，不判"裁剪契约与**冻结契约**
+//      一致"（那是 sdk-generator 的职责，且 ④k 已在错误码那一维上判过一次）。
+{
+  const CUT = join(REPO_ROOT, 'contract', 'sdk-generator', '_cut', `${cfg.contractKey}.openapi.yaml`);
+  const GEN_REL = END_ID === 'client-mp' ? 'miniprogram/contract/endpoints.js' : 'src/contract/endpoints.ts';
+  const GEN_ABS = join(END_ROOT, GEN_REL);
+  const problems = [];
+  // 🛑 这两个在 if/else **之外**声明：`ok(...)` 在分支外要引用它们。
+  //    （首版把它们写在 else 块里 ⇒ 分支外的 `ok` 会抛 ReferenceError：
+  //      "判据自己崩掉" 与 "判据报红" 在输出上完全不同，必须避免。）
+  const contractRoles = new Map(); // operationId -> [role...]
+  let endRoles = []; // 本端 END_TOKEN_ROLES
+
+  if (!existsSync(CUT)) {
+    problems.push(`裁剪契约不存在：${relative(REPO_ROOT, CUT)}\n        `
+      + '⇒ 判据读不到生成器的输入，【不得】当作通过（第 24 条族：读不到 ≠ 没有）。');
+  } else if (!existsSync(GEN_ABS)) {
+    problems.push(`生成物不存在：${GEN_REL}（① structure 已报，本条不重复内容）。`);
+  } else {
+    // ── ① 契约侧：operationId ↔ x-callable-roles 配对 ──────────────────────
+    const cutLines = readFileSync(CUT, 'utf8').split(/\r?\n/);
+    const dupOps = [];
+    let pendingOp = null;
+    let opCount = 0;
+    let roleBlockCount = 0;
+    for (let i = 0; i < cutLines.length; i += 1) {
+      const opM = /^ {6}operationId:\s*(\S+)\s*$/.exec(cutLines[i]);
+      if (opM) {
+        pendingOp = opM[1];
+        opCount += 1;
+        if (contractRoles.has(pendingOp)) dupOps.push(pendingOp);
+        continue;
+      }
+      if (/^ {6}x-callable-roles:\s*$/.test(cutLines[i])) {
+        roleBlockCount += 1;
+        const roles = [];
+        for (let j = i + 1; j < cutLines.length; j += 1) {
+          const itemM = /^ {6}-\s*(\S+)\s*$/.exec(cutLines[j]);
+          if (!itemM) break;
+          roles.push(itemM[1]);
+        }
+        if (pendingOp === null) {
+          problems.push('解析到 `x-callable-roles` 时前面没有 `operationId` ⇒ '
+            + '判据的配对口径坏了，【不得】当作通过（第 52/53 条）。');
+        } else {
+          contractRoles.set(pendingOp, roles);
+        }
+      }
+    }
+    if (opCount === 0 || roleBlockCount === 0) {
+      problems.push(`契约侧解析为空（operationId=${opCount} · x-callable-roles=${roleBlockCount}）`
+        + ' ⇒ 判据不认识当前写法，【不得】当作通过（第 52/53 条）。');
+    }
+    if (opCount !== roleBlockCount) {
+      problems.push(`契约侧计数等式不成立：operationId ${opCount} ≠ x-callable-roles ${roleBlockCount}`
+        + ' ⇒ 有 operation 没带角色表（或反之），配对口径不可信。');
+    }
+    if (dupOps.length) {
+      problems.push(`契约里有重复的 operationId：${dupOps.join(', ')} ⇒ 配对会产生覆盖，判据结果不可信。`);
+    }
+    for (const [op, roles] of contractRoles) {
+      if (roles.length === 0) {
+        problems.push(`契约 operation「${op}」的 x-callable-roles 是空的 ⇒ 没有角色能调它。`);
+      }
+    }
+
+    // ── ② 生成物侧 ────────────────────────────────────────────────────────
+    const genText = readFileSync(GEN_ABS, 'utf8');
+    const rolesM = /END_TOKEN_ROLES[\s\S]{0,160}?Object\.freeze\(\[([\s\S]*?)\]\s*\)/.exec(genText);
+    endRoles = rolesM
+      ? [...rolesM[1].matchAll(/["']([^"']+)["']/g)].map((m) => m[1])
+      : [];
+    const genRoles = new Map(); // id -> [role...]
+    const epRe = /\{\s*id:\s*"([^"]+)",\s*row:\s*"[^"]+",\s*method:\s*"[^"]+",\s*path:\s*"[^"]+",\s*grantedRoles:\s*Object\.freeze\(\[([^\]]*)\]\)/g;
+    let em;
+    while ((em = epRe.exec(genText))) {
+      genRoles.set(em[1], [...em[2].matchAll(/["']([^"']+)["']/g)].map((x) => x[1]));
+    }
+    if (endRoles.length === 0) {
+      problems.push(`生成物里没解析到 END_TOKEN_ROLES ⇒ 判据不认识当前写法，【不得】当作通过。`);
+    }
+    if (genRoles.size === 0) {
+      problems.push(`生成物里没解析到任何端点的 grantedRoles ⇒ 判据不认识当前写法，`
+        + '【不得】当作通过（第 52/53 条）。');
+    }
+
+    if (problems.length === 0) {
+      // ── ⑤ id 集合双向相等 ──────────────────────────────────────────────
+      const cutIds = [...contractRoles.keys()].sort();
+      const genIds = [...genRoles.keys()].sort();
+      const onlyCut = cutIds.filter((x) => !genRoles.has(x));
+      const onlyGen = genIds.filter((x) => !contractRoles.has(x));
+      if (onlyCut.length) {
+        problems.push(`裁剪契约有、生成物没有的 operation：${onlyCut.join(', ')}\n        `
+          + '⇒ 生成物与契约不同步（本端少了一批端点，用户界面相应地少功能）。');
+      }
+      if (onlyGen.length) {
+        problems.push(`生成物有、裁剪契约没有的 operation：${onlyGen.join(', ')}\n        `
+          + '⇒ 生成物凭空多出端点（第二份权威），手改生成物或生成器口径不一致。');
+      }
+
+      // ── ③④ 双向等式 ────────────────────────────────────────────────────
+      const endRoleSet = new Set(endRoles);
+      const mismatches = [];
+      for (const [op, cRoles] of contractRoles) {
+        if (!genRoles.has(op)) continue; // 已由 ⑤ 报告
+        const gRoles = genRoles.get(op);
+        const inter = cRoles.filter((r) => endRoleSet.has(r)); // 按契约顺序保留
+        const expectSorted = [...new Set(inter)].sort();
+        const gotSorted = [...new Set(gRoles)].sort();
+        if (expectSorted.length === 0) {
+          mismatches.push(`operation「${op}」：契约 x-callable-roles(${cRoles.join(', ')}) 与本端 `
+            + `END_TOKEN_ROLES(${endRoles.join(', ')}) **无交集** —— 本端根本不能调用它，`
+            + '它不该出现在本端裁剪契约里（裁剪管线漏筛）。');
+          continue;
+        }
+        if (expectSorted.join(',') !== gotSorted.join(',')) {
+          const missing = expectSorted.filter((r) => !gotSorted.includes(r));
+          const extra = gotSorted.filter((r) => !expectSorted.includes(r));
+          mismatches.push(`operation「${op}」：期望 [${expectSorted.join(', ')}]，实际 [${gotSorted.join(', ')}]`
+            + `${missing.length ? ` · 缺项 ${missing.join(', ')}` : ''}`
+            + `${extra.length ? ` · 越权 ${extra.join(', ')}` : ''}`);
+        }
+        if (gotSorted.some((r) => !endRoleSet.has(r))) {
+          mismatches.push(`operation「${op}」：grantedRoles 含本端 END_TOKEN_ROLES 之外的角色`
+            + ` ⇒ 前端会拿到自己无权调用的端点。`);
+        }
+      }
+      if (mismatches.length) {
+        problems.push('角色范围与契约不一致：\n        ' + mismatches.join('\n        '));
+      }
+    }
+  }
+
+  if (problems.length) fail('role-scope', problems.join('\n      '));
+  else {
+    ok('role-scope',
+      `契约 ${contractRoles.size} 个 operation 的 x-callable-roles ∩ 本端 END_TOKEN_ROLES`
+      + ` = 生成物 grantedRoles（逐条双向相等 · 无缺项、无越权）[本端角色：${endRoles.join(', ')}]`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // ④i 【必需参数被调用点带上】本仓第 65 条 —— 端 C 侧
 // ---------------------------------------------------------------------------
 // 🛑 端 C 的形态与端 A/B **都不同**，判据必须独立实现（第 52 条：照抄⇒太宽⇒假绿）

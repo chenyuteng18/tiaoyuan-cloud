@@ -45,6 +45,10 @@
  *       R38 → 子规则①单独（从清册里删一项）；R39 → 子规则③覆盖面自证（改坏解析）。
  *   · `error-code-coverage`（第 85 条，R32–R34）—— 契约 `x-error-codes` 的每个 code
  *     都必须有本端文案，且不得有表外码；冻结契约与裁剪契约必须逐条一致。
+ *   · `role-scope`（第 87 条，R41–R44）—— 生成物 `grantedRoles` 必须等于
+ *     「契约 `x-callable-roles` ∩ 本端 `END_TOKEN_ROLES`」（**双向等式**：无缺项、无越权）。
+ *     R41/R42 注入**契约侧**（空交集 · 越权）· R43 注入**生成物侧**（缺项）·
+ *     R44 注入**判据自身的解析**（覆盖面自证）。
  *
  * 🛑 注入的**两种形状**（第 86 条新增第二种）
  * ---------------------------------------------------------------------------
@@ -812,6 +816,67 @@ export default function OrphanPage(_props: { roleLabel: string }) {
     //    ④j 的覆盖面自证正是为这个形状准备的：空集必须报红。
     mutate: (s) => s.replace('/^src\\/pages\\/.+\\.tsx$/', '/^src\\/pages\\/NEVER_MATCHES_ZZQ\\.tsx$/'),
   },
+
+  // =========================================================================
+  // 第 87 条 · 第三十类：`role-scope`（本端能调哪些端点 = 契约角色表 ∩ 本端角色）
+  // =========================================================================
+  //  四端里端 A/B/D 各有"角色"判据，**唯独端 C 没有**；而既有三条又都只判
+  //  `⊆ 本端角色` 与"非空" —— 一个"把交集算小了"的生成器回归会全部漏过。
+  //  故新判据 ④l 做**双向等式**。四组注入分别钉住它的四条子规则：
+  //    · R41 / R42 → 契约侧（改坏生成器的**输入**）：空交集 · 越权
+  //    · R43       → 生成物侧：缺项
+  //    · R44       → 覆盖面自证（把契约侧的配对正则改坏）
+  //  🛑 R41 / R42 的注入目标是**裁剪契约**（在 frontends/ 之外，与 R34 同型），
+  //     且**必须容忍 CRLF** —— 三份 `_cut/*.openapi.yaml` **整份都是 CRLF**
+  //     （实测：admin-web 2457 / therapist-app 2178 / client-mp 1387 个 CRLF，LF-only 0）。
+  //     ⚠️ 别用 `sed | cat -A` 去"核实"这件事：Git Bash 的 sed 会做文本模式转换，
+  //        输出里**看不到 `^M`**，看起来像是 LF —— 会把人带偏。
+  // =========================================================================
+
+  {
+    id: 'R41',
+    end: 'client-mp',
+    rel: '../../../contract/sdk-generator/_cut/client-mp.openapi.yaml',
+    title: '端 C：契约把某 operation 的本端角色（client）从 x-callable-roles 里删掉 ⇒ 交集为空，'
+      + '`role-scope` 必须报红（该端点本不该出现在本端裁剪里）',
+    expectItem: 'role-scope',
+    // 删的是**角色行**、保留 `x-callable-roles:` 键 ⇒ YAML 仍然合法（列表少一项），
+    // 于是"契约被改坏"这件事只由 ④l 发现 —— 生成物没动，其余判据读生成物，全部照旧绿。
+    mutate: (s) => s.replace(/(^ {6}x-callable-roles:\r?\n)( {6}- client\r?\n)/m, '$1'),
+  },
+  {
+    id: 'R42',
+    end: 'therapist-app',
+    rel: '../../../contract/sdk-generator/_cut/therapist-app.openapi.yaml',
+    title: '端 B：契约删掉某 operation 的 `meridian` ⇒ 生成物多出一个本端不该有的角色，'
+      + '`role-scope` 必须报红（既有 `x3-check` 的三条角色判据**抓不到这一向**）',
+    expectItem: 'role-scope',
+    // 🛑 这条用例的**判别力**正是 ④l 存在的理由：`x3-check` 的 `roles`（非空 + ⊆ 本端）、
+    //    `x3-meridian-only`（恰好 7 个）、`x3-therapist-only`（无"仅调理师"端点）读的都是
+    //    **生成物**；本注入只动**契约** ⇒ 生成物不变 ⇒ 那三条**全部照旧绿**。
+    //    这是"有锁 ≠ 锁对"（第 84 条同族）在角色维上的一个可执行反例。
+    mutate: (s) => s.replace(/(^ {6}x-callable-roles:\r?\n)( {6}- meridian\r?\n)/m, '$1'),
+  },
+  {
+    id: 'R43',
+    end: 'client-mp',
+    rel: 'miniprogram/contract/endpoints.js',
+    title: '端 C：生成物里某端点的 grantedRoles 变成空数组 ⇒ `role-scope` 子规则③（双向等式）必须报红（缺项）',
+    expectItem: 'role-scope',
+    // 注入**生成物**（模拟生成器回归）—— 只动 `grantedRoles`，不动 `id`/`path`，
+    // 故 ④g 端点触达、① structure、契约计数等全部不受影响 ⇒ 只有 ④l 报红。
+    mutate: (s) => s.replace('grantedRoles: Object.freeze(["client"]),', 'grantedRoles: Object.freeze([]),'),
+  },
+  {
+    id: 'R44',
+    end: 'admin-web',
+    rel: '../tools/build-check.mjs',
+    title: '端 A：把 `role-scope` 的契约侧配对正则改坏 ⇒ 覆盖面自证必须报红（不得静默输出 ✓）',
+    expectItem: 'role-scope',
+    // 与 R35 / R39 同型：注入**判据自身**的解析能力。解析不到 operationId ⇒ 契约侧空集 ⇒
+    // 若照旧输出 ✓，"判据忽然什么都不认识了"与"角色范围是对的"在输出上完全一样。
+    mutate: (s) => s.replace('/^ {6}operationId:\\s*(\\S+)\\s*$/', '/^NEVER_MATCHES_ZZQ:/'),
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -902,7 +967,7 @@ process.stdout.write(`还原后三端构建自检：${Object.entries(finalCodes)
   + `${allGreen ? '（全绿 ✓，已按内存备份还原）' : '（异常 ✗）'}${staleNotice}\n`);
 
 if (passed === results.length && allGreen) {
-  process.stdout.write('\nbuild-check 反向验证 PASS —— 十二条判据（base-path-wiring / cross-end-protocol / pagination-protocol / error-data-fields / no-bare-python-script / endpoint-reachability / page-registry / required-args-wired / required-args-carrier / token-single-source / page-reachability / error-code-coverage）确实有牙齿，且还原干净。\n');  process.exit(0);
+  process.stdout.write('\nbuild-check 反向验证 PASS —— 十三条判据（base-path-wiring / cross-end-protocol / pagination-protocol / error-data-fields / no-bare-python-script / endpoint-reachability / page-registry / required-args-wired / required-args-carrier / token-single-source / page-reachability / error-code-coverage / role-scope）确实有牙齿，且还原干净。\n');  process.exit(0);
 }
 process.stdout.write('\nbuild-check 反向验证 FAIL。\n');
 process.exit(1);
