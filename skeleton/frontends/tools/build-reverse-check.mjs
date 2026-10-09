@@ -36,10 +36,22 @@
  *   · `token-single-source`（第 84 条，R30 + R35）—— 令牌键名只能有**一处**定义；
  *     R35 额外证明"**覆盖面自证**"分支有牙齿（判据的权威点候选清单被改坏时必须报红，
  *     而**不得**退化成"本端不适用"——那正是本条抓到的原缺陷形态）。
- *   · `page-reachability`（第 84 条同批，R31）—— 端 C 已声明的页面必须有
- *     **外部**入口（本页自身文件里的自引用不算入口）。
+ *   · `page-reachability`（第 84 条同批，R31；第 86 条扩到端 A / 端 B，R36–R40）——
+ *     端 C：已声明的页面必须有**外部**入口（本页自身文件里的自引用不算入口）；
+ *     端 A / 端 B：`src/pages/*.tsx` 必须既登记在 `ENDS.required`、又真的在
+ *     `src/App.tsx` 里以 JSX 形态被渲染。**同一条判据的三个子规则各有自己的注入**：
+ *       R31 → 端 C 的"外部入口"；R36 / R40 → 子规则①+②（新增孤儿文件，两端各一）；
+ *       R37 → 子规则②单独（删 JSX + 删 import，隔离掉 tsc 与 ④h）；
+ *       R38 → 子规则①单独（从清册里删一项）；R39 → 子规则③覆盖面自证（改坏解析）。
  *   · `error-code-coverage`（第 85 条，R32–R34）—— 契约 `x-error-codes` 的每个 code
  *     都必须有本端文案，且不得有表外码；冻结契约与裁剪契约必须逐条一致。
+ *
+ * 🛑 注入的**两种形状**（第 86 条新增第二种）
+ * ---------------------------------------------------------------------------
+ *   · 「改写既有文件」：`rel` + `mutate` —— 绝大多数用例；
+ *   · 「**新增一个文件**」：`create` —— 第 45 / 53 / 86 条那一类缺陷的形态恰恰是
+ *     "新文件出现了、没有任何登记跟上"。此前框架表达不出这个形状，只能挑近似形态
+ *     顶替（第 55 条：判据与缺陷不咬合）。R36 / R40 走这一支。
  *
  * 🛑 为什么在这里做而不再写一次性探针
  * ---------------------------------------------------------------------------
@@ -49,7 +61,7 @@
  * 退出码：0 全部通过（含还原后回绿）；1 有用例未被抓住 或 还原不干净。
  */
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, rmdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, rmdirSync, unlinkSync } from 'node:fs';
 import { join, dirname, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -96,12 +108,29 @@ function restore(abs) {
   return true;
 }
 
-/** 兜底：进程异常退出时把仍未还原的文件写回（内存备份也能自愈）。 */
+// 🛑 2026-10-09（第 86 条）：**"新增一个文件"型注入**
+// ---------------------------------------------------------------------------
+// 本仓第 45 / 53 / 86 条那一类缺陷的形态**恰恰就是**"新文件出现了，没有任何
+// 登记跟上"（第 86 条那个孤儿页面就是这么来的）。而本框架此前只会"改写既有
+// 文件" ⇒ **用例表达不出真实缺陷**，只能挑一个近似形态顶替 —— 那正是第 55 条
+// 警告的"判据与缺陷不咬合"。
+// 故补 `create`：新增一个文件 → 跑 → 删掉 → 再跑。删除走 `unlinkSync` 且
+// 登记在 `CREATED` 里，进程异常退出时由 `restoreAll()` 兜底清掉。
+const CREATED = new Set(); // 本框架**新建**的文件（还原 = 删除）
+function cleanupCreate(abs) {
+  if (!CREATED.has(abs)) return false;
+  try { if (existsSync(abs)) unlinkSync(abs); } catch { /* 尽力而为 */ }
+  CREATED.delete(abs);
+  return true;
+}
+
+/** 兜底：进程异常退出时把仍未还原的文件写回、并把新建的文件删掉。 */
 function restoreAll() {
   for (const [abs, src] of BACKUPS) {
     try { writeFileSync(abs, src, { encoding: 'utf8', newline: '\n' }); } catch { /* 尽力而为 */ }
   }
   BACKUPS.clear();
+  for (const abs of [...CREATED]) cleanupCreate(abs);
 }
 process.on('uncaughtException', (e) => { restoreAll(); throw e; });
 process.on('unhandledRejection', (e) => { restoreAll(); throw e; });
@@ -128,7 +157,36 @@ async function runBuildCheck(end) {
 }
 
 /** 备份 → 变异 → 断言变红且命中指定判据 → 还原 → 断言回绿。 */
-async function caseInject({ id, end, rel, title, mutate, expectItem }) {
+async function caseInject({ id, end, rel, title, mutate, create, expectItem }) {
+  // 🛑 「新增一个文件」型（第 86 条）—— 与「改写既有文件」型是两个不同形状的注入。
+  if (create) {
+    const abs = join(FRONTENDS, end, create.rel);
+    if (existsSync(abs)) {
+      return {
+        id, end, title, ok: false,
+        detail: '（未执行注入：目标文件已存在，`create` 用例要求它事先不存在）',
+        why: `文件已存在: ${end}/${create.rel}`,
+      };
+    }
+    writeFileSync(abs, create.content, { encoding: 'utf8', newline: '\n' });
+    CREATED.add(abs);
+
+    let red;
+    try {
+      red = await runBuildCheck(end);
+    } finally {
+      cleanupCreate(abs);
+    }
+    const caught = red.code !== 0 && red.out.includes(expectItem);
+    const green = await runBuildCheck(end);
+    const restored = green.code === 0;
+    return {
+      id, end, title, ok: caught && restored,
+      detail: `注入（新增文件 ${create.rel}）后 exit=${red.code}，命中「${expectItem}」=${red.out.includes(expectItem)}；`
+        + `还原（删除该文件）后 exit=${green.code}`,
+    };
+  }
+
   const abs = join(FRONTENDS, end, rel);
   if (!existsSync(abs)) {
     // 🛑 **早退分支也必须有 `detail`**（固定形状）：即使"没跑到注入"，诊断行也
@@ -667,6 +725,93 @@ const CASES = [
       /- http: 500\r?\n {2}code: 9001\r?\n {2}name: INTERNAL_ERROR\r?\n {2}trigger: [^\n]*\r?\n/,
       ''),
   },
+
+  // =========================================================================
+  // 第 86 条 · 第二十九类：判据把这一端**推给别人**（"由 ④h 覆盖"）
+  // =========================================================================
+  //  ④j `page-reachability` 此前对端 A / 端 B 只输出一行注释："由 ④h 覆盖
+  //  （本条不重复判）"。而 ④h 的判定宇宙是 NAV，**不是磁盘** —— 那句话从未
+  //  被核验过。与第 84 条同族：那次是「不适用」，这次是「**已覆盖**」。
+  //
+  //  ⚠️ 为什么用例编号**不连续顺序排**（R30/R35 挨着、R31 单独在后面）：
+  //     这一批（R30–R35）是**分批补的**，编号即补入顺序；此处沿用该约定。
+  // =========================================================================
+
+  {
+    id: 'R36',
+    end: 'admin-web',
+    // 🛑 「**新增一个文件**」型注入 —— 这正是第 86 条原缺陷的形态：
+    //    新写的页面文件出现在磁盘上，而没有任何登记跟上。此前本框架只会
+    //    "改写既有文件"，表达不出这个形状（见 `caseInject` 的 `create` 分支）。
+    create: {
+      rel: 'src/pages/OrphanPage.tsx',
+      content: `// 受控注入（第 86 条）：磁盘上存在、但没有任何文件 import / 渲染它。
+export default function OrphanPage(_props: { roleLabel: string }) {
+  return <div>ZZQ9_ORPHAN_PROBE</div>;
+}
+`,
+    },
+    title: '端 A：新增一个孤儿页面文件 ⇒ ④j 必须报红（原缺陷形态复活；④h / tsc / vite 全看不见它）',
+    expectItem: 'page-reachability',
+  },
+  {
+    id: 'R40',
+    end: 'therapist-app',
+    // 🛑 为什么端 B 也要来一条：端 B 表面上已被 `x3-check` 的 `reach-by-role` ⑥
+    //    覆盖（它自己也判页文件）。但**共享实现只对一端生效**正是第 84 条的教训
+    //    （那次 `token-single-source` 写死 `src/` ⇒ 端 C 静默"不适用"）。
+    //    故必须证明 ④j 的 A/B 共用分支在**两端都**有牙齿，而不是只有端 A。
+    create: {
+      rel: 'src/pages/OrphanPage.tsx',
+      content: `// 受控注入（第 86 条）：磁盘上存在、但没有任何文件 import / 渲染它。
+export default function OrphanPage(_props: { roleLabel: string }) {
+  return <div>ZZQ9_ORPHAN_PROBE</div>;
+}
+`,
+    },
+    title: '端 B：新增孤儿页面 ⇒ ④j 的 A/B 共用分支在端 B 同样必须报红',
+    expectItem: 'page-reachability',
+  },
+  {
+    id: 'R37',
+    end: 'admin-web',
+    rel: 'src/App.tsx',
+    title: '端 A：把某页的 JSX 渲染连同它的 import 一起删掉 ⇒ ④j 子规则②（必须以 JSX 形态出现）必须报红',
+    expectItem: 'page-reachability',
+    // 🛑 两处同时删，是为了**把这条用例隔离到子规则②**（第 53 条：每条子规则
+    //    要能被单独证伪）：
+    //      · 只删 JSX 不删 import ⇒ `noUnusedLocals: true` 会让 `tsc` 也报红，
+    //        于是"到底是谁抓住的"就说不清了；
+    //      · 保留 `tab === 'store'` 这个 key ⇒ ④h `page-registry`（NAV ↔ `type Tab`
+    //        ↔ 渲染分支）仍然一致 ⇒ ④h【不】报红，只有 ④j 报红。
+    //    ⇒ 两处一起删，才能干净地证明"子规则②自己站得住"。
+    mutate: (s) => s
+      .replace("\nimport StorePage from './pages/StorePage';", '')
+      .replace('<StorePage roleLabel={roleLabel} scopeText={scopeText} />', 'null'),
+  },
+  {
+    id: 'R38',
+    end: 'admin-web',
+    rel: '../tools/build-check.mjs',
+    title: '端 A：把某页从 ENDS.required 里删掉 ⇒ ④j 子规则①（磁盘 ⟷ 结构清单）必须报红（清册不得腐烂）',
+    expectItem: 'page-reachability',
+    // 🛑 注入目标是**判据自己的配置**（`ENDS['admin-web'].required`）—— 与 R35 同型：
+    //    "判据用来圈定检查面的那份清册"也是需要被反向验证的对象。
+    //    此注入**只**触发子规则①（StorePage 仍在 App.tsx 里以 JSX 渲染 ⇒ ②不触发）。
+    mutate: (s) => s.replace("'src/pages/StorePage.tsx',", ''),
+  },
+  {
+    id: 'R39',
+    end: 'admin-web',
+    rel: '../tools/build-check.mjs',
+    title: '端 A：把 ④j 的"结构清单"解析正则改坏 ⇒ 覆盖面自证必须报红（不得静默输出 ✓ 或"不适用"）',
+    expectItem: 'page-reachability',
+    // 🛑 与 R35 同型（第 84 条）：注入**判据自身**的解析能力。
+    //    解析不到 ⇒ 清册侧是空集 ⇒ 若判据照旧输出 ✓，那"判据忽然什么都不认识了"
+    //    与"代码是对的"在输出上完全一样（第 45 / 71 条族）。
+    //    ④j 的覆盖面自证正是为这个形状准备的：空集必须报红。
+    mutate: (s) => s.replace('/^src\\/pages\\/.+\\.tsx$/', '/^src\\/pages\\/NEVER_MATCHES_ZZQ\\.tsx$/'),
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -757,8 +902,7 @@ process.stdout.write(`还原后三端构建自检：${Object.entries(finalCodes)
   + `${allGreen ? '（全绿 ✓，已按内存备份还原）' : '（异常 ✗）'}${staleNotice}\n`);
 
 if (passed === results.length && allGreen) {
-  process.stdout.write('\nbuild-check 反向验证 PASS —— 十二条判据（base-path-wiring / cross-end-protocol / pagination-protocol / error-data-fields / no-bare-python-script / endpoint-reachability / page-registry / required-args-wired / required-args-carrier / token-single-source / page-reachability / error-code-coverage）确实有牙齿，且还原干净。\n');
-  process.exit(0);
+  process.stdout.write('\nbuild-check 反向验证 PASS —— 十二条判据（base-path-wiring / cross-end-protocol / pagination-protocol / error-data-fields / no-bare-python-script / endpoint-reachability / page-registry / required-args-wired / required-args-carrier / token-single-source / page-reachability / error-code-coverage）确实有牙齿，且还原干净。\n');  process.exit(0);
 }
 process.stdout.write('\nbuild-check 反向验证 FAIL。\n');
 process.exit(1);

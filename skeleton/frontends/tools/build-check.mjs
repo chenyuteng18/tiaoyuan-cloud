@@ -1594,22 +1594,29 @@ if (cfg.outbound) {
 }
 
 // ---------------------------------------------------------------------------
-// ④j 【页面可被走到】端 C —— 声明了、文件在、调用链在，但**没有任何入口**
+// ④j 【页面可被走到】三端共用 —— "声明了 / 文件在 / 调用链在，但**走不到**"
 // ---------------------------------------------------------------------------
 // 🛑 与 ④h `page-registry` 的分工：同一层的**两个相反方向**
 // ---------------------------------------------------------------------------
-//   · ④h 判"**磁盘**上有的页面有没有被**声明**"（漏声明 ⇒ 小程序不加载 ⇒ 打不开）；
-//   · 本条判"**声明了**的页面有没有被**走到**"（没有入口 ⇒ 用户永远到不了）。
+//   · ④h 判"**声明了**的页面有没有被 声明↔渲染 对齐"（漏一处 ⇒ 点了没反应）；
+//   · 本条判"**存在的**页面有没有被**走到**"（没有入口/没被渲染 ⇒ 用户永远到不了）。
+//
+// 🛑 三端三种形态（照抄一套必然假绿 —— 第 52 条）
+// ---------------------------------------------------------------------------
+//   · 端 C 是**声明式**：`app.json.pages` 已声明但没有任何导航入口；
+//   · 端 A / 端 B 是**代码式**：`src/pages/*.tsx` 在磁盘上，但 `src/App.tsx` 没渲染它。
+//   （端 D 是 Kotlin，不在本脚本射程；它由 `android-check` 的
+//    `nav-tab-render-triangulation` 把"页文件"纳入三方一致来守。）
 //
 // 🛑 受控注入实测的形态（这不是理论风险）
 // ---------------------------------------------------------------------------
-//   把 `profile.js` 里指向 `pages/visits/visits` 的 `wx.navigateTo` 删掉 ——
+//   端 C：把 `profile.js` 里指向 `pages/visits/visits` 的 `wx.navigateTo` 删掉 ——
 //   文件在、`app.json` 在、④g 的端点调用链在、④h 三方一致 ⇒ **全部门禁全绿**，
 //   而客户再也进不去「到店记录」。与第 63/64 条同族：链路的每一层都换一个藏身处。
 //
 // 🛑 判据形态与**如实登记的边界**（不得假装它比实际更严）
 // ---------------------------------------------------------------------------
-//   入口集合 = 「**本页自身文件之外**、且含导航调用的文件」里出现的 `/pages/...` 路径字面量。
+//   端 C：入口集合 = 「**本页自身文件之外**、且含导航调用的文件」里出现的 `/pages/...` 字面量。
 //   两点说明，都是实测出来的：
 //     ① **必须排除本页自身的文件**。首版没排，注入立即证伪：
 //        `pages/visits/visits.js` 里有一行 `session.requireLogin('/pages/visits/visits')`
@@ -1620,9 +1627,113 @@ if (cfg.outbound) {
 //        按 `url:` 位置判会把 `/pages/login/login` 误判成孤儿 ⇒ **假红 ⇒ 判据被删**（第 55 条）。
 //   ⚠️ 代价（明确登记）：一个**别的**文件里恰好写着某路径却从不跳过去时，本条不会报红。
 //      即它是"死页面的必要条件守护"，不是充分守护 —— 写成"充分"就是过度声称。
+//
+// 🛑 2026-10-09（批次 G · 第 86 条）：**端 A / 端 B 这一支此前是一句假话。**
+// ---------------------------------------------------------------------------
+//  原文是 `if (END_ID !== 'client-mp') notes.push('端 A / 端 B … 由 ④h 覆盖（本条不重复判）')`。
+//  而 ④h `page-registry` 的判定宇宙是 **NAV**（NAV ↔ `type Tab` ↔ 渲染分支），
+//  **不是磁盘** —— 一个新写的 `src/pages/XxxPage.tsx` 只要不进 NAV，④h 完全看不见它。
+//
+//  受控注入实测（本机，2026-10-09）：
+//    只往 `admin-web/src/pages/` 放一个 `OrphanPage.tsx`（合法的默认导出组件，
+//    没有任何文件 import 它）⇒
+//      · ④h `page-registry` ✓「9 个导航项…三方一致」（孤儿不在 NAV，与它无关）
+//      · ④j `page-reachability` 输出「由 ④h 覆盖（本条不重复判）」
+//      · `tsc --noEmit` ✓（lcov 不检查"有没有人用"）
+//      · `vite build` ✓，且**产物里连它的字符串都没有**（tree-shaking 整块丢掉）
+//      · a-check 全绿。
+//    ⇒ 与第 84 条**同族**：判据用一句话把这一端推给别人，而那句话从未被核验过。
+//      第 84 条的那个词是「不适用」，本条的这个词是「**已覆盖**」——
+//      **判据的推诿有不止一个出口。**
+//
+//  🛑 四端横向清点（为什么恰好是端 A 漏）
+// ---------------------------------------------------------------------------
+//    端 C：④h 判「磁盘有但 app.json 未声明」(unlisted) + ④j 判「声明了但没入口」。两个方向都有。
+//    端 D：`android-check` 的 `nav-tab-render-triangulation` 把「**8 个页文件**」写进三方一致。
+//    端 B：`x3-check` 的 `reach-by-role` ⑥：每个页文件必须落在某个 NAV 项的渲染分支里，
+//          否则必须在**具名豁免**清单 `NON_NAV_PAGES` 里（且豁免本身要非腐）。
+//    端 A：**什么都没有。** 唯一一个既不判"磁盘有未登记"、也不判"登记了没渲染"的端。
+//
+//  🛑 判据形态（第 52 条：判**渲染形态**，不判"词出现"）
+// ---------------------------------------------------------------------------
+//    ① **磁盘 ⟷ 结构清单**：`src/pages/*.tsx` 的每一个都必须登记在 `ENDS.required`。
+//       （反方向"登记了但磁盘没有"由 ① `structure` 判，本条不重复。）
+//       🛑 为什么这一条值得判：`ENDS.required` 是**手维护的清册**，而头部注释自己写着
+//       "漏列一项 ⇒ 文件被删了门禁也不会红（第 53 条同型的静默漏检）" ——
+//       既然这风险已被写明，就该由机器守，而不是靠下一轮的人记得。
+//    ② **可达性**：每个磁盘页面都必须在 `src/App.tsx` 里**以 JSX 元素形态**出现
+//       （`<XxxPage`）。没出现 ⇒ 它不在入口的模块图里 ⇒ 不进产物 ⇒ 用户永远打不开。
+//       本仓两端都是"外壳即 App.tsx"（无路由库，`tab` 状态机），故外壳是唯一权威判位。
+//    ③ **覆盖面自证**：App.tsx 必须存在且解析得到；`src/pages/` 必须非空；
+//       结构清单里必须有页面项。任一不成立 ⇒ 报红，**不得**当作"不适用"或"通过"。
+//
+//  ⚠️ 如实登记的边界（不得假装它比实际更严）
+// ---------------------------------------------------------------------------
+//    · 不覆盖 `React.createElement(XxxPage)` 形态，也不覆盖"把页面挪出 App.tsx"的重构
+//      —— 本仓无路由库、外壳即 App.tsx；真做那种重构时本条会**假红**，那时按第 55 条
+//      同步改判据（而不是把判据删掉）。
+//    · 判"App.tsx 里出现过 `<XxxPage`"，不判"它出现在 `tab ===` 分支里"
+//      —— 后者需要解析分支段边界，端 B 是三元链、分支里还有嵌套组件（`<Page>` 里套
+//      `<CustomerPage>`），照抄一套必然误判（第 52 条）。"在不在分支里"由 ④h 守。
 {
   if (END_ID !== 'client-mp') {
-    notes.push('  – page-reachability: 端 A / 端 B 的页面可到达由 ④h（NAV ↔ `type Tab` ↔ 渲染分支）覆盖（本条不重复判）。');
+    const appAbs = join(END_ROOT, 'src', 'App.tsx');
+    const pagesDir = join(END_ROOT, 'src', 'pages');
+    const problemsA = [];
+
+    const diskPages = existsSync(pagesDir)
+      ? readdirSync(pagesDir)
+        .filter((n) => /\.tsx$/.test(n))
+        .map((n) => n.replace(/\.tsx$/, ''))
+      : [];
+    const declaredPages = cfg.required
+      .filter((r) => /^src\/pages\/.+\.tsx$/.test(r))
+      .map((r) => r.replace(/^src\/pages\//, '').replace(/\.tsx$/, ''));
+
+    // ③ 覆盖面自证 —— 先做，避免下游在"空集"上做等式（第 53/55 条）。
+    if (!existsSync(appAbs)) {
+      problemsA.push('src/App.tsx 不存在 —— 无外壳，页面可达性【未验证】，'
+        + '【不得】当作通过，也不得当成本端不适用。');
+    }
+    if (diskPages.length === 0) {
+      problemsA.push('src/pages/ 下没有解析到任何 .tsx 页面 —— 判据不认识当前布局，'
+        + '【不得】当作通过（第 52/53 条：判据太宽 ⇒ 假绿）。');
+    }
+    if (declaredPages.length === 0) {
+      problemsA.push('ENDS.required 里没有任何 src/pages/*.tsx 项 —— 清册侧解析为空，'
+        + '【不得】当作通过。');
+    }
+
+    if (problemsA.length === 0) {
+      // ① 磁盘 ⟷ 结构清单（只判"磁盘有、清单无"这一向；反向由 ① structure 判）
+      const unlisted = diskPages.filter((p) => !declaredPages.includes(p));
+      if (unlisted.length) {
+        problemsA.push('以下页面文件在磁盘上存在、但 ENDS.required 未登记'
+          + '（=> 它被删除时门禁不会红 —— 第 53 条同型的静默漏检）：\n        '
+          + unlisted.map((p) => `src/pages/${p}.tsx`).join('\n        ')
+          + '\n        ⇒ 请在 tools/build-check.mjs 的 ENDS 配置里同步登记。');
+      }
+
+      // ② 可达性：必须在 src/App.tsx 里以 JSX 形态被渲染
+      const appSrc = stripComments2(readFileSync(appAbs, 'utf8'));
+      const jsxHits = (name) => new RegExp(`<\\s*${name}(?![\\w$])`).test(appSrc);
+      const orphans = diskPages.filter((p) => !jsxHits(p));
+      if (orphans.length) {
+        problemsA.push('以下页面文件在 src/pages/ 下，但 src/App.tsx 里'
+          + '【没有以 JSX 形态渲染】它们 —— 不在入口的模块图里 ⇒ 不进产物 '
+          + '⇒ 用户永远打不开（vite 会把它整块 tree-shake 掉，产物里连字符串都没有）：\n        '
+          + orphans.map((p) => `src/pages/${p}.tsx`).join('\n        ')
+          + '\n        ⇒ 修法：在 App.tsx 的某个 tab 分支里渲染它（并同步 NAV / `type Tab` / '
+          + 'ENDS.required 三处），或者删掉这个文件。');
+      }
+    }
+
+    if (problemsA.length) fail('page-reachability', problemsA.join('\n      '));
+    else {
+      ok('page-reachability',
+        `${diskPages.length} 个页面：磁盘 ⟷ 结构清单一致 · 全部在 src/App.tsx 以 JSX 形态渲染`
+        + '（判"有没有被渲染"，不判"词出现" —— 第 52 条）');
+    }
   } else {
     const MP = join(END_ROOT, 'miniprogram');
     const ajPath = join(MP, 'app.json');
