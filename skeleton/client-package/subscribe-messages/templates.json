@@ -22,7 +22,7 @@
     "band_sync_hint": {
       "template_id": "TPL_BAND_SYNC_HINT",
       "title": "手环同步提醒",
-      "content": "您的手环暂时未同步，打开小程序即可重试。"
+      "content": "您的手环暂时未同步，我们将在 {hours} 小时内协助您完成同步，打开小程序亦可重试。"
     }
   },
   "_forbidden_content_reminder": "No template may state or imply an outcome, a decision, or a judgement about the customer."

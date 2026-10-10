@@ -177,6 +177,12 @@ _CAMEL_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _U_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
 _X_ESCAPE_RE = re.compile(r"\\x([0-9a-fA-F]{2})")
 
+# F-2 时间锚点判据（2026-10-09）。_requirements_locked 第③条要求每个订阅消息
+# 模板正文必须带时间锚点（"XX 小时内"）。此前这条只写在数据里、无任何脚本读取，
+# 终稿换文案时会静默丢失——正是本仓第 89 条"手写覆盖宣言没人守"的同族形态。这里把它
+# 变成机器判据：命中 {hours} / 小时内 / \d+\s*hours 等形态即视为已带锚点。
+_TIME_ANCHOR_RE = re.compile(r"\{hours\}|小时内|\d+\s*hours", re.IGNORECASE)
+
 ENV_ALLOW = "DY_COMPLIANCE_ALLOW_MISSING_ROOT"
 
 # --------------------------------------------------------------------------
@@ -465,6 +471,48 @@ def escape_expanded_variants(line: str):
         # suspicious file into an unscanned file. Fall back to the raw forms.
         pass
     return variants
+
+
+def check_subscribe_message_time_anchors(pkg_root_abs: str, repo_root: str):
+    """
+    F-2: 每条订阅消息模板正文必须含时间锚点（_requirements_locked 第③条）。
+
+    只读取 client-package/subscribe-messages/templates.json 的
+    templates.*.content，用 _TIME_ANCHOR_RE 判据；缺锚点的模板作为违例并入
+    all_hits（使构建失败）。该 json 是 subscribe-messages 通道的声明文件，通道
+    存在性已由 channel parity 把关，这里只补上"时间锚点"这一条此前无人读取的判据，
+    使终稿换文案时第③条不能被悄悄丢掉——见本仓第 89 条"手写覆盖宣言没人守"。
+    """
+    violations = []
+    path = os.path.join(pkg_root_abs, "subscribe-messages", "templates.json")
+    if not os.path.isfile(path):
+        # 通道目录存在性由 channel parity 负责，这里不重复报错。
+        return violations
+    try:
+        with io.open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError) as exc:
+        return [{
+            "face": "SUBSCRIBE_TIME_ANCHOR",
+            "term": "<unreadable>",
+            "file": os.path.relpath(path, repo_root),
+            "line": 0,
+            "text": "templates.json 无法读取: %s" % exc,
+        }]
+    templates = data.get("templates") or {}
+    rel = os.path.relpath(path, repo_root)
+    for name, body in templates.items():
+        content = (body or {}).get("content", "")
+        if not _TIME_ANCHOR_RE.search(content):
+            violations.append({
+                "face": "SUBSCRIBE_TIME_ANCHOR",
+                "term": "<missing-time-anchor>",
+                "file": rel,
+                "line": 0,
+                "text": "模板 %r 正文缺少时间锚点（requirement ③：XX 小时内）"
+                        % name,
+            })
+    return violations
 
 
 def line_matches(line: str, term: str) -> bool:
@@ -817,6 +865,16 @@ def main(argv):
             "text": "rule without owner is a dead rule: %s"
                     % ", ".join(owner_failures),
         })
+
+    # ------------------------------------------------------------------
+    # F-2 时间锚点判据（2026-10-09）。_requirements_locked 第③条要求每个订阅消息
+    # 模板正文带时间锚点，此前只写在数据里、无脚本读取，终稿换文案时会静默丢失——
+    # 见本仓第 89 条"手写覆盖宣言没人守"。这里把它变成机器判据，使换文案不能悄悄
+    # 丢掉这一条（SUBSCRIBE_TIME_ANCHOR 违例并入 all_hits，构建失败）。
+    # ------------------------------------------------------------------
+    anchor_violations = check_subscribe_message_time_anchors(
+        pkg_root_abs, repo_root)
+    all_hits.extend(anchor_violations)
 
     # ------------------------------------------------------------------
     # Owner readiness verdict. Only the explicit opt-in turns placeholders into
