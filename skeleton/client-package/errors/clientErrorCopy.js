@@ -14,9 +14,12 @@
 'use strict';
 
 const CLIENT_ERROR_COPY = Object.freeze({
+  1001: { key: 'error.validation_failed', text: '提交的信息有误，请检查后重试' },
   1002: { key: 'error.unauthenticated', text: '登录状态已过期，请重新登录' },
   2001: { key: 'error.visibility_denied', text: '当前账号无权查看该信息' },
   2002: { key: 'error.gate_missing', text: '当前门店尚未开通该功能' },
+  2003: { key: 'error.tenant_mismatch', text: '当前账号与门店不匹配，请重新登录或联系门店' },
+  2004: { key: 'error.placeholder_out_of_scope', text: '提交内容超出允许范围，请检查后重试' },
   3001: { key: 'error.not_found', text: '未找到对应记录' },
   4001: { key: 'error.version_conflict', text: '该记录已被更新，请刷新后重试' },
   4002: { key: 'error.idempotent_replay', text: '该请求已受理，请勿重复提交' },
