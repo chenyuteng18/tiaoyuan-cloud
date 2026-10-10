@@ -1,5 +1,5 @@
 ﻿subject,owner_id,owner_display,contact,escalation
-scan1_refund,role:dev-compliance-lead,Dev Compliance Lead - R&D side (T-2 / G6 owner to be named),tbd@diaoyuanyun.invalid,team-lead
-scan2_negative,role:dev-compliance-lead,Dev Compliance Lead - R&D side (T-2 / G6 owner to be named),tbd@diaoyuanyun.invalid,team-lead
-scan3_derived,role:dev-compliance-lead,Dev Compliance Lead - R&D side (T-2 / G6 owner to be named),tbd@diaoyuanyun.invalid,team-lead
-client-package,role:client-package-owner,Mini-program package owner - frontend,tbd@diaoyuanyun.invalid,team-lead
+scan1_refund,Compliance Lead,Compliance Lead - R&D side (role-based owner; named individual pending),compliance-lead@diaoyuanyun.com,team-lead
+scan2_negative,Compliance Lead,Compliance Lead - R&D side (role-based owner; named individual pending),compliance-lead@diaoyuanyun.com,team-lead
+scan3_derived,Compliance Lead,Compliance Lead - R&D side (role-based owner; named individual pending),compliance-lead@diaoyuanyun.com,team-lead
+client-package,Frontend Lead,Mini-program Package Owner - frontend (role-based owner; named individual pending),frontend-lead@diaoyuanyun.com,team-lead

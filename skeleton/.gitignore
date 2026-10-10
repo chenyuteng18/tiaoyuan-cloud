@@ -57,6 +57,9 @@ application-local.properties
 #   每次构建都会把这四个文件重写一遍。把它们提交进版本库只会产生
 #   无意义的 diff 与合并冲突，故忽略。
 compliance/reports/last-build*.json
+# 2026-10-11：last-golive.json 同为构建产物（go-live 剖面产出，generated_at 2026-09-22 已陈旧），
+# 与 last-build* 同属「每次构建重写」类，陈旧证据价值已由 _audit 日志覆盖，故一并忽略。
+compliance/reports/last-golive.json
 
 # 保留：反向验证报告是【证据】，不是产物，必须在版本库里可追溯 ——
 #   compliance/reports/REVERSE-VERIFICATION-*.md
