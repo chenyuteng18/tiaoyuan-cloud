@@ -64,14 +64,14 @@ frontends/*/dist/
 #      ① 让每次全仓搜索都命中同一份代码的两份副本（会误导"某文件有几处定义"的判断）；
 #      ② 让 clone 体积无谓增大。
 #    故【忽略】，但在 skeleton/README 与该事故的记录里保留说明。
-_work/quotes_incident_backup/
-_work/backup_quotes/
+**/_work/quotes_incident_backup/
+**/_work/backup_quotes/
 _work_backups/
 
 # 🛑 反向验证的临时工作区与注入快照：纯过程产物，每次运行重建。
-_work/*_snapshots/
-_work/*_inject/
-_work/tmp/
+**/_work/*_snapshots/
+**/_work/*_inject/
+**/_work/tmp/
 
 # 🛑 过程日志与探针输出：可复算，不属证据（证据是 verification/*.md 与
 #    compliance/reports/REVERSE-VERIFICATION-*.md）。*.log 已在上方全局忽略。
